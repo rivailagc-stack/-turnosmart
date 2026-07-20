@@ -1,13 +1,20 @@
-# TurnoSmart V7.0.1
+# TurnoSmart V10
 
-Correção da tela **Ações**.
+## Novo painel OEE 3 dias
 
-A V6 havia encurtado apenas o texto compartilhado. Nesta versão, a própria tela do aplicativo mostra exatamente as duas mensagens curtas:
+O aplicativo usa os relatórios e colunas de OEE salvos no aparelho para mostrar:
 
-- Manutenção: máquina + ação, no máximo cinco prioridades.
-- Produção: ações operacionais diretas.
-- Sem data e sem horário de prazo.
-- Texto fixo: **Resolver durante o turno**.
-- Cobrança de apontamento das OS no SGMan.
+- OEE geral da empresa dos últimos três dias;
+- OEE diário de cada máquina;
+- detalhes dos turnos A e B;
+- média das últimas 72 horas;
+- tendência: melhorando, estável ou piorando;
+- máquinas prioritárias.
 
-Também foi alterado o cache do PWA para forçar o carregamento dos arquivos novos.
+Uma máquina vira prioridade quando:
+
+- média dos três dias abaixo de 65%;
+- duas ou mais leituras abaixo de 65%;
+- tendência de queda.
+
+Os relatórios da manutenção e produção também recebem uma linha curta com o OEE geral de três dias e as principais máquinas críticas.

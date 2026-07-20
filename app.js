@@ -18,7 +18,9 @@ const state = {
   analysis: null,
   actions: [],
   deferredPrompt: null,
-  manualSchedule: false
+  manualSchedule: false,
+  oeeImageDataUrl: '',
+  oeeOcrText: ''
 };
 
 const $ = id => document.getElementById(id);
@@ -56,6 +58,15 @@ function dayDifference(fromISO, toISO) {
   const from = parseISODateAtNoon(fromISO);
   const to = parseISODateAtNoon(toISO);
   return Math.round((to - from) / 86400000);
+}
+
+const WEEKDAYS_PT = ['DOMINGO','SEGUNDA','TERÇA','QUARTA','QUINTA','SEXTA','SÁBADO'];
+
+function boardScopeForReport(operationalDate, shift) {
+  const date = parseISODateAtNoon(operationalDate || todayISO());
+  const weekday = WEEKDAYS_PT[date.getDay()];
+  const column = String(shift || '1') === '2' ? 'B' : 'A';
+  return { weekday, column, label: `${weekday} ${column}` };
 }
 
 function getConfig() {
@@ -120,6 +131,7 @@ function detectOperationalShift(receivedAtValue, manualDate = '', manualShift = 
   const crew = `${letter}${shift}`;
   const schedule = shift === '1' ? '06:00 às 18:00' : '18:00 às 06:00';
   const incoming = getIncomingResponsibility(date, shift);
+  const boardScope = boardScopeForReport(date, shift);
   return {
     automatic,
     date,
@@ -130,9 +142,18 @@ function detectOperationalShift(receivedAtValue, manualDate = '', manualShift = 
     incomingShift: incoming.shift,
     incomingCrew: incoming.crew,
     incomingSchedule: incoming.schedule,
+    boardScope,
     reason,
     receivedAt: receivedAt.toISOString()
   };
+}
+
+function updateOeeScopeHint() {
+  const date = $('reportDate')?.value || todayISO();
+  const shift = $('reportShift')?.value || '1';
+  const scope = boardScopeForReport(date, shift);
+  const el = $('oeeScopeHint');
+  if (el) el.textContent = `Use somente a coluna ${scope.label} do quadro semanal. Essa é a referência das últimas 12 horas.`;
 }
 
 function updateDetectedShift() {
@@ -152,11 +173,13 @@ function updateDetectedShift() {
         <strong>${result.automatic ? 'Identificação automática' : 'Confirmação necessária'}</strong>
         <p><b>Relatório entregue:</b> ${formatDate(result.date)} • Equipe ${result.crew} • ${result.schedule}</p>
         <p><b>Responsabilidade das ações:</b> ${formatDate(result.incomingDate)} • Equipe ${result.incomingCrew} • ${result.incomingSchedule}</p>
+        <p><b>Quadro de OEE a usar:</b> ${escapeHtml(result.boardScope?.label || '-')} (últimas 12 horas)</p>
         <p>${escapeHtml(result.reason)}</p>
       </div>
       <span class="crew-pill">${result.crew} → ${result.incomingCrew}</span>
     </div>`;
   if (!result.automatic) $('manualFields').classList.remove('hidden');
+  updateOeeScopeHint();
   return result;
 }
 
@@ -374,6 +397,7 @@ function parseReport(rawText, scheduleInfo) {
     responsibleShift: String(scheduleInfo.incomingShift || getIncomingResponsibility(scheduleInfo.date || todayISO(), scheduleInfo.shift || '1').shift),
     responsibleCrew: scheduleInfo.incomingCrew || getIncomingResponsibility(scheduleInfo.date || todayISO(), scheduleInfo.shift || '1').crew,
     responsibleSchedule: scheduleInfo.incomingSchedule || getIncomingResponsibility(scheduleInfo.date || todayISO(), scheduleInfo.shift || '1').schedule,
+    boardScope: scheduleInfo.boardScope || boardScopeForReport(scheduleInfo.date || todayISO(), scheduleInfo.shift || '1'),
     detectedAutomatically: !!scheduleInfo.automatic,
     detectionReason: scheduleInfo.reason || '',
     reportedShift: turnoMatch ? turnoMatch[1] : '',
@@ -400,6 +424,9 @@ function parseReport(rawText, scheduleInfo) {
     machines,
     totalRecordedMinutes,
     laborShortageMachines,
+    machineOee: [],
+    lowOeeMachines: [],
+    oeeOcrText: '',
     rawText: text
   };
 }
@@ -525,6 +552,359 @@ function directMaintenanceAction(action) {
 
 function messageHtml(text = '') {
   return `<div class="short-message">${escapeHtml(text)}</div>`;
+}
+
+
+function dataUrlFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function recognizeOeeImage(dataUrl) {
+  if (!dataUrl) return '';
+  if (!window.Tesseract) throw new Error('OCR indisponível no aparelho.');
+  const statusEl = $('oeeStatus');
+  if (statusEl) statusEl.textContent = 'Lendo foto do OEE...';
+  const result = await window.Tesseract.recognize(dataUrl, 'eng', {
+    logger: info => {
+      if (statusEl && info.status === 'recognizing text' && typeof info.progress === 'number') {
+        statusEl.textContent = `Lendo foto do OEE... ${Math.round(info.progress * 100)}%`;
+      }
+    }
+  });
+  if (statusEl) statusEl.textContent = 'Foto do OEE lida.';
+  return String(result?.data?.text || '').trim();
+}
+
+function parseOeeCandidates(segment = '') {
+  const values = [];
+  const regex = /(\d{1,3})(?:[.,](\d))?\s*%?/g;
+  let match;
+  while ((match = regex.exec(segment))) {
+    const integer = Number(match[1]);
+    if (integer > 100) continue;
+    const value = Number(match[2] ? `${integer}.${match[2]}` : integer);
+    if (value >= 0 && value <= 100) values.push(value);
+  }
+  return values;
+}
+
+function extractAllMachineOeeFromText(raw = '') {
+  const seen = new Map();
+  const lines = String(raw || '').split(/\n+/).map(v => cleanLine(v)).filter(Boolean);
+
+  for (const rawLine of lines) {
+    const line = normalizeKey(rawLine).replace(/,/g, '.');
+    const machineMatch = line.match(/(?:^|\s)(?:mk\s*[-:]?\s*)?(\d{2,3})(?:\s|$)/);
+    if (!machineMatch) continue;
+    const code = Number(machineMatch[1]);
+    if (code < 2 || code > 399) continue;
+
+    const values = parseOeeCandidates(line);
+    if (!values.length) continue;
+
+    // O primeiro número normalmente é o código da máquina; usa o último percentual da linha.
+    const oee = values[values.length - 1];
+    const machine = `MK-${String(code).padStart(2, '0')}`;
+    const current = seen.get(machine);
+
+    if (!current || oee < current.oee) {
+      seen.set(machine, { machine, oee, line: rawLine });
+    }
+  }
+
+  return [...seen.values()].sort((a, b) => a.machine.localeCompare(b.machine, 'pt-BR', { numeric: true }));
+}
+
+function extractMachineOeeFromText(raw = '') {
+  return extractAllMachineOeeFromText(raw)
+    .filter(item => item.oee < 65)
+    .sort((a, b) => a.oee - b.oee);
+}
+
+function deriveRecurrenceMachines(analysis) {
+  const reported = new Set();
+  for (const action of state.actions.filter(a => a.department === 'maintenance')) {
+    const key = normalizeKey(`${action.description} ${action.action}`);
+    const repeated = /(2x|duas vezes|novo ajuste|novamente|reincid)/.test(key);
+    if (repeated) reported.add(action.machine);
+  }
+  const lowOeeMachines = (analysis?.lowOeeMachines || []).map(item => item.machine);
+  const maintenanceMachines = new Set(state.actions.filter(a => a.department === 'maintenance').map(a => a.machine));
+  lowOeeMachines.forEach(machine => { if (maintenanceMachines.has(machine)) reported.add(machine); });
+  return [...reported];
+}
+
+function oeeLowListText(items = [], limit = 6) {
+  if (!items.length) return '';
+  return items.slice(0, limit).map(item => `${item.machine} ${String(item.oee).replace('.', ',')}%`).join(', ');
+}
+
+
+function getAnalysisMachineOee(analysis) {
+  if (!analysis) return [];
+  if (Array.isArray(analysis.machineOee) && analysis.machineOee.length) return analysis.machineOee;
+  if (analysis.oeeOcrText) return extractAllMachineOeeFromText(analysis.oeeOcrText);
+  return [];
+}
+
+function formatOee(value) {
+  if (value == null || Number.isNaN(Number(value))) return '-';
+  return `${Number(value).toFixed(1).replace('.0', '').replace('.', ',')}%`;
+}
+
+function average(values = []) {
+  const valid = values.map(Number).filter(Number.isFinite);
+  if (!valid.length) return null;
+  return valid.reduce((sum, value) => sum + value, 0) / valid.length;
+}
+
+function getRecentOeeDashboard() {
+  const analyses = getHistory()
+    .map(item => item.analysis)
+    .filter(Boolean)
+    .map(analysis => ({
+      ...analysis,
+      machineOee: getAnalysisMachineOee(analysis)
+    }))
+    .filter(analysis => analysis.machineOee.length || analysis.reportedOee)
+    .sort((a, b) => {
+      const keyA = `${a.date || ''}-${String(a.shift || '1')}`;
+      const keyB = `${b.date || ''}-${String(b.shift || '1')}`;
+      return keyA.localeCompare(keyB);
+    });
+
+  if (!analyses.length) {
+    return {
+      dates: [],
+      shifts: [],
+      companyAverage: null,
+      dailyCompany: [],
+      machines: [],
+      priorityMachines: [],
+      fallingMachines: []
+    };
+  }
+
+  const distinctDates = [...new Set(analyses.map(item => item.date).filter(Boolean))]
+    .sort()
+    .slice(-3);
+
+  const recent = analyses.filter(item => distinctDates.includes(item.date));
+  const shifts = recent.map(item => ({
+    date: item.date,
+    shift: String(item.shift || '1'),
+    label: `${formatDate(item.date)} ${String(item.shift) === '2' ? 'B' : 'A'}`,
+    reportedOee: item.reportedOee || null,
+    machineOee: item.machineOee
+  }));
+
+  const dailyCompany = distinctDates.map(date => {
+    const values = recent
+      .filter(item => item.date === date)
+      .map(item => Number(item.reportedOee))
+      .filter(Number.isFinite)
+      .filter(value => value > 0);
+    return { date, average: average(values), shifts: values.length };
+  });
+
+  const companyAverage = average(dailyCompany.map(item => item.average).filter(value => value != null));
+
+  const machineMap = new Map();
+  for (const analysis of recent) {
+    for (const item of analysis.machineOee) {
+      if (!machineMap.has(item.machine)) {
+        machineMap.set(item.machine, {
+          machine: item.machine,
+          byDate: {},
+          readings: [],
+          below65Count: 0
+        });
+      }
+      const row = machineMap.get(item.machine);
+      if (!row.byDate[analysis.date]) row.byDate[analysis.date] = [];
+      row.byDate[analysis.date].push({
+        shift: String(analysis.shift || '1'),
+        oee: Number(item.oee)
+      });
+      row.readings.push({
+        date: analysis.date,
+        shift: String(analysis.shift || '1'),
+        oee: Number(item.oee)
+      });
+      if (Number(item.oee) < 65) row.below65Count += 1;
+    }
+  }
+
+  const machines = [...machineMap.values()].map(row => {
+    const dayValues = {};
+    distinctDates.forEach(date => {
+      const readings = row.byDate[date] || [];
+      dayValues[date] = {
+        average: average(readings.map(item => item.oee)),
+        readings: readings.sort((a, b) => a.shift.localeCompare(b.shift))
+      };
+    });
+
+    const sortedReadings = row.readings
+      .slice()
+      .sort((a, b) => `${a.date}-${a.shift}`.localeCompare(`${b.date}-${b.shift}`));
+
+    const first = sortedReadings[0]?.oee;
+    const last = sortedReadings[sortedReadings.length - 1]?.oee;
+    const trend = first == null || last == null
+      ? 'stable'
+      : last < first - 2
+        ? 'down'
+        : last > first + 2
+          ? 'up'
+          : 'stable';
+
+    return {
+      ...row,
+      dayValues,
+      average: average(row.readings.map(item => item.oee)),
+      trend,
+      first,
+      last
+    };
+  }).sort((a, b) => {
+    const avA = a.average == null ? 999 : a.average;
+    const avB = b.average == null ? 999 : b.average;
+    return avA - avB;
+  });
+
+  const priorityMachines = machines.filter(machine =>
+    (machine.average != null && machine.average < 65) ||
+    machine.below65Count >= 2 ||
+    machine.trend === 'down'
+  );
+
+  const fallingMachines = machines.filter(machine => machine.trend === 'down');
+
+  return {
+    dates: distinctDates,
+    shifts,
+    companyAverage,
+    dailyCompany,
+    machines,
+    priorityMachines,
+    fallingMachines
+  };
+}
+
+function machineTrendLabel(machine) {
+  if (machine.trend === 'down') return '↓ Piorando';
+  if (machine.trend === 'up') return '↑ Melhorando';
+  return '→ Estável';
+}
+
+function machineTrendClass(machine) {
+  if (machine.trend === 'down') return 'trend-down';
+  if (machine.trend === 'up') return 'trend-up';
+  return 'trend-stable';
+}
+
+function dashboardPriorityText(limit = 5) {
+  const dashboard = getRecentOeeDashboard();
+  return dashboard.priorityMachines
+    .slice(0, limit)
+    .map(machine => `${machine.machine} ${formatOee(machine.average)}`)
+    .join(', ');
+}
+
+function renderOeeDashboard() {
+  const empty = $('emptyOeeDashboard');
+  const content = $('oeeDashboardContent');
+  if (!empty || !content) return;
+
+  const dashboard = getRecentOeeDashboard();
+  const hasData = dashboard.dates.length > 0;
+
+  empty.classList.toggle('hidden', hasData);
+  content.classList.toggle('hidden', !hasData);
+  if (!hasData) return;
+
+  const dayCards = dashboard.dailyCompany.map(item => `
+    <div class="metric">
+      <span>${escapeHtml(formatDate(item.date))}</span>
+      <strong>${escapeHtml(formatOee(item.average))}</strong>
+      <small>${item.shifts} turno(s) registrado(s)</small>
+    </div>
+  `).join('');
+
+  $('oeeDashboardCards').innerHTML = `
+    <div class="metric">
+      <span>OEE geral — 3 dias</span>
+      <strong>${escapeHtml(formatOee(dashboard.companyAverage))}</strong>
+      <small>Média do OEE geral informado nos relatórios</small>
+    </div>
+    <div class="metric">
+      <span>Máquinas analisadas</span>
+      <strong>${dashboard.machines.length}</strong>
+      <small>Com leitura de OEE armazenada</small>
+    </div>
+    <div class="metric">
+      <span>Prioridades</span>
+      <strong>${dashboard.priorityMachines.length}</strong>
+      <small>Abaixo de 65%, reincidentes ou piorando</small>
+    </div>
+    ${dayCards}
+  `;
+
+  const priorityHtml = dashboard.priorityMachines.length
+    ? dashboard.priorityMachines.slice(0, 10).map((machine, index) => `
+        <div class="priority-oee-item">
+          <span class="priority-number">${index + 1}</span>
+          <div>
+            <strong>${escapeHtml(machine.machine)}</strong>
+            <p>Média ${escapeHtml(formatOee(machine.average))} • abaixo de 65 em ${machine.below65Count} leitura(s)</p>
+          </div>
+          <span class="trend-pill ${machineTrendClass(machine)}">${escapeHtml(machineTrendLabel(machine))}</span>
+        </div>
+      `).join('')
+    : '<p class="muted">Nenhuma máquina crítica nos últimos três dias.</p>';
+  $('oeePriorityList').innerHTML = priorityHtml;
+
+  const headerDates = dashboard.dates.map(date => `<th>${escapeHtml(formatDate(date))}</th>`).join('');
+  const rows = dashboard.machines.map(machine => {
+    const cells = dashboard.dates.map(date => {
+      const info = machine.dayValues[date];
+      if (!info || info.average == null) return '<td class="muted">-</td>';
+      const detail = info.readings
+        .map(item => `${item.shift === '2' ? 'B' : 'A'} ${formatOee(item.oee)}`)
+        .join(' / ');
+      const lowClass = info.average < 65 ? 'oee-low' : info.average < 70 ? 'oee-warning' : 'oee-good';
+      return `<td class="${lowClass}"><strong>${escapeHtml(formatOee(info.average))}</strong><small>${escapeHtml(detail)}</small></td>`;
+    }).join('');
+
+    const avgClass = machine.average < 65 ? 'oee-low' : machine.average < 70 ? 'oee-warning' : 'oee-good';
+
+    return `<tr>
+      <td><strong>${escapeHtml(machine.machine)}</strong></td>
+      ${cells}
+      <td class="${avgClass}"><strong>${escapeHtml(formatOee(machine.average))}</strong></td>
+      <td><span class="trend-pill ${machineTrendClass(machine)}">${escapeHtml(machineTrendLabel(machine))}</span></td>
+    </tr>`;
+  }).join('');
+
+  $('oeeMachineTable').innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Máquina</th>
+          ${headerDates}
+          <th>Média 3 dias</th>
+          <th>Tendência</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
 }
 
 function generateActions(analysis) {
@@ -664,13 +1044,48 @@ function generateActions(analysis) {
     });
   }
 
+  if (analysis.lowOeeMachines?.length) {
+    analysis.lowOeeMachines.forEach(item => {
+      actions.push({
+        id: uid(),
+        department: 'maintenance',
+        approved: true,
+        machine: item.machine,
+        priority: item.oee < 55 ? 'Alta' : 'Média',
+        type: 'OEE',
+        responsible: maintenanceResponsible,
+        description: `OEE de ${String(item.oee).replace('.', ',')}% no quadro semanal, abaixo de 65%.`,
+        action: 'Analisar a causa do OEE baixo, atacar a principal perda e estabilizar a máquina.',
+        recordedMinutes: 0,
+        categories: ['oee-machine']
+      });
+    });
+  }
+
   actions.forEach(action => {
     action.status = action.status || 'Pendente';
     action.deadline = action.deadline || deadlineForAction(action.priority, action.department, analysis.responsibleShift);
   });
 
+  const deduped = [];
+  const byDeptMachine = new Map();
+  for (const action of actions) {
+    const key = `${action.department}::${action.machine}`;
+    if (action.department === 'maintenance' && byDeptMachine.has(key)) {
+      const current = byDeptMachine.get(key);
+      current.description = [current.description, action.description].filter(Boolean).join(' | ');
+      current.action = directMaintenanceAction({ description: current.description, action: `${current.action} ${action.action}` });
+      current.priority = current.priority === 'Alta' || action.priority === 'Alta' ? 'Alta' : (current.priority === 'Média' || action.priority === 'Média' ? 'Média' : 'Baixa');
+      current.categories = [...new Set([...(current.categories || []), ...(action.categories || [])])];
+      current.recordedMinutes = Math.max(current.recordedMinutes || 0, action.recordedMinutes || 0);
+    } else {
+      byDeptMachine.set(key, action);
+      deduped.push(action);
+    }
+  }
+
   const order = { Alta: 0, Média: 1, Baixa: 2 };
-  return actions.sort((a, b) => order[a.priority] - order[b.priority] || b.recordedMinutes - a.recordedMinutes || a.department.localeCompare(b.department));
+  return deduped.sort((a, b) => order[a.priority] - order[b.priority] || b.recordedMinutes - a.recordedMinutes || a.department.localeCompare(b.department));
 }
 
 function getScale() {
@@ -771,7 +1186,14 @@ function maintenanceMessage() {
     .filter(a => a.approved && a.department === 'maintenance' && a.status !== 'Concluída')
     .sort((a, b) => (({ Alta: 0, Média: 1, Baixa: 2 })[a.priority] - ({ Alta: 0, Média: 1, Baixa: 2 })[b.priority]) || b.recordedMinutes - a.recordedMinutes);
   const shown = approved.slice(0, 5);
+  const lowOee = state.analysis.lowOeeMachines || [];
+  const recurrence = deriveRecurrenceMachines(state.analysis);
   const lines = ['*AÇÕES DA MANUTENÇÃO*'];
+
+  if (state.analysis.reportedOee) lines.push(`OEE do turno: ${String(state.analysis.reportedOee).replace('.', ',')}%.`);
+  if (state.analysis.boardScope?.label) lines.push(`Quadro OEE: ${state.analysis.boardScope.label}.`);
+  const dashboard = getRecentOeeDashboard();
+  if (dashboard.companyAverage != null) lines.push(`OEE geral 3 dias: ${formatOee(dashboard.companyAverage)}.`);
 
   if (!shown.length) {
     lines.push('Sem ação técnica pendente.');
@@ -779,12 +1201,14 @@ function maintenanceMessage() {
     shown.forEach((action, index) => {
       lines.push(`${index + 1}. *${action.machine}* — ${directMaintenanceAction(action)}`);
     });
-    if (approved.length > shown.length) lines.push(`+${approved.length - shown.length} ação(ões) pendente(s).`);
   }
 
-  lines.push('');
+  if (lowOee.length) lines.push(`OEE abaixo de 65: ${oeeLowListText(lowOee)}.`);
+  if (recurrence.length) lines.push(`Reincidência: ${recurrence.join(', ')}.`);
+  const priority3Days = dashboardPriorityText(4);
+  if (priority3Days) lines.push(`Prioridades 3 dias: ${priority3Days}.`);
   lines.push('*Resolver durante o turno.*');
-  lines.push('*SGMan:* apontar todas as OS e informar no grupo ao concluir.');
+  lines.push('*SGMan:* apontar OS, causa e conclusão.');
   return lines.join('\n');
 }
 
@@ -800,18 +1224,24 @@ function productionMessage() {
     ...uniqueMachines(approved, 'production-review')
   ])];
   const setupMachines = uniqueMachines(approved, 'production-setup');
-  const rework = approved.find(action => action.machine === 'RETRABALHO');
+  const lowOee = analysis.lowOeeMachines || [];
   const lines = [`*AÇÕES DA PRODUÇÃO — ${responsible}*`];
 
+  if (analysis.reportedOee) lines.push(`OEE do turno: ${String(analysis.reportedOee).replace('.', ',')}%.`);
+  if (analysis.boardScope?.label) lines.push(`Quadro OEE: ${analysis.boardScope.label}.`);
+  const dashboard3Days = getRecentOeeDashboard();
+  if (dashboard3Days.companyAverage != null) lines.push(`OEE geral 3 dias: ${formatOee(dashboard3Days.companyAverage)}.`);
+  if (analysis.reworkCount > 0) lines.push(`Retrabalho: ${analysis.reworkCount}.`);
+
   let step = 1;
+  if (lowOee.length) lines.push(`${step++}. Priorizar as máquinas com OEE abaixo de 65: ${oeeLowListText(lowOee)}.`);
   if (labor) lines.push(`${step++}. Redistribuir mão de obra: ${analysis.laborShortageMachines.join(', ')}.`);
-  if (paperMachines.length) lines.push(`${step++}. Corrigir passagem de papel e bobinas: ${paperMachines.join(', ')}. Não transferir rotina operacional para a manutenção.`);
-  if (qualityMachines.length || rework) lines.push(`${step++}. Fazer autocontrole no início, meio e fim${qualityMachines.length ? `: ${qualityMachines.join(', ')}` : ''}. Parar no primeiro defeito.`);
-  if (setupMachines.length) lines.push(`${step++}. Conferir setup e molde antes de liberar: ${setupMachines.join(', ')}.`);
-  if (step === 1) lines.push('1. Atuar nas perdas para recuperar o OEE e reduzir retrabalho.');
-  lines.push(`${step}. Defeito técnico: abrir solicitação no *SGMan* com máquina, sintoma e horário antes de chamar a manutenção.`);
+  if (paperMachines.length) lines.push(`${step++}. Corrigir passagem de papel e bobinas: ${paperMachines.join(', ')}.`);
+  if (qualityMachines.length) lines.push(`${step++}. Fazer autocontrole e conter defeito: ${qualityMachines.join(', ')}.`);
+  if (setupMachines.length) lines.push(`${step++}. Conferir setup e molde: ${setupMachines.join(', ')}.`);
+  if (step === 1) lines.push('1. Recuperar OEE e reduzir retrabalho.');
+  lines.push(`${step}. Defeito técnico: abrir solicitação no *SGMan* antes de chamar a manutenção.`);
   lines.push('*Resolver durante o turno.*');
-  lines.push('Informar no grupo o que foi corrigido.');
   return lines.join('\n');
 }
 
@@ -832,6 +1262,7 @@ function renderAnalysis() {
     ['Relatório entregue', analysis.crew || '-', `${formatDate(analysis.date)} • ${analysis.schedule || '-'}`],
     ['Responsabilidade', analysis.responsibleCrew || '-', `${formatDate(analysis.responsibleDate)} • ${analysis.responsibleSchedule || '-'}`],
     ['Produção', analysis.realized ? formatNumber(analysis.realized) : '-', analysis.plan ? `Plano ${formatNumber(analysis.plan)}` : 'Plano não identificado'],
+    ['Quadro OEE', analysis.boardScope?.label || '-', 'Últimas 12 horas'],
     ['OEE informado', analysis.reportedOee ? `${analysis.reportedOee}%` : '-', `Meta ${analysis.targetOee}%`],
     ['Atingimento', analysis.attainment != null ? `${analysis.attainment}%` : '-', analysis.gap != null ? `${formatNumber(analysis.gap)} abaixo do plano` : 'Sem comparação'],
     ['Faltas', analysis.absenceCount, analysis.absences.join(', ') || 'Sem nomes identificados'],
@@ -849,6 +1280,8 @@ function renderAnalysis() {
   if (analysis.plan && analysis.attainment != null && analysis.reportedOee && Math.abs(analysis.attainment - analysis.reportedOee) > 5) notes.push(`<li><strong>Conferência:</strong> o volume representa ${analysis.attainment}% do plano, enquanto o OEE informado foi ${analysis.reportedOee}%.</li>`);
   if (analysis.laborShortageMachines.length) notes.push(`<li><strong>Mão de obra:</strong> ${analysis.laborShortageMachines.length} máquinas registradas sem operador.</li>`);
   notes.push(`<li><strong>Passagem de turno:</strong> o relatório permanece vinculado à equipe ${escapeHtml(analysis.crew)} que entregou. As ações ficam sob responsabilidade da equipe ${escapeHtml(analysis.responsibleCrew)} que está entrando.</li>`);
+  notes.push(`<li><strong>Foto do quadro:</strong> considerar somente a coluna ${escapeHtml(analysis.boardScope?.label || '-')} referente às últimas 12 horas.</li>`);
+  if (analysis.lowOeeMachines?.length) notes.push(`<li><strong>OEE do quadro:</strong> ${escapeHtml(oeeLowListText(analysis.lowOeeMachines, 10))}.</li>`);
   notes.push(`<li><strong>Separação:</strong> falhas técnicas seguem para manutenção. Passagem de papel, bobinas, limpeza, mão de obra, treinamento e autocontrole seguem para a produção.</li>`);
   if (analysis.scheduleMismatch) notes.push(`<li><strong>Conferência de escala:</strong> o texto informa ${escapeHtml(analysis.expectedCrew)}, mas pelo horário e pela escala automática foi identificado ${escapeHtml(analysis.crew)}.</li>`);
   if (analysis.reportedShift && analysis.reportedShift !== analysis.shift) notes.push(`<li><strong>Turno do relatório:</strong> o texto informa ${escapeHtml(analysis.reportedShift)}º turno. Para a escala 12x36, o aplicativo classificou como equipe ${escapeHtml(analysis.crew)} (${escapeHtml(analysis.schedule)}).</li>`);
@@ -857,6 +1290,7 @@ function renderAnalysis() {
     <p><strong>${escapeHtml(analysis.productionLeader)}</strong> registrou ${formatNumber(analysis.realized)} unidades no turno. O resultado atingiu <strong>${analysis.attainment ?? '-'}%</strong> do plano informado.</p>
     <p>Foram identificadas <strong>${analysis.machines.length} máquinas</strong> com apontamentos e uma soma de <strong>${formatMinutes(analysis.totalRecordedMinutes)}</strong> em tempos registrados. Essa soma não representa necessariamente parada total do setor, pois as máquinas podem ter parado ao mesmo tempo.</p>
     ${notes.length ? `<ul>${notes.join('')}</ul>` : '<p>Nenhuma divergência principal foi identificada nos campos gerais.</p>'}
+    ${analysis.oeeOcrText ? `<p><strong>Foto do quadro de OEE:</strong> utilizada na análise conjunta.</p>` : ''}
   `;
 
   const rows = analysis.machines
@@ -1007,6 +1441,7 @@ function renderHistory() {
     state.actions = item.actions || [];
     renderAnalysis();
     renderActions();
+    renderOeeDashboard();
     switchView('analise');
   }));
   $$('.delete-history').forEach(btn => btn.addEventListener('click', () => {
@@ -1071,14 +1506,36 @@ function escapeHtml(value = '') {
   return String(value).replace(/[&<>'"]/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[char]));
 }
 
-function analyzeCurrentReport() {
+async function analyzeCurrentReport() {
   const text = $('reportText').value.trim();
   if (!text) {
     showToast('Cole o relatório antes de analisar.');
     return;
   }
+
+  let oeeText = $('oeeOcrText')?.value.trim() || '';
+  const file = $('oeeImageInput')?.files?.[0];
+  if (!oeeText && file) {
+    try {
+      const dataUrl = await dataUrlFromFile(file);
+      state.oeeImageDataUrl = dataUrl;
+      if ($('oeePreview')) $('oeePreview').src = dataUrl;
+      if ($('oeePreviewWrap')) $('oeePreviewWrap').classList.remove('hidden');
+      oeeText = await recognizeOeeImage(dataUrl);
+      if ($('oeeOcrText')) $('oeeOcrText').value = oeeText;
+      state.oeeOcrText = oeeText;
+      $('oeeStatus').textContent = `Confira somente a coluna ${boardScopeForReport($('reportDate').value || todayISO(), $('reportShift').value || '1').label}. Se necessário, corrija o texto abaixo.`;
+    } catch (error) {
+      console.error(error);
+      showToast('Não foi possível ler a foto do OEE. Você pode corrigir o texto manualmente.');
+    }
+  }
+
   const scheduleInfo = detectOperationalShift($('reportReceivedAt').value, $('reportDate').value, $('reportShift').value, state.manualSchedule);
   const analysis = parseReport(text, scheduleInfo);
+  analysis.oeeOcrText = oeeText;
+  analysis.machineOee = extractAllMachineOeeFromText(oeeText);
+  analysis.lowOeeMachines = analysis.machineOee.filter(item => item.oee < 65).sort((a, b) => a.oee - b.oee);
   state.analysis = analysis;
   state.actions = generateActions(analysis);
 
@@ -1099,8 +1556,9 @@ function analyzeCurrentReport() {
   renderAnalysis();
   renderActions();
   renderHistory();
+  renderOeeDashboard();
   switchView('analise');
-  showToast('Relatório analisado e salvo.');
+  showToast('Relatório e foto analisados.');
 }
 
 const SAMPLE_REPORT = `*Relatório de produção diária*
@@ -1272,6 +1730,7 @@ function init() {
   $('referenceDate').value = config.referenceDate;
   $('referenceLetter').value = config.referenceLetter;
   updateDetectedShift();
+  updateOeeScopeHint();
   fillScaleForm('A1');
 
   const draft = localStorage.getItem(STORAGE.draft);
@@ -1300,9 +1759,23 @@ function init() {
     showToast('Referência da escala salva.');
   });
   $('analyzeBtn').addEventListener('click', analyzeCurrentReport);
-  $('sampleBtn').addEventListener('click', () => { $('reportText').value = SAMPLE_REPORT; localStorage.setItem(STORAGE.draft, SAMPLE_REPORT); showToast('Exemplo carregado.'); });
-  $('clearBtn').addEventListener('click', () => { $('reportText').value = ''; localStorage.removeItem(STORAGE.draft); });
+  $('sampleBtn').addEventListener('click', () => { $('reportText').value = SAMPLE_REPORT; localStorage.setItem(STORAGE.draft, SAMPLE_REPORT); $('oeeOcrText').value = `223 56%
+172 54%
+170 64%
+149 63%
+176 33%`; showToast('Exemplo carregado.'); });
+  $('clearBtn').addEventListener('click', () => { $('reportText').value = ''; $('oeeOcrText').value = ''; $('oeeStatus').textContent = ''; $('oeeImageInput').value = ''; $('oeePreview').src = ''; $('oeePreviewWrap').classList.add('hidden'); localStorage.removeItem(STORAGE.draft); });
   $('reportText').addEventListener('input', e => localStorage.setItem(STORAGE.draft, e.target.value));
+  $('oeeOcrText').addEventListener('input', e => { state.oeeOcrText = e.target.value; });
+  $('oeeImageInput').addEventListener('change', async e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await dataUrlFromFile(file);
+    state.oeeImageDataUrl = dataUrl;
+    $('oeePreview').src = dataUrl;
+    $('oeePreviewWrap').classList.remove('hidden');
+    $('oeeStatus').textContent = 'Foto pronta para análise.';
+  });
 
   $('copySummaryBtn').addEventListener('click', () => copyText(managementSummaryText(state.analysis), 'Resumo copiado.'));
   $('copyMaintenanceBtn').addEventListener('click', () => copyText(maintenanceMessage(), 'Mensagem da manutenção copiada.'));
@@ -1363,10 +1836,16 @@ function init() {
     state.analysis = null;
     state.actions = [];
     $('reportText').value = '';
+    $('oeeOcrText').value = '';
+    $('oeeStatus').textContent = '';
+    $('oeeImageInput').value = '';
+    $('oeePreview').src = '';
+    $('oeePreviewWrap').classList.add('hidden');
     renderAnalysis();
     renderActions();
     renderScale();
     renderHistory();
+    renderOeeDashboard();
     showToast('Dados apagados.');
   });
 
@@ -1386,7 +1865,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=7.0.1');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=10.0.0');
         registration.update();
       } catch {}
     });
@@ -1396,6 +1875,7 @@ function init() {
   renderActions();
   renderScale();
   renderHistory();
+  renderOeeDashboard();
 }
 
 document.addEventListener('DOMContentLoaded', init);
