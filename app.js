@@ -4,7 +4,14 @@ const STORAGE = {
   history: 'turnosmart_history_v1',
   scale: 'turnosmart_scale_v1',
   draft: 'turnosmart_draft_v1',
-  config: 'turnosmart_config_v2'
+  config: 'turnosmart_config_v3'
+};
+
+const DEFAULT_PRODUCTION_LEADERS = {
+  A1: 'Maria',
+  A2: 'Reginaldo',
+  B1: 'Wilma',
+  B2: 'Marisa'
 };
 
 const state = {
@@ -69,6 +76,15 @@ function crewLetterForDate(operationalDate) {
   return config.referenceLetter === 'A' ? 'B' : 'A';
 }
 
+function getIncomingResponsibility(operationalDate, deliveredShift) {
+  const shift = String(deliveredShift || '1');
+  const date = shift === '1' ? operationalDate : addDaysISO(operationalDate, 1);
+  const incomingShift = shift === '1' ? '2' : '1';
+  const crew = `${crewLetterForDate(date)}${incomingShift}`;
+  const schedule = incomingShift === '1' ? '06:00 às 18:00' : '18:00 às 06:00';
+  return { date, shift: incomingShift, crew, schedule };
+}
+
 function detectOperationalShift(receivedAtValue, manualDate = '', manualShift = '', forceManual = false) {
   const receivedAt = receivedAtValue ? new Date(receivedAtValue) : new Date();
   if (Number.isNaN(receivedAt.getTime())) return { automatic: false, reason: 'Horário de recebimento inválido.' };
@@ -103,7 +119,20 @@ function detectOperationalShift(receivedAtValue, manualDate = '', manualShift = 
   const letter = crewLetterForDate(date);
   const crew = `${letter}${shift}`;
   const schedule = shift === '1' ? '06:00 às 18:00' : '18:00 às 06:00';
-  return { automatic, date, shift, crew, schedule, reason, receivedAt: receivedAt.toISOString() };
+  const incoming = getIncomingResponsibility(date, shift);
+  return {
+    automatic,
+    date,
+    shift,
+    crew,
+    schedule,
+    incomingDate: incoming.date,
+    incomingShift: incoming.shift,
+    incomingCrew: incoming.crew,
+    incomingSchedule: incoming.schedule,
+    reason,
+    receivedAt: receivedAt.toISOString()
+  };
 }
 
 function updateDetectedShift() {
@@ -121,10 +150,11 @@ function updateDetectedShift() {
     <div class="detection-main">
       <div>
         <strong>${result.automatic ? 'Identificação automática' : 'Confirmação necessária'}</strong>
-        <p>Data operacional: <b>${formatDate(result.date)}</b> • Turno ${result.shift} • ${result.schedule}</p>
+        <p><b>Relatório entregue:</b> ${formatDate(result.date)} • Equipe ${result.crew} • ${result.schedule}</p>
+        <p><b>Responsabilidade das ações:</b> ${formatDate(result.incomingDate)} • Equipe ${result.incomingCrew} • ${result.incomingSchedule}</p>
         <p>${escapeHtml(result.reason)}</p>
       </div>
-      <span class="crew-pill">${result.crew}</span>
+      <span class="crew-pill">${result.crew} → ${result.incomingCrew}</span>
     </div>`;
   if (!result.automatic) $('manualFields').classList.remove('hidden');
   return result;
@@ -296,6 +326,12 @@ function parseReport(rawText, scheduleInfo) {
   const trainingCount = Number((trainingLine.match(/(\d+)/) || [])[1] || 0);
   const trainingPeople = extractPeople(lines, /^Treinamento\b/i, [/^DDE\b/i, /^Qualidade\b/i, /^Entrega\b/i], trainingCount || null);
 
+  const reworkLine = cleanedLines.find(line => /^Retrabalho\b/i.test(line)) || '';
+  const reworkCount = Number((reworkLine.match(/:\s*(\d+)/) || reworkLine.match(/(\d+)\s*$/) || [])[1] || 0);
+  const ddeItems = linesBetween(lines, /^DDE\b/i, [/^Qualidade\b/i, /^Entrega\b/i, /^Perdas\b/i])
+    .map(item => item.replace(/^\d+\s*[).:-]?\s*/, '').trim())
+    .filter(Boolean);
+
   const plan = findLargeNumberInLine(cleanedLines, line => /Plano.*OEE/i.test(line) || /meta.*OEE/i.test(line));
   const realizedIndex = cleanedLines.findIndex(line => /^Realizado\b/i.test(line));
   let realizedLine = realizedIndex >= 0 ? cleanedLines[realizedIndex] : '';
@@ -334,6 +370,10 @@ function parseReport(rawText, scheduleInfo) {
     shift: String(scheduleInfo.shift || '1'),
     crew: scheduleInfo.crew || `${crewLetterForDate(scheduleInfo.date || todayISO())}${scheduleInfo.shift || '1'}`,
     schedule: scheduleInfo.schedule || (String(scheduleInfo.shift) === '2' ? '18:00 às 06:00' : '06:00 às 18:00'),
+    responsibleDate: scheduleInfo.incomingDate || getIncomingResponsibility(scheduleInfo.date || todayISO(), scheduleInfo.shift || '1').date,
+    responsibleShift: String(scheduleInfo.incomingShift || getIncomingResponsibility(scheduleInfo.date || todayISO(), scheduleInfo.shift || '1').shift),
+    responsibleCrew: scheduleInfo.incomingCrew || getIncomingResponsibility(scheduleInfo.date || todayISO(), scheduleInfo.shift || '1').crew,
+    responsibleSchedule: scheduleInfo.incomingSchedule || getIncomingResponsibility(scheduleInfo.date || todayISO(), scheduleInfo.shift || '1').schedule,
     detectedAutomatically: !!scheduleInfo.automatic,
     detectionReason: scheduleInfo.reason || '',
     reportedShift: turnoMatch ? turnoMatch[1] : '',
@@ -349,6 +389,8 @@ function parseReport(rawText, scheduleInfo) {
     present,
     trainingCount,
     trainingPeople,
+    reworkCount,
+    ddeItems,
     plan,
     realized,
     reportedOee,
@@ -364,102 +406,204 @@ function parseReport(rawText, scheduleInfo) {
 
 function classifyIncident(description) {
   const key = normalizeKey(description);
-  if (/limpeza|troca.*bobina|bobina.*troca|preventiva|treinamento|maquina preparada para amostras/.test(key)) return 'routine';
+
   if (/falta (de )?(m\.o|mao de obra)/.test(key)) return 'labor';
+  if (/treinamento/.test(key)) return 'training';
+  if (/limpeza|organizacao|refilo/.test(key)) return 'cleaning';
+  if (/preventiva/.test(key)) return 'planned-maintenance';
+  if (/amostra|troca.*molde|preparad[ao].*amostra|setup/.test(key)) return 'production-setup';
+
+  const mechanicalTerms = /faca|contrafaca|sensor|eixo|motor|rolo|rotolatriz|mola|tampao|garra|estrela|saida|patino|guia|alinhador|freio|correia|mangueira|reservatorio|lubrificacao|vedacao|parafuso/;
+  const paperHandling = /passagem.*papel|passar.*papel|troca.*bobina|bobina.*troca|bobina.*fora.*posicao|bobina.*descolad|troca.*faixa|troca.*fundo/;
+
+  if (paperHandling.test(key) && !mechanicalTerms.test(key)) return 'paper-handling';
+  if (/(bobina|faixa|fundo|papel).*(enrosc|estour|volt|retorn)|(?:enrosc|estour|volt|retorn).*(bobina|faixa|fundo|papel)/.test(key) && !mechanicalTerms.test(key)) return 'paper-handling';
+  if (/falta faixa|falta fundo/.test(key) && !mechanicalTerms.test(key)) return 'paper-handling';
+  if (/impressao.*ruim|bordas? danific|produto.*danific|qualidade/.test(key) && !mechanicalTerms.test(key)) return 'production-quality';
+
   if (/quebra|quebrou|mangueira|romp/.test(key)) return 'breakdown';
   if (/vazando|vazamento|vedacao|vedando/.test(key)) return 'leak';
   if (/variacao/.test(key)) return 'variation';
   if (/alarme|lubrificacao/.test(key)) return 'alarm';
-  if (/danific|impressao.*ruim|marcas/.test(key)) return 'quality';
-  if (/estourando|enroscando|voltando|retornando/.test(key)) return 'instability';
+  if (/marcas.*parafuso|impressao.*ruim|danific/.test(key) && mechanicalTerms.test(key)) return 'maintenance-quality';
+  if (/estourando|enroscando|voltando|retornando|peca voltando/.test(key)) return 'instability';
   if (/falta faixa|falta fundo/.test(key)) return 'missing';
-  if (/ajuste|calco|faca|tampao|garra|saida|patino|mola/.test(key)) return 'adjustment';
-  return 'other';
+  if (/ajuste|calco|faca|tampao|garra|estrela|saida|patino|mola|eixo|motor|sensor|rolo|rotolatriz/.test(key)) return 'adjustment';
+
+  return 'production-review';
 }
 
-function suggestedAction(machine, categories) {
+function maintenanceSuggestedAction(machine, categories) {
   const joined = machine.incidents.map(i => normalizeKey(i.description)).join(' | ');
   const suggestions = [];
 
-  if (categories.includes('breakdown')) suggestions.push('Inspecionar o componente quebrado, eliminar a causa e substituir o item danificado.');
-  if (categories.includes('leak')) suggestions.push('Verificar vedação, assentamento, folgas e condição do tampão/conexões; confirmar ausência de novo vazamento.');
-  if (categories.includes('variation')) suggestions.push('Executar análise de causa da variação, conferindo referências, folgas, sincronismo e padrão de regulagem.');
-  if (categories.includes('alarm')) suggestions.push('Diagnosticar o circuito do alarme, confirmar lubrificação e registrar a causa encontrada.');
-  if (categories.includes('quality')) suggestions.push('Verificar origem do defeito de qualidade e validar amostras após a correção.');
-  if (categories.includes('instability')) suggestions.push('Investigar recorrência de enroscamento, retorno ou estouro, verificando alinhamento, tensão e passagem do material.');
-  if (categories.includes('missing')) suggestions.push('Revisar sensores, alimentação, sincronismo e regulagem responsáveis por falta de faixa ou fundo.');
-  if (categories.includes('adjustment')) suggestions.push('Padronizar a regulagem e verificar desgaste de faca, contrafaca, garra, estrela, saída e componentes relacionados.');
+  if (categories.includes('breakdown')) suggestions.push('Eliminar a causa da quebra, substituir o componente danificado e validar a máquina em produção.');
+  if (categories.includes('leak')) suggestions.push('Corrigir vedação, assentamento e folgas; testar até confirmar que o vazamento não voltou.');
+  if (categories.includes('variation')) suggestions.push('Eliminar a causa da variação, conferir referências, folgas e sincronismo e validar estabilidade por amostragem.');
+  if (categories.includes('alarm')) suggestions.push('Diagnosticar o circuito do alarme, corrigir a causa e confirmar funcionamento normal.');
+  if (categories.includes('maintenance-quality')) suggestions.push('Eliminar a causa mecânica do defeito e liberar somente após amostras aprovadas, evitando retrabalho.');
+  if (categories.includes('instability')) suggestions.push('Investigar a recorrência, corrigir alinhamento, tensão, sincronismo e componentes que estejam causando instabilidade.');
+  if (categories.includes('missing')) suggestions.push('Revisar sensores, alimentação e sincronismo responsáveis pela falta de faixa ou fundo.');
+  if (categories.includes('adjustment')) suggestions.push('Corrigir e padronizar a regulagem, verificando desgaste e folgas dos componentes envolvidos.');
 
-  if (/faca fundo/.test(joined)) suggestions.push('Conferir faca do fundo e contrafaca, registrando medida e posição final do ajuste.');
-  if (/altura/.test(joined)) suggestions.push('Medir a altura antes e depois da intervenção para confirmar estabilidade.');
+  if (/faca fundo/.test(joined)) suggestions.push('Conferir faca do fundo e contrafaca e registrar a medida e a posição final do ajuste.');
+  if (/altura/.test(joined)) suggestions.push('Medir antes e depois da intervenção e acompanhar a estabilidade durante o turno.');
   if (/reservatorio de cola|cola faixa/.test(joined)) suggestions.push('Inspecionar mangueira, conexões e fixação do circuito de cola da faixa.');
+  if (/tampao/.test(joined)) suggestions.push('Verificar condição do tampão, vedação, base e repetibilidade do fechamento.');
 
+  return [...new Set(suggestions)].join(' ');
+}
+
+function productionSuggestedAction(machine, categories) {
+  const suggestions = [];
+  if (categories.includes('paper-handling')) suggestions.push('Cobrar passagem correta de papel, faixa e fundo e troca de bobina conforme o padrão. O operador deve estabilizar a alimentação antes de solicitar manutenção.');
+  if (categories.includes('production-quality')) suggestions.push('Segregar o material afetado, reforçar o autocontrole no início, meio e fim e eliminar a causa do retrabalho.');
+  if (categories.includes('production-setup')) suggestions.push('Conferir setup, molde e preparação da máquina antes de iniciar a produção.');
+  if (categories.includes('cleaning')) suggestions.push('Garantir limpeza e organização dentro do padrão sem transferir atividade operacional para a manutenção.');
+  if (categories.includes('production-review')) suggestions.push('Avaliar com o operador se a ocorrência é de operação, material ou equipamento e corrigir a rotina.');
+  suggestions.push('Se permanecer defeito do equipamento, abrir solicitação no app do SGMan informando máquina, sintoma e horário.');
   return [...new Set(suggestions)].join(' ');
 }
 
 function generateActions(analysis) {
   const actions = [];
+  const maintenanceCategories = new Set(['breakdown', 'leak', 'variation', 'alarm', 'maintenance-quality', 'instability', 'missing', 'adjustment']);
+  const productionCategories = new Set(['paper-handling', 'production-quality', 'production-setup', 'cleaning', 'production-review']);
+  const maintenanceResponsible = findMaintenanceResponsible(analysis.responsibleDate, analysis.responsibleShift, analysis.responsibleCrew);
+  const productionResponsible = findProductionResponsible(analysis.responsibleCrew);
 
   for (const machine of analysis.machines) {
-    const relevant = machine.incidents.filter(incident => !['routine', 'labor'].includes(classifyIncident(incident.description)));
-    if (!relevant.length) continue;
+    const classified = machine.incidents.map(incident => ({ ...incident, category: classifyIncident(incident.description) }));
 
-    const categories = [...new Set(relevant.map(incident => classifyIncident(incident.description)))];
-    const significant = relevant.filter(incident => incident.minutes >= 20 || !['other'].includes(classifyIncident(incident.description)));
-    if (!significant.length) continue;
+    const maintenanceIncidents = classified.filter(incident => maintenanceCategories.has(incident.category));
+    if (maintenanceIncidents.length) {
+      const categories = [...new Set(maintenanceIncidents.map(incident => incident.category))];
+      const relevantMinutes = maintenanceIncidents.reduce((sum, incident) => sum + incident.minutes, 0);
+      const high = relevantMinutes >= 90 || categories.includes('breakdown') || categories.includes('variation') || (categories.includes('leak') && relevantMinutes >= 45);
+      const medium = relevantMinutes >= 20 || categories.some(c => ['alarm', 'maintenance-quality', 'instability', 'missing', 'adjustment'].includes(c));
+      const priority = high ? 'Alta' : medium ? 'Média' : 'Baixa';
 
-    const relevantMinutes = relevant.reduce((sum, incident) => sum + incident.minutes, 0);
-    const criticalCategory = categories.some(c => ['breakdown', 'leak', 'variation', 'alarm'].includes(c));
-    const high = relevantMinutes >= 90 || categories.includes('breakdown') || (criticalCategory && relevantMinutes >= 45);
-    const medium = relevantMinutes >= 20 || categories.some(c => ['quality', 'instability', 'missing', 'adjustment'].includes(c));
-    const priority = high ? 'Alta' : medium ? 'Média' : 'Baixa';
-    const type = categories.some(c => ['breakdown', 'leak', 'variation', 'alarm', 'quality'].includes(c)) || relevantMinutes >= 60 ? 'OS' : 'Ação';
+      actions.push({
+        id: uid(),
+        department: 'maintenance',
+        approved: priority !== 'Baixa',
+        machine: machine.code,
+        priority,
+        type: 'OS',
+        responsible: maintenanceResponsible,
+        description: maintenanceIncidents.map(i => i.description).join('; '),
+        action: maintenanceSuggestedAction(machine, categories),
+        recordedMinutes: relevantMinutes,
+        categories
+      });
+    }
 
+    const productionIncidents = classified.filter(incident => productionCategories.has(incident.category));
+    const meaningfulProduction = productionIncidents.filter(incident => incident.category !== 'cleaning' || productionIncidents.length > 1);
+    if (meaningfulProduction.length) {
+      const categories = [...new Set(meaningfulProduction.map(incident => incident.category))];
+      const relevantMinutes = meaningfulProduction.reduce((sum, incident) => sum + incident.minutes, 0);
+      const qualityRisk = categories.includes('production-quality');
+      const priority = qualityRisk || relevantMinutes >= 45 ? 'Alta' : 'Média';
+
+      actions.push({
+        id: uid(),
+        department: 'production',
+        approved: true,
+        machine: machine.code,
+        priority,
+        type: 'Produção',
+        responsible: productionResponsible,
+        description: meaningfulProduction.map(i => i.description).join('; '),
+        action: productionSuggestedAction(machine, categories),
+        recordedMinutes: relevantMinutes,
+        categories
+      });
+    }
+  }
+
+  if (analysis.reportedOee && analysis.reportedOee < analysis.targetOee) {
     actions.push({
       id: uid(),
-      approved: priority === 'Alta' || priority === 'Média',
-      machine: machine.code,
-      priority,
-      type,
-      responsible: findResponsible(analysis.date, analysis.shift, analysis.crew),
-      description: significant.map(i => i.description).join('; '),
-      action: suggestedAction(machine, categories),
-      recordedMinutes: relevantMinutes,
-      categories
+      department: 'production',
+      approved: true,
+      machine: 'OEE',
+      priority: analysis.reportedOee < analysis.targetOee - 10 ? 'Alta' : 'Média',
+      type: 'Gestão',
+      responsible: productionResponsible,
+      description: `OEE informado em ${analysis.reportedOee}%, abaixo da meta de ${analysis.targetOee}%.${analysis.gap != null ? ` Diferença de ${formatNumber(analysis.gap)} unidades para o plano.` : ''}`,
+      action: 'Priorizar as máquinas de maior impacto, garantir operador nas máquinas definidas, cobrar ritmo, autocontrole e reação rápida às perdas do turno.',
+      recordedMinutes: 0,
+      categories: ['oee']
     });
   }
 
-  if (analysis.laborShortageMachines.length >= 2) {
+  if (analysis.laborShortageMachines.length) {
     actions.push({
       id: uid(),
+      department: 'production',
       approved: true,
-      machine: 'GESTÃO',
-      priority: 'Alta',
+      machine: 'MÃO DE OBRA',
+      priority: analysis.laborShortageMachines.length >= 3 ? 'Alta' : 'Média',
       type: 'Gestão',
-      responsible: 'Supervisor / Produção',
-      description: `${analysis.laborShortageMachines.length} máquinas registradas sem mão de obra: ${analysis.laborShortageMachines.join(', ')}.`,
-      action: 'Revisar distribuição do efetivo, prioridade das máquinas e necessidade de cobertura ou treinamento antes do próximo turno.',
+      responsible: productionResponsible,
+      description: `${analysis.laborShortageMachines.length} máquinas sem mão de obra: ${analysis.laborShortageMachines.join(', ')}.`,
+      action: 'Reorganizar o efetivo conforme prioridade e impacto no OEE. Registrar claramente quais máquinas ficarão paradas por decisão de produção.',
       recordedMinutes: 0,
       categories: ['labor']
     });
   }
 
-  if (analysis.trainingCount === 0 && analysis.trainingPeople.length) {
+  if (analysis.trainingPeople.length) {
     actions.push({
       id: uid(),
+      department: 'production',
       approved: true,
       machine: 'TREINAMENTO',
       priority: 'Média',
       type: 'Gestão',
-      responsible: analysis.productionLeader,
-      description: `O relatório informa treinamento 0, mas relaciona: ${analysis.trainingPeople.join(', ')}.`,
-      action: 'Confirmar se os colaboradores estavam em treinamento e corrigir o apontamento para evitar divergência no efetivo.',
+      responsible: productionResponsible,
+      description: `${analysis.trainingPeople.length} colaborador(es) relacionado(s): ${analysis.trainingPeople.join(', ')}.${analysis.trainingCount === 0 ? ' O campo do relatório foi informado como zero.' : ''}`,
+      action: 'Definir tutor, máquina e objetivo do treinamento. Cobrar passagem de papel, troca de bobina, limpeza, autocontrole e reação às perdas conforme o padrão.',
       recordedMinutes: 0,
-      categories: ['data-quality']
+      categories: ['training']
     });
   }
 
-  return actions.sort((a, b) => ({ Alta: 0, Média: 1, Baixa: 2 }[a.priority] - { Alta: 0, Média: 1, Baixa: 2 }[b.priority]));
+  if (analysis.ddeItems?.length) {
+    actions.push({
+      id: uid(),
+      department: 'production',
+      approved: true,
+      machine: 'DDE',
+      priority: 'Média',
+      type: 'Gestão',
+      responsible: productionResponsible,
+      description: analysis.ddeItems.join('; '),
+      action: 'Reforçar os temas no início do turno e verificar no chão de fábrica se o padrão está sendo cumprido.',
+      recordedMinutes: 0,
+      categories: ['dde']
+    });
+  }
+
+  if (analysis.reworkCount > 0) {
+    actions.push({
+      id: uid(),
+      department: 'production',
+      approved: true,
+      machine: 'RETRABALHO',
+      priority: 'Alta',
+      type: 'Qualidade',
+      responsible: productionResponsible,
+      description: `${analysis.reworkCount} registro(s) de retrabalho no turno.`,
+      action: 'Identificar máquina e causa, conter o produto, corrigir o processo e acompanhar para evitar repetição.',
+      recordedMinutes: 0,
+      categories: ['rework']
+    });
+  }
+
+  const order = { Alta: 0, Média: 1, Baixa: 2 };
+  return actions.sort((a, b) => order[a.priority] - order[b.priority] || a.department.localeCompare(b.department));
 }
 
 function getScale() {
@@ -471,12 +615,31 @@ function saveScale(items) {
   localStorage.setItem(STORAGE.scale, JSON.stringify(items));
 }
 
+function getScaleRecord(crew) {
+  const saved = getScale().find(row => row.crew === crew) || {};
+  return {
+    ...saved,
+    crew,
+    maintenanceLeader: saved.maintenanceLeader || saved.leader || '',
+    productionLeader: saved.productionLeader || DEFAULT_PRODUCTION_LEADERS[crew] || '',
+    team: saved.team || ''
+  };
+}
+
+function findMaintenanceResponsible(date, shift, crew = '') {
+  const record = crew ? getScaleRecord(crew) : null;
+  if (record?.maintenanceLeader) return record.maintenanceLeader;
+  const legacy = getScale().find(row => row.date === date && String(row.shift) === String(shift));
+  return legacy?.maintenanceLeader || legacy?.leader || `Líder da manutenção ${crew || '-'} não definido`;
+}
+
+function findProductionResponsible(crew = '') {
+  const record = crew ? getScaleRecord(crew) : null;
+  return record?.productionLeader || DEFAULT_PRODUCTION_LEADERS[crew] || `Líder da produção ${crew || '-'} não definido`;
+}
+
 function findResponsible(date, shift, crew = '') {
-  const items = getScale();
-  const recurring = crew ? items.find(row => row.crew === crew) : null;
-  if (recurring?.leader) return recurring.leader;
-  const legacy = items.find(row => row.date === date && String(row.shift) === String(shift));
-  return legacy?.leader || `Líder da equipe ${crew || '-'} não definido`;
+  return findMaintenanceResponsible(date, shift, crew);
 }
 
 function getHistory() {
@@ -503,44 +666,111 @@ function switchView(name) {
 }
 
 function managementSummaryText(analysis) {
+  const maintenanceActions = state.actions.filter(a => a.department === 'maintenance');
+  const productionActions = state.actions.filter(a => a.department === 'production');
   const lines = [];
-  lines.push(`RELATÓRIO GERENCIAL - ${formatDate(analysis.date)} - EQUIPE ${analysis.crew}`);
-  lines.push(`Horário: ${analysis.schedule} | Recebido em: ${new Date(analysis.receivedAt).toLocaleString('pt-BR')}`);
-  lines.push(`Líder da produção: ${analysis.productionLeader}`);
+  lines.push(`RELATÓRIO GERENCIAL - ENTREGUE PELA EQUIPE ${analysis.crew}`);
+  lines.push(`Data do relatório: ${formatDate(analysis.date)} | Horário trabalhado: ${analysis.schedule}`);
+  lines.push(`Responsabilidade das ações: equipe ${analysis.responsibleCrew} | ${formatDate(analysis.responsibleDate)} | ${analysis.responsibleSchedule}`);
+  lines.push(`Recebido em: ${new Date(analysis.receivedAt).toLocaleString('pt-BR')}`);
+  lines.push(`Líder da produção que entregou: ${analysis.productionLeader}`);
+  lines.push(`Líder da produção que está entrando: ${findProductionResponsible(analysis.responsibleCrew)}`);
+  lines.push(`Líder da manutenção que está entrando: ${findMaintenanceResponsible(analysis.responsibleDate, analysis.responsibleShift, analysis.responsibleCrew)}`);
   if (analysis.realized) lines.push(`Produção realizada: ${formatNumber(analysis.realized)} unidades.`);
   if (analysis.plan) lines.push(`Plano: ${formatNumber(analysis.plan)} unidades | Atingimento: ${analysis.attainment}% | Diferença: ${formatNumber(analysis.gap)} unidades.`);
-  if (analysis.reportedOee) lines.push(`OEE informado: ${analysis.reportedOee}%.`);
-  lines.push(`Presentes: ${analysis.present || 'não informado'} | Faltas: ${analysis.absenceCount} | Hora extra: ${analysis.overtimeCount}.`);
+  if (analysis.reportedOee) lines.push(`OEE informado: ${analysis.reportedOee}% | Meta: ${analysis.targetOee}%.`);
+  lines.push(`Retrabalho: ${analysis.reworkCount || 0} | Presentes: ${analysis.present || 'não informado'} | Faltas: ${analysis.absenceCount} | Hora extra: ${analysis.overtimeCount}.`);
   lines.push(`Máquinas com ocorrência: ${analysis.machines.length} | Tempo somado registrado: ${formatMinutes(analysis.totalRecordedMinutes)}.`);
+  lines.push(`Ações separadas: ${maintenanceActions.length} para manutenção e ${productionActions.length} para produção.`);
   if (analysis.laborShortageMachines.length) lines.push(`Sem mão de obra: ${analysis.laborShortageMachines.join(', ')}.`);
-  const critical = state.actions.filter(a => a.priority === 'Alta' && a.machine !== 'GESTÃO');
-  if (critical.length) lines.push(`Prioridades: ${critical.map(a => `${a.machine} - ${a.description}`).join(' | ')}`);
+  const criticalMaintenance = maintenanceActions.filter(a => a.priority === 'Alta');
+  if (criticalMaintenance.length) lines.push(`Prioridades da manutenção: ${criticalMaintenance.map(a => `${a.machine} - ${a.description}`).join(' | ')}`);
   return lines.join('\n');
+}
+
+function firstSentence(text = '') {
+  const value = String(text).trim();
+  const index = value.indexOf('. ');
+  return index >= 0 ? value.slice(0, index + 1) : value;
+}
+
+function uniqueMachines(actions, category) {
+  return [...new Set(actions.filter(action => action.categories?.includes(category) && /^MK-/.test(action.machine)).map(action => action.machine))];
 }
 
 function maintenanceMessage() {
   if (!state.analysis) return '';
   const analysis = state.analysis;
-  const approved = state.actions.filter(a => a.approved);
-  const responsible = findResponsible(analysis.date, analysis.shift, analysis.crew);
+  const approved = state.actions.filter(a => a.approved && a.department === 'maintenance');
+  const responsible = findMaintenanceResponsible(analysis.responsibleDate, analysis.responsibleShift, analysis.responsibleCrew);
   const lines = [
-    `*AÇÕES DA MANUTENÇÃO - EQUIPE ${analysis.crew}*`,
-    `Data operacional: ${formatDate(analysis.date)} | Horário: ${analysis.schedule}`, 
-    `Produção: ${formatNumber(analysis.realized)} | OEE informado: ${analysis.reportedOee || '-'}%`,
-    `Atingimento do plano: ${analysis.attainment ?? '-'}%`,
-    `Responsável do turno: ${responsible}`,
+    `*MANUTENÇÃO - EQUIPE ${analysis.responsibleCrew}*`,
+    `*Responsável:* ${responsible}`,
+    `Turno entregue: ${analysis.crew} | ${formatDate(analysis.date)} | ${analysis.schedule}`,
+    `OEE: ${analysis.reportedOee || '-'}% | Meta: ${analysis.targetOee}% | Produção: ${formatNumber(analysis.realized)}`,
+    analysis.gap != null ? `Diferença para o plano: ${formatNumber(analysis.gap)} unidades` : '',
+    `*Foco:* recuperar OEE, eliminar reincidências e evitar retrabalho.`,
     ''
-  ];
+  ].filter(Boolean);
 
-  if (!approved.length) lines.push('Nenhuma ação aprovada.');
-  approved.forEach(action => {
-    const icon = action.priority === 'Alta' ? '🔴' : action.priority === 'Média' ? '🟡' : '🟢';
-    lines.push(`${icon} *${action.machine}* - ${action.description}`);
-    lines.push(`Ação: ${action.action}`);
-    lines.push(`Responsável: ${action.responsible}`);
+  if (!approved.length) {
+    lines.push('Não foram identificadas falhas técnicas aprovadas para a manutenção.');
+  } else {
+    approved.forEach(action => {
+      const icon = action.priority === 'Alta' ? '🔴' : action.priority === 'Média' ? '🟡' : '🟢';
+      lines.push(`${icon} *${action.machine}* — ${action.description}. ${firstSentence(action.action)}`);
+    });
     lines.push('');
-  });
-  lines.push('_Mensagem gerada pelo TurnoSmart. Abertura no SGMan sujeita à aprovação._');
+  }
+
+  lines.push('⚠️ *Todas as intervenções devem ser apontadas no aplicativo do SGMan*, registrando início, causa, serviço executado e término.');
+  lines.push('_Limpeza, troca de bobina e passagem de papel foram direcionadas ao relatório da produção._');
+  return lines.join('\n');
+}
+
+function productionMessage() {
+  if (!state.analysis) return '';
+  const analysis = state.analysis;
+  const approved = state.actions.filter(a => a.approved && a.department === 'production');
+  const responsible = findProductionResponsible(analysis.responsibleCrew);
+  const lines = [
+    `*PRODUÇÃO - EQUIPE ${analysis.responsibleCrew}*`,
+    `*Líder:* ${responsible}`,
+    `Turno entregue: ${analysis.crew} | ${formatDate(analysis.date)} | ${analysis.schedule}`,
+    `OEE: ${analysis.reportedOee || '-'}% | Meta: ${analysis.targetOee}% | Produção: ${formatNumber(analysis.realized)}`,
+    analysis.gap != null ? `Diferença para o plano: ${formatNumber(analysis.gap)} unidades` : '',
+    `Retrabalho informado: ${analysis.reworkCount || 0}`,
+    `*Foco:* recuperar OEE, reduzir retrabalho e manter as máquinas operando dentro do padrão.`,
+    ''
+  ].filter(Boolean);
+
+  const oee = approved.find(action => action.machine === 'OEE');
+  const labor = approved.find(action => action.machine === 'MÃO DE OBRA');
+  const training = approved.find(action => action.machine === 'TREINAMENTO');
+  const dde = approved.find(action => action.machine === 'DDE');
+  const rework = approved.find(action => action.machine === 'RETRABALHO');
+  const paperMachines = uniqueMachines(approved, 'paper-handling');
+  const qualityMachines = [...new Set([
+    ...uniqueMachines(approved, 'production-quality'),
+    ...uniqueMachines(approved, 'production-review')
+  ])];
+  const setupMachines = uniqueMachines(approved, 'production-setup');
+  const cleaningMachines = uniqueMachines(approved, 'cleaning');
+
+  if (oee) lines.push(`🔴 *OEE:* ${oee.description} ${oee.action}`);
+  if (labor) lines.push(`🔴 *Mão de obra:* ${labor.description} ${labor.action}`);
+  if (paperMachines.length) lines.push(`🟠 *Passagem de papel e bobinas:* ${paperMachines.join(', ')}. Cobrar passagem de papel, faixa e fundo e troca de bobina conforme o padrão; não transferir essa rotina para a manutenção.`);
+  if (qualityMachines.length) lines.push(`🟠 *Qualidade e retrabalho:* ${qualityMachines.join(', ')}. Segregar o material, realizar autocontrole no início, meio e fim e agir antes de produzir mais defeito.`);
+  if (setupMachines.length) lines.push(`🟡 *Setup e preparação:* ${setupMachines.join(', ')}. Conferir molde, preparação e regulagem operacional antes de iniciar.`);
+  if (cleaningMachines.length) lines.push(`🟡 *Limpeza e organização:* ${cleaningMachines.join(', ')}. Garantir o padrão durante o turno.`);
+  if (rework) lines.push(`🔴 *Retrabalho:* ${rework.description} ${rework.action}`);
+  if (training) lines.push(`🟡 *Treinamento:* ${training.description} ${training.action}`);
+  if (dde) lines.push(`🟡 *DDE:* ${dde.description}. ${dde.action}`);
+  if (!approved.length) lines.push('Nenhuma cobrança operacional adicional foi identificada.');
+
+  lines.push('');
+  lines.push('📌 Passagem de papel, faixa e fundo, troca de bobina, limpeza e regulagens operacionais são responsabilidade da produção.');
+  lines.push('📲 Quando houver defeito do equipamento, abrir a solicitação no *app do SGMan* com máquina, sintoma e horário. Não deixar serviço de manutenção sem OS/apontamento.');
   return lines.join('\n');
 }
 
@@ -556,17 +786,20 @@ function renderAnalysis() {
   $('analysisContent').classList.toggle('hidden', !analysis);
   if (!analysis) return;
 
-  $('analysisTitle').textContent = `Equipe ${analysis.crew} • ${formatDate(analysis.date)} • ${analysis.schedule}`;
+  $('analysisTitle').textContent = `Relatório ${analysis.crew} → ações ${analysis.responsibleCrew}`;
   const metrics = [
-    ['Equipe', analysis.crew || '-', analysis.schedule || '-'],
+    ['Relatório entregue', analysis.crew || '-', `${formatDate(analysis.date)} • ${analysis.schedule || '-'}`],
+    ['Responsabilidade', analysis.responsibleCrew || '-', `${formatDate(analysis.responsibleDate)} • ${analysis.responsibleSchedule || '-'}`],
     ['Produção', analysis.realized ? formatNumber(analysis.realized) : '-', analysis.plan ? `Plano ${formatNumber(analysis.plan)}` : 'Plano não identificado'],
     ['OEE informado', analysis.reportedOee ? `${analysis.reportedOee}%` : '-', `Meta ${analysis.targetOee}%`],
     ['Atingimento', analysis.attainment != null ? `${analysis.attainment}%` : '-', analysis.gap != null ? `${formatNumber(analysis.gap)} abaixo do plano` : 'Sem comparação'],
     ['Faltas', analysis.absenceCount, analysis.absences.join(', ') || 'Sem nomes identificados'],
     ['Presentes', analysis.present || '-', 'Incluindo liderança, conforme relatório'],
+    ['Retrabalho', analysis.reworkCount || 0, 'Foco em reduzir repetição e perdas'],
     ['Máquinas', analysis.machines.length, 'Com registros no relatório'],
     ['Tempo somado', formatMinutes(analysis.totalRecordedMinutes), 'Ocorrências podem ser simultâneas'],
-    ['Ações', state.actions.length, `${state.actions.filter(a => a.priority === 'Alta').length} de prioridade alta`]
+    ['Manutenção', state.actions.filter(a => a.department === 'maintenance').length, `${state.actions.filter(a => a.department === 'maintenance' && a.priority === 'Alta').length} de prioridade alta`],
+    ['Produção', state.actions.filter(a => a.department === 'production').length, `${state.actions.filter(a => a.department === 'production' && a.priority === 'Alta').length} de prioridade alta`]
   ];
   $('summaryCards').innerHTML = metrics.map(([label, value, note]) => `<div class="metric"><span>${escapeHtml(String(label))}</span><strong>${escapeHtml(String(value))}</strong><small>${escapeHtml(String(note))}</small></div>`).join('');
 
@@ -574,6 +807,8 @@ function renderAnalysis() {
   if (analysis.trainingCount === 0 && analysis.trainingPeople.length) notes.push(`<li><strong>Divergência:</strong> treinamento informado como zero, mas há ${analysis.trainingPeople.length} nomes relacionados.</li>`);
   if (analysis.plan && analysis.attainment != null && analysis.reportedOee && Math.abs(analysis.attainment - analysis.reportedOee) > 5) notes.push(`<li><strong>Conferência:</strong> o volume representa ${analysis.attainment}% do plano, enquanto o OEE informado foi ${analysis.reportedOee}%.</li>`);
   if (analysis.laborShortageMachines.length) notes.push(`<li><strong>Mão de obra:</strong> ${analysis.laborShortageMachines.length} máquinas registradas sem operador.</li>`);
+  notes.push(`<li><strong>Passagem de turno:</strong> o relatório permanece vinculado à equipe ${escapeHtml(analysis.crew)} que entregou. As ações ficam sob responsabilidade da equipe ${escapeHtml(analysis.responsibleCrew)} que está entrando.</li>`);
+  notes.push(`<li><strong>Separação:</strong> falhas técnicas seguem para manutenção. Passagem de papel, bobinas, limpeza, mão de obra, treinamento e autocontrole seguem para a produção.</li>`);
   if (analysis.scheduleMismatch) notes.push(`<li><strong>Conferência de escala:</strong> o texto informa ${escapeHtml(analysis.expectedCrew)}, mas pelo horário e pela escala automática foi identificado ${escapeHtml(analysis.crew)}.</li>`);
   if (analysis.reportedShift && analysis.reportedShift !== analysis.shift) notes.push(`<li><strong>Turno do relatório:</strong> o texto informa ${escapeHtml(analysis.reportedShift)}º turno. Para a escala 12x36, o aplicativo classificou como equipe ${escapeHtml(analysis.crew)} (${escapeHtml(analysis.schedule)}).</li>`);
 
@@ -589,7 +824,7 @@ function renderAnalysis() {
       <td><strong>${escapeHtml(machine.code)}</strong></td>
       <td>${escapeHtml(formatMinutes(machine.totalMinutes))}</td>
       <td>${machine.incidents.map(i => escapeHtml(i.description)).join('<br>')}</td>
-      <td>${state.actions.filter(a => a.machine === machine.code).map(a => `<span class="badge ${priorityClass(a.priority)}">${a.priority}</span>`).join(' ') || '<span class="muted">Rotina/sem ação</span>'}</td>
+      <td>${state.actions.filter(a => a.machine === machine.code).map(a => `<span class="badge ${priorityClass(a.priority)}">${a.department === 'maintenance' ? 'MANUT.' : 'PROD.'} ${a.priority}</span>`).join(' ') || '<span class="muted">Rotina/sem ação</span>'}</td>
     </tr>`).join('');
   $('machineTableWrap').innerHTML = `<table><thead><tr><th>Máquina</th><th>Tempo</th><th>Apontamentos</th><th>Classificação</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
@@ -598,15 +833,9 @@ function priorityClass(priority) {
   return priority === 'Alta' ? 'high' : priority === 'Média' ? 'medium' : 'low';
 }
 
-function renderActions() {
-  const has = !!state.analysis;
-  $('emptyActions').classList.toggle('hidden', has);
-  $('actionsContent').classList.toggle('hidden', !has);
-  if (!has) return;
-
-  const responsible = findResponsible(state.analysis.date, state.analysis.shift, state.analysis.crew);
-  $('responsibleBadge').textContent = responsible;
-  $('actionsList').innerHTML = state.actions.map((action, index) => `
+function actionCardsHtml(actions) {
+  if (!actions.length) return '<div class="empty-state compact-empty"><p>Nenhuma ação identificada para este relatório.</p></div>';
+  return actions.map(action => `
     <div class="action-card" data-action-id="${action.id}">
       <div class="action-top">
         <input class="action-approved" type="checkbox" ${action.approved ? 'checked' : ''} aria-label="Aprovar ação" />
@@ -633,45 +862,76 @@ function renderActions() {
       </div>
     </div>
   `).join('');
+}
 
+function bindActionCards() {
   $$('.action-card').forEach(card => {
     const action = state.actions.find(a => a.id === card.dataset.actionId);
+    if (!action) return;
     card.querySelector('.action-approved').addEventListener('change', e => action.approved = e.target.checked);
     card.querySelector('.action-text').addEventListener('input', e => action.action = e.target.value);
-    card.querySelector('.action-priority').addEventListener('change', e => { action.priority = e.target.value; renderActions(); renderAnalysis(); });
+    card.querySelector('.action-priority').addEventListener('change', e => {
+      action.priority = e.target.value;
+      renderActions();
+      renderAnalysis();
+    });
     card.querySelector('.action-responsible').addEventListener('input', e => action.responsible = e.target.value);
   });
 }
 
+function renderActions() {
+  const has = !!state.analysis;
+  $('emptyActions').classList.toggle('hidden', has);
+  $('actionsContent').classList.toggle('hidden', !has);
+  if (!has) return;
+
+  const maintenanceResponsible = findMaintenanceResponsible(state.analysis.responsibleDate, state.analysis.responsibleShift, state.analysis.responsibleCrew);
+  const productionResponsible = findProductionResponsible(state.analysis.responsibleCrew);
+  $('responsibleBadge').textContent = `${state.analysis.responsibleCrew}: ${maintenanceResponsible}`;
+  $('productionResponsibleBadge').textContent = `${state.analysis.responsibleCrew}: ${productionResponsible}`;
+
+  const maintenanceActions = state.actions.filter(action => action.department === 'maintenance');
+  const productionActions = state.actions.filter(action => action.department === 'production');
+  $('maintenanceActionsList').innerHTML = actionCardsHtml(maintenanceActions);
+  $('productionActionsList').innerHTML = actionCardsHtml(productionActions);
+  bindActionCards();
+}
+
+function fillScaleForm(crew) {
+  const item = getScaleRecord(crew);
+  $('scaleCrew').value = crew;
+  $('scaleMaintenanceLeader').value = item.maintenanceLeader || '';
+  $('scaleProductionLeader').value = item.productionLeader || DEFAULT_PRODUCTION_LEADERS[crew] || '';
+  $('scaleTeam').value = item.team || '';
+}
+
 function renderScale() {
-  const order = { A1: 1, A2: 2, B1: 3, B2: 4 };
-  const items = getScale().filter(item => item.crew).sort((a, b) => (order[a.crew] || 99) - (order[b.crew] || 99));
-  $('scaleList').innerHTML = items.length ? items.map(item => `
+  const crews = ['A1', 'A2', 'B1', 'B2'];
+  const savedCrews = new Set(getScale().map(item => item.crew));
+  const items = crews.map(getScaleRecord);
+  $('scaleList').innerHTML = items.map(item => `
     <div class="list-item">
       <div>
         <h3>Equipe ${escapeHtml(item.crew)}</h3>
-        <p><strong>${escapeHtml(item.leader)}</strong>${item.team ? ` — ${escapeHtml(item.team)}` : ''}</p>
+        <p><strong>Manutenção:</strong> ${escapeHtml(item.maintenanceLeader || 'não definido')}${item.team ? ` — ${escapeHtml(item.team)}` : ''}</p>
+        <p><strong>Produção:</strong> ${escapeHtml(item.productionLeader || 'não definido')}</p>
       </div>
       <div class="list-actions">
-        <button class="ghost edit-scale" data-id="${item.id}">Editar</button>
-        <button class="danger delete-scale" data-id="${item.id}">Excluir</button>
+        <button class="ghost edit-scale" data-crew="${item.crew}">Editar</button>
+        ${savedCrews.has(item.crew) ? `<button class="danger delete-scale" data-crew="${item.crew}">Restaurar</button>` : ''}
       </div>
     </div>
-  `).join('') : '<div class="empty-state"><h2>Nenhuma equipe cadastrada</h2><p>Cadastre os líderes das equipes A1, A2, B1 e B2.</p></div>';
+  `).join('');
 
   $$('.delete-scale').forEach(btn => btn.addEventListener('click', () => {
-    saveScale(getScale().filter(item => item.id !== btn.dataset.id));
+    saveScale(getScale().filter(item => item.crew !== btn.dataset.crew));
+    fillScaleForm(btn.dataset.crew);
     renderScale();
-    showToast('Equipe excluída.');
+    showToast('Equipe restaurada para o padrão.');
   }));
 
   $$('.edit-scale').forEach(btn => btn.addEventListener('click', () => {
-    const item = getScale().find(row => row.id === btn.dataset.id);
-    if (!item) return;
-    $('scaleCrew').value = item.crew;
-    $('scaleLeader').value = item.leader;
-    $('scaleTeam').value = item.team || '';
-    $('saveScaleBtn').dataset.editId = item.id;
+    fillScaleForm(btn.dataset.crew);
     switchView('escala');
   }));
 }
@@ -681,7 +941,7 @@ function renderHistory() {
   $('historyList').innerHTML = history.length ? history.map(item => `
     <div class="list-item">
       <div>
-        <h3>${formatDate(item.date)} • Equipe ${escapeHtml(item.crew || String(item.shift))}</h3>
+        <h3>${formatDate(item.date)} • Relatório ${escapeHtml(item.crew || String(item.shift))} → ações ${escapeHtml(item.responsibleCrew || '-')}</h3>
         <p>${formatNumber(item.realized)} unidades | OEE ${item.reportedOee || '-'}% | ${item.actions?.length || 0} ações</p>
       </div>
       <div class="list-actions">
@@ -709,12 +969,16 @@ function renderHistory() {
 
 function buildSgmanPayload() {
   if (!state.analysis) return [];
-  return state.actions.filter(a => a.approved && a.type === 'OS').map(action => ({
+  return state.actions.filter(a => a.approved && a.type === 'OS' && a.department === 'maintenance').map(action => ({
     origem: 'TurnoSmart',
     data_relatorio: state.analysis.date,
-    turno: state.analysis.shift,
-    equipe: state.analysis.crew,
-    horario_turno: state.analysis.schedule,
+    turno_relatorio: state.analysis.shift,
+    equipe_que_entregou: state.analysis.crew,
+    horario_trabalhado: state.analysis.schedule,
+    data_responsabilidade: state.analysis.responsibleDate,
+    turno_responsavel: state.analysis.responsibleShift,
+    equipe_que_esta_entrando: state.analysis.responsibleCrew,
+    horario_responsavel: state.analysis.responsibleSchedule,
     recebido_em: state.analysis.receivedAt,
     ativo: action.machine,
     tipo: 'Corretiva planejada',
@@ -773,6 +1037,7 @@ function analyzeCurrentReport() {
     date: analysis.date,
     shift: analysis.shift,
     crew: analysis.crew,
+    responsibleCrew: analysis.responsibleCrew,
     realized: analysis.realized,
     reportedOee: analysis.reportedOee,
     analysis,
@@ -956,6 +1221,7 @@ function init() {
   $('referenceDate').value = config.referenceDate;
   $('referenceLetter').value = config.referenceLetter;
   updateDetectedShift();
+  fillScaleForm('A1');
 
   const draft = localStorage.getItem(STORAGE.draft);
   if (draft) $('reportText').value = draft;
@@ -988,11 +1254,19 @@ function init() {
   $('reportText').addEventListener('input', e => localStorage.setItem(STORAGE.draft, e.target.value));
 
   $('copySummaryBtn').addEventListener('click', () => copyText(managementSummaryText(state.analysis), 'Resumo copiado.'));
-  $('copyActionsBtn').addEventListener('click', () => copyText(maintenanceMessage(), 'Mensagem da manutenção copiada.'));
-  $('shareActionsBtn').addEventListener('click', async () => {
+  $('copyMaintenanceBtn').addEventListener('click', () => copyText(maintenanceMessage(), 'Mensagem da manutenção copiada.'));
+  $('copyProductionBtn').addEventListener('click', () => copyText(productionMessage(), 'Mensagem da produção copiada.'));
+  $('shareMaintenanceBtn').addEventListener('click', async () => {
     const text = maintenanceMessage();
     if (navigator.share) {
-      try { await navigator.share({ title: 'Ações da manutenção', text }); }
+      try { await navigator.share({ title: 'Relatório da manutenção', text }); }
+      catch (error) { if (error.name !== 'AbortError') copyText(text); }
+    } else copyText(text);
+  });
+  $('shareProductionBtn').addEventListener('click', async () => {
+    const text = productionMessage();
+    if (navigator.share) {
+      try { await navigator.share({ title: 'Relatório da produção', text }); }
       catch (error) { if (error.name !== 'AbortError') copyText(text); }
     } else copyText(text);
   });
@@ -1006,30 +1280,28 @@ function init() {
   });
   $('downloadPayloadBtn').addEventListener('click', () => downloadJson(`sgman-${state.analysis?.date || todayISO()}.json`, buildSgmanPayload()));
 
+  $('scaleCrew').addEventListener('change', e => fillScaleForm(e.target.value));
   $('saveScaleBtn').addEventListener('click', () => {
     const crew = $('scaleCrew').value;
-    const leader = $('scaleLeader').value.trim();
+    const maintenanceLeader = $('scaleMaintenanceLeader').value.trim();
+    const productionLeader = $('scaleProductionLeader').value.trim();
     const team = $('scaleTeam').value.trim();
-    if (!crew || !leader) return showToast('Informe a equipe e o líder.');
+    if (!crew || (!maintenanceLeader && !productionLeader)) return showToast('Informe pelo menos um líder.');
     const items = getScale();
-    const editId = $('saveScaleBtn').dataset.editId;
-    const duplicateIndex = items.findIndex(item => item.crew === crew && item.id !== editId);
-    const record = { id: editId || uid(), crew, leader, team };
-    let updated;
-    if (editId) updated = items.map(item => item.id === editId ? record : item);
-    else if (duplicateIndex >= 0) updated = items.map((item, index) => index === duplicateIndex ? { ...record, id: item.id } : item);
-    else updated = [record, ...items];
+    const existing = items.find(item => item.crew === crew);
+    const record = { id: existing?.id || uid(), crew, maintenanceLeader, productionLeader: productionLeader || DEFAULT_PRODUCTION_LEADERS[crew] || '', team };
+    const updated = existing ? items.map(item => item.crew === crew ? record : item) : [record, ...items];
     saveScale(updated);
-    delete $('saveScaleBtn').dataset.editId;
-    $('scaleLeader').value = '';
-    $('scaleTeam').value = '';
     renderScale();
-    if (state.analysis) {
-      const newResponsible = findResponsible(state.analysis.date, state.analysis.shift, state.analysis.crew);
-      state.actions.forEach(action => { if (action.machine !== 'GESTÃO' && action.machine !== 'TREINAMENTO') action.responsible = newResponsible; });
+    if (state.analysis && state.analysis.responsibleCrew === crew) {
+      const maintenanceResponsible = findMaintenanceResponsible(state.analysis.responsibleDate, state.analysis.responsibleShift, crew);
+      const productionResponsible = findProductionResponsible(crew);
+      state.actions.forEach(action => {
+        action.responsible = action.department === 'maintenance' ? maintenanceResponsible : productionResponsible;
+      });
       renderActions();
     }
-    showToast('Escala salva.');
+    showToast('Líderes da equipe salvos.');
   });
 
   $('exportHistoryBtn').addEventListener('click', () => downloadJson(`turnosmart-historico-${todayISO()}.json`, getHistory()));

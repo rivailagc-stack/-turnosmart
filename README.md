@@ -1,22 +1,30 @@
-# TurnoSmart V2
+# TurnoSmart V4
 
-Aplicativo PWA para analisar relatórios de produção, identificar automaticamente a equipe 12x36 e gerar ações de manutenção.
+Aplicativo PWA que interpreta o relatório diário e gera duas mensagens separadas:
 
-## Regra automática de turno
+1. **Manutenção:** somente falhas técnicas, ajustes, quebras, vazamentos, alarmes e instabilidades da máquina.
+2. **Produção:** passagem de papel, faixa e fundo, troca de bobina, limpeza, mão de obra, treinamento, autocontrole, qualidade e retrabalho.
 
-- Mensagem recebida entre 00:00 e 07:59: pertence ao turno 2 (18:00–06:00) iniciado no dia anterior.
-- Mensagem recebida a partir das 17:00: pertence ao turno 1 (06:00–18:00) do próprio dia.
-- Entre 08:00 e 16:59: o aplicativo solicita conferência manual.
-- Referência inicial: 20/07/2026 = equipes A1 e A2. No dia seguinte entram B1 e B2, alternando diariamente.
+## Líderes da produção configurados
 
-## Novidades da V2
+- A1: Maria
+- A2: Reginaldo
+- B1: Wilma
+- B2: Marisa
 
-- Identificação automática da data operacional.
-- Identificação automática das equipes A1, A2, B1 e B2.
-- Cadastro recorrente do líder por equipe, sem preencher cada data.
-- Conferência entre a escala escrita no relatório e a escala calculada.
-- Inclusão da equipe e do horário nas mensagens e na prévia do SGMan.
+Os líderes da manutenção podem ser cadastrados na tela **Escala**.
 
-## Atualizar no GitHub
+## Regra de responsabilidade
 
-Extraia o ZIP e envie os arquivos para a raiz do mesmo repositório, aceitando substituir os arquivos existentes. A Vercel publicará a atualização automaticamente.
+- O relatório fica vinculado à equipe que terminou o turno.
+- As ações são direcionadas à equipe que está entrando.
+- Relatório diurno: equipe 1 entrega para a equipe 2 do mesmo dia.
+- Relatório noturno: equipe 2 entrega para a equipe 1 do dia seguinte.
+
+## SGMan
+
+Somente ações classificadas como manutenção entram na prévia de OS. As duas mensagens orientam o uso do aplicativo do SGMan para registrar as intervenções.
+
+## Publicação
+
+Envie todos os arquivos desta pasta para a raiz do repositório no GitHub, substituindo os arquivos da versão anterior. A Vercel publica automaticamente após o commit.

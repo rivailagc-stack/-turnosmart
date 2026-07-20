@@ -1,7 +1,7 @@
 {
   "name": "TurnoSmart - Produção e Manutenção",
   "short_name": "TurnoSmart",
-  "description": "Analisa relatórios de produção e transforma ocorrências em ações de manutenção.",
+  "description": "Separa relatórios de manutenção e produção, com foco em OEE, retrabalho e apontamentos no SGMan.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#eef2f7",

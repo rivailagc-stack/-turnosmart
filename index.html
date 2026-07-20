@@ -26,9 +26,9 @@
     <section id="view-novo" class="view active">
       <div class="hero card">
         <div>
-          <span class="badge">V2 • Escala automática</span>
+          <span class="badge">V4 • Relatórios separados</span>
           <h2>Transforme a mensagem do turno em ações</h2>
-          <p>Cole o relatório recebido no WhatsApp. Pelo horário de recebimento, o aplicativo identifica automaticamente a data operacional, a equipe A1/A2/B1/B2 e o líder responsável.</p>
+          <p>Cole o relatório recebido no WhatsApp. O aplicativo separa automaticamente o que é responsabilidade da manutenção e o que deve ser cobrado da produção, sempre direcionando as ações à equipe que está entrando.</p>
         </div>
       </div>
 
@@ -95,24 +95,40 @@
 
     <section id="view-acoes" class="view">
       <div id="emptyActions" class="card empty-state">
-        <h2>Nenhuma ação gerada</h2>
-        <p>As ações aparecem depois da análise do relatório.</p>
+        <h2>Nenhum relatório gerado</h2>
+        <p>Os relatórios da manutenção e da produção aparecem depois da análise.</p>
       </div>
       <div id="actionsContent" class="hidden">
-        <div class="card">
+        <div class="card report-card maintenance-report">
           <div class="section-head">
             <div>
-              <span class="eyebrow">APROVAÇÃO</span>
-              <h2>Ações da manutenção</h2>
+              <span class="eyebrow">RELATÓRIO 1</span>
+              <h2>Manutenção — recuperar OEE</h2>
             </div>
             <span id="responsibleBadge" class="badge neutral">Responsável não definido</span>
           </div>
-          <p class="muted">Revise, edite e marque somente o que deve seguir para a manutenção ou virar futura ordem no SGMan.</p>
-          <div id="actionsList" class="actions-list"></div>
+          <p class="muted">Somente falhas e intervenções de manutenção. Limpeza, troca de bobina e passagem de papel são direcionadas à produção.</p>
+          <div id="maintenanceActionsList" class="actions-list"></div>
           <div class="button-row sticky-actions">
-            <button id="shareActionsBtn" class="primary" type="button">Compartilhar manutenção</button>
-            <button id="copyActionsBtn" class="secondary" type="button">Copiar mensagem</button>
+            <button id="shareMaintenanceBtn" class="primary" type="button">Compartilhar manutenção</button>
+            <button id="copyMaintenanceBtn" class="secondary" type="button">Copiar manutenção</button>
             <button id="sgmanPreviewBtn" class="ghost" type="button">Gerar OS simuladas</button>
+          </div>
+        </div>
+
+        <div class="card report-card production-report">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">RELATÓRIO 2</span>
+              <h2>Produção — operação e retrabalho</h2>
+            </div>
+            <span id="productionResponsibleBadge" class="badge neutral">Líder não definido</span>
+          </div>
+          <p class="muted">Cobranças de operação, passagem de papel, bobinas, limpeza, treinamento, mão de obra, autocontrole e abertura correta de solicitações no SGMan.</p>
+          <div id="productionActionsList" class="actions-list"></div>
+          <div class="button-row sticky-actions">
+            <button id="shareProductionBtn" class="primary" type="button">Compartilhar produção</button>
+            <button id="copyProductionBtn" class="secondary" type="button">Copiar produção</button>
           </div>
         </div>
 
@@ -120,7 +136,7 @@
           <div class="section-head">
             <div>
               <span class="eyebrow">SGMAN</span>
-              <h2>Prévia das ordens</h2>
+              <h2>Prévia das ordens da manutenção</h2>
             </div>
             <button id="downloadPayloadBtn" class="secondary" type="button">Baixar JSON</button>
           </div>
@@ -137,7 +153,7 @@
             <h2>Escala dos líderes</h2>
           </div>
         </div>
-        <p class="muted">Cadastre uma vez o líder de cada equipe. A escala 12x36 alterna automaticamente entre A e B.</p>
+        <p class="muted">Cadastre os responsáveis das quatro equipes. O aplicativo envia o relatório técnico ao líder da manutenção e o relatório operacional ao líder da produção da equipe que está entrando.</p>
         <div class="reference-box">
           <strong>Referência da escala</strong>
           <div class="grid two">
@@ -163,12 +179,15 @@
             </select>
           </label>
           <label>Líder da manutenção
-            <input id="scaleLeader" type="text" placeholder="Ex.: Emerson" />
+            <input id="scaleMaintenanceLeader" type="text" placeholder="Ex.: Emerson" />
+          </label>
+          <label>Líder da produção
+            <input id="scaleProductionLeader" type="text" placeholder="Ex.: Maria" />
+          </label>
+          <label>Equipe da manutenção / observação
+            <input id="scaleTeam" type="text" placeholder="Ex.: Ricardo, Carlos e Jean" />
           </label>
         </div>
-        <label>Equipe / observação
-          <input id="scaleTeam" type="text" placeholder="Ex.: Ricardo, Carlos e Jean" />
-        </label>
         <div class="button-row">
           <button id="saveScaleBtn" class="primary" type="button">Salvar escala</button>
         </div>
@@ -194,7 +213,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 2</h2>
+        <h2>Configuração da versão 4</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -214,7 +233,7 @@
           <div class="integration-item waiting">
             <strong>SGMan</strong>
             <span>Simulação</span>
-            <p>O aplicativo já monta o conteúdo das ordens em JSON.</p>
+            <p>O aplicativo monta em JSON somente as ordens classificadas como manutenção.</p>
           </div>
         </div>
       </div>
