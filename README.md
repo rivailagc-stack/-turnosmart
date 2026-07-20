@@ -1,30 +1,17 @@
-# TurnoSmart V4
+# TurnoSmart V6
 
-Aplicativo PWA que interpreta o relatório diário e gera duas mensagens separadas:
+Aplicativo PWA que transforma o relatório em duas mensagens curtas, sem data e sem horário de prazo.
 
-1. **Manutenção:** somente falhas técnicas, ajustes, quebras, vazamentos, alarmes e instabilidades da máquina.
-2. **Produção:** passagem de papel, faixa e fundo, troca de bobina, limpeza, mão de obra, treinamento, autocontrole, qualidade e retrabalho.
+- **Manutenção:** mostra somente as principais ações técnicas e encerra com “Resolver durante o turno”.
+- **Produção:** mostra somente as ações operacionais, com foco em recuperar OEE, reduzir retrabalho e abrir solicitações no SGMan.
+- **SGMan:** o prazo do plano é enviado como “Durante o turno”.
 
-## Líderes da produção configurados
+## Escala
 
-- A1: Maria
-- A2: Reginaldo
-- B1: Wilma
-- B2: Marisa
+Referência: 20/07/2026 = equipes A1/A2. Alternância diária A/B em 12x36.
 
-Os líderes da manutenção podem ser cadastrados na tela **Escala**.
-
-## Regra de responsabilidade
-
-- O relatório fica vinculado à equipe que terminou o turno.
-- As ações são direcionadas à equipe que está entrando.
-- Relatório diurno: equipe 1 entrega para a equipe 2 do mesmo dia.
-- Relatório noturno: equipe 2 entrega para a equipe 1 do dia seguinte.
-
-## SGMan
-
-Somente ações classificadas como manutenção entram na prévia de OS. As duas mensagens orientam o uso do aplicativo do SGMan para registrar as intervenções.
+Líderes da produção: A1 Maria, A2 Reginaldo, B1 Wilma e B2 Marisa.
 
 ## Publicação
 
-Envie todos os arquivos desta pasta para a raiz do repositório no GitHub, substituindo os arquivos da versão anterior. A Vercel publica automaticamente após o commit.
+Envie todos os arquivos desta pasta para a raiz do repositório GitHub, substituindo a versão anterior. A Vercel fará o novo deploy automaticamente.

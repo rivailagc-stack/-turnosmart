@@ -437,32 +437,49 @@ function maintenanceSuggestedAction(machine, categories) {
   const joined = machine.incidents.map(i => normalizeKey(i.description)).join(' | ');
   const suggestions = [];
 
-  if (categories.includes('breakdown')) suggestions.push('Eliminar a causa da quebra, substituir o componente danificado e validar a máquina em produção.');
-  if (categories.includes('leak')) suggestions.push('Corrigir vedação, assentamento e folgas; testar até confirmar que o vazamento não voltou.');
-  if (categories.includes('variation')) suggestions.push('Eliminar a causa da variação, conferir referências, folgas e sincronismo e validar estabilidade por amostragem.');
-  if (categories.includes('alarm')) suggestions.push('Diagnosticar o circuito do alarme, corrigir a causa e confirmar funcionamento normal.');
-  if (categories.includes('maintenance-quality')) suggestions.push('Eliminar a causa mecânica do defeito e liberar somente após amostras aprovadas, evitando retrabalho.');
-  if (categories.includes('instability')) suggestions.push('Investigar a recorrência, corrigir alinhamento, tensão, sincronismo e componentes que estejam causando instabilidade.');
-  if (categories.includes('missing')) suggestions.push('Revisar sensores, alimentação e sincronismo responsáveis pela falta de faixa ou fundo.');
-  if (categories.includes('adjustment')) suggestions.push('Corrigir e padronizar a regulagem, verificando desgaste e folgas dos componentes envolvidos.');
+  if (categories.includes('breakdown')) suggestions.push('Reparar ou trocar o componente e testar a máquina.');
+  if (categories.includes('leak')) suggestions.push('Eliminar o vazamento e validar sem reincidência.');
+  if (categories.includes('variation')) suggestions.push('Eliminar a variação e acompanhar a estabilidade por 30 minutos.');
+  if (categories.includes('alarm')) suggestions.push('Eliminar a causa do alarme e testar o funcionamento.');
+  if (categories.includes('maintenance-quality')) suggestions.push('Corrigir a causa mecânica e liberar após amostras aprovadas.');
+  if (categories.includes('instability')) suggestions.push('Eliminar a instabilidade e validar o ciclo da máquina.');
+  if (categories.includes('missing')) suggestions.push('Revisar sensor, alimentação e sincronismo e eliminar a falha.');
+  if (categories.includes('adjustment')) suggestions.push('Corrigir a regulagem e verificar desgaste ou folga.');
 
-  if (/faca fundo/.test(joined)) suggestions.push('Conferir faca do fundo e contrafaca e registrar a medida e a posição final do ajuste.');
-  if (/altura/.test(joined)) suggestions.push('Medir antes e depois da intervenção e acompanhar a estabilidade durante o turno.');
-  if (/reservatorio de cola|cola faixa/.test(joined)) suggestions.push('Inspecionar mangueira, conexões e fixação do circuito de cola da faixa.');
-  if (/tampao/.test(joined)) suggestions.push('Verificar condição do tampão, vedação, base e repetibilidade do fechamento.');
+  if (/faca fundo/.test(joined)) suggestions.push('Conferir faca e contrafaca do fundo.');
+  if (/altura/.test(joined)) suggestions.push('Medir e registrar o resultado.');
+  if (/reservatorio de cola|cola faixa/.test(joined)) suggestions.push('Revisar mangueira, conexões e fixação da cola.');
+  if (/tampao/.test(joined)) suggestions.push('Revisar tampão, base e vedação.');
 
-  return [...new Set(suggestions)].join(' ');
+  return [...new Set(suggestions)].slice(0, 2).join(' ');
 }
 
 function productionSuggestedAction(machine, categories) {
   const suggestions = [];
-  if (categories.includes('paper-handling')) suggestions.push('Cobrar passagem correta de papel, faixa e fundo e troca de bobina conforme o padrão. O operador deve estabilizar a alimentação antes de solicitar manutenção.');
-  if (categories.includes('production-quality')) suggestions.push('Segregar o material afetado, reforçar o autocontrole no início, meio e fim e eliminar a causa do retrabalho.');
-  if (categories.includes('production-setup')) suggestions.push('Conferir setup, molde e preparação da máquina antes de iniciar a produção.');
-  if (categories.includes('cleaning')) suggestions.push('Garantir limpeza e organização dentro do padrão sem transferir atividade operacional para a manutenção.');
-  if (categories.includes('production-review')) suggestions.push('Avaliar com o operador se a ocorrência é de operação, material ou equipamento e corrigir a rotina.');
-  suggestions.push('Se permanecer defeito do equipamento, abrir solicitação no app do SGMan informando máquina, sintoma e horário.');
-  return [...new Set(suggestions)].join(' ');
+  if (categories.includes('paper-handling')) suggestions.push('Corrigir passagem de papel e troca de bobina conforme o padrão.');
+  if (categories.includes('production-quality')) suggestions.push('Parar no primeiro defeito, conter o material e reforçar o autocontrole.');
+  if (categories.includes('production-setup')) suggestions.push('Conferir molde, setup e preparação antes de produzir.');
+  if (categories.includes('cleaning')) suggestions.push('Executar limpeza e organização dentro do padrão.');
+  if (categories.includes('production-review')) suggestions.push('Definir se a causa é operação, material ou equipamento e agir.');
+  suggestions.push('Se for defeito técnico, abrir solicitação no SGMan.');
+  return [...new Set(suggestions)].slice(0, 2).join(' ');
+}
+
+function deadlineForAction() {
+  return 'Durante o turno';
+}
+
+function compactIssue(text = '') {
+  return String(text)
+    .split(';')
+    .slice(0, 2)
+    .join('; ')
+    .replace(/\b\d{1,2}\s*[:h]\s*\d{2}\b/gi, '')
+    .replace(/\b\d{1,3}\s*(?:min|minuto|minutos)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([,.;])/g, '$1')
+    .trim()
+    .replace(/[.;]+$/, '');
 }
 
 function generateActions(analysis) {
@@ -602,8 +619,13 @@ function generateActions(analysis) {
     });
   }
 
+  actions.forEach(action => {
+    action.status = action.status || 'Pendente';
+    action.deadline = action.deadline || deadlineForAction(action.priority, action.department, analysis.responsibleShift);
+  });
+
   const order = { Alta: 0, Média: 1, Baixa: 2 };
-  return actions.sort((a, b) => order[a.priority] - order[b.priority] || a.department.localeCompare(b.department));
+  return actions.sort((a, b) => order[a.priority] - order[b.priority] || b.recordedMinutes - a.recordedMinutes || a.department.localeCompare(b.department));
 }
 
 function getScale() {
@@ -700,77 +722,51 @@ function uniqueMachines(actions, category) {
 
 function maintenanceMessage() {
   if (!state.analysis) return '';
-  const analysis = state.analysis;
-  const approved = state.actions.filter(a => a.approved && a.department === 'maintenance');
-  const responsible = findMaintenanceResponsible(analysis.responsibleDate, analysis.responsibleShift, analysis.responsibleCrew);
-  const lines = [
-    `*MANUTENÇÃO - EQUIPE ${analysis.responsibleCrew}*`,
-    `*Responsável:* ${responsible}`,
-    `Turno entregue: ${analysis.crew} | ${formatDate(analysis.date)} | ${analysis.schedule}`,
-    `OEE: ${analysis.reportedOee || '-'}% | Meta: ${analysis.targetOee}% | Produção: ${formatNumber(analysis.realized)}`,
-    analysis.gap != null ? `Diferença para o plano: ${formatNumber(analysis.gap)} unidades` : '',
-    `*Foco:* recuperar OEE, eliminar reincidências e evitar retrabalho.`,
-    ''
-  ].filter(Boolean);
+  const approved = state.actions
+    .filter(a => a.approved && a.department === 'maintenance' && a.status !== 'Concluída')
+    .sort((a, b) => (({ Alta: 0, Média: 1, Baixa: 2 })[a.priority] - ({ Alta: 0, Média: 1, Baixa: 2 })[b.priority]) || b.recordedMinutes - a.recordedMinutes);
+  const shown = approved.slice(0, 5);
+  const lines = ['*AÇÕES DA MANUTENÇÃO*'];
 
-  if (!approved.length) {
-    lines.push('Não foram identificadas falhas técnicas aprovadas para a manutenção.');
+  if (!shown.length) {
+    lines.push('Sem ação técnica pendente identificada.');
   } else {
-    approved.forEach(action => {
-      const icon = action.priority === 'Alta' ? '🔴' : action.priority === 'Média' ? '🟡' : '🟢';
-      lines.push(`${icon} *${action.machine}* — ${action.description}. ${firstSentence(action.action)}`);
+    shown.forEach((action, index) => {
+      const issue = compactIssue(action.description);
+      lines.push(`${index + 1}. *${action.machine}* — ${issue ? `${issue}. ` : ''}${action.action}`);
     });
-    lines.push('');
+    if (approved.length > shown.length) lines.push(`+${approved.length - shown.length} ação(ões) no TurnoSmart.`);
   }
 
-  lines.push('⚠️ *Todas as intervenções devem ser apontadas no aplicativo do SGMan*, registrando início, causa, serviço executado e término.');
-  lines.push('_Limpeza, troca de bobina e passagem de papel foram direcionadas ao relatório da produção._');
+  lines.push('*Resolver durante o turno.*');
+  lines.push('*SGMan:* apontar todas as OS e informar no grupo ao concluir.');
   return lines.join('\n');
 }
 
 function productionMessage() {
   if (!state.analysis) return '';
   const analysis = state.analysis;
-  const approved = state.actions.filter(a => a.approved && a.department === 'production');
+  const approved = state.actions.filter(a => a.approved && a.department === 'production' && a.status !== 'Concluída');
   const responsible = findProductionResponsible(analysis.responsibleCrew);
-  const lines = [
-    `*PRODUÇÃO - EQUIPE ${analysis.responsibleCrew}*`,
-    `*Líder:* ${responsible}`,
-    `Turno entregue: ${analysis.crew} | ${formatDate(analysis.date)} | ${analysis.schedule}`,
-    `OEE: ${analysis.reportedOee || '-'}% | Meta: ${analysis.targetOee}% | Produção: ${formatNumber(analysis.realized)}`,
-    analysis.gap != null ? `Diferença para o plano: ${formatNumber(analysis.gap)} unidades` : '',
-    `Retrabalho informado: ${analysis.reworkCount || 0}`,
-    `*Foco:* recuperar OEE, reduzir retrabalho e manter as máquinas operando dentro do padrão.`,
-    ''
-  ].filter(Boolean);
-
-  const oee = approved.find(action => action.machine === 'OEE');
   const labor = approved.find(action => action.machine === 'MÃO DE OBRA');
-  const training = approved.find(action => action.machine === 'TREINAMENTO');
-  const dde = approved.find(action => action.machine === 'DDE');
-  const rework = approved.find(action => action.machine === 'RETRABALHO');
   const paperMachines = uniqueMachines(approved, 'paper-handling');
   const qualityMachines = [...new Set([
     ...uniqueMachines(approved, 'production-quality'),
     ...uniqueMachines(approved, 'production-review')
   ])];
   const setupMachines = uniqueMachines(approved, 'production-setup');
-  const cleaningMachines = uniqueMachines(approved, 'cleaning');
+  const rework = approved.find(action => action.machine === 'RETRABALHO');
+  const lines = [`*AÇÕES DA PRODUÇÃO — ${responsible}*`];
 
-  if (oee) lines.push(`🔴 *OEE:* ${oee.description} ${oee.action}`);
-  if (labor) lines.push(`🔴 *Mão de obra:* ${labor.description} ${labor.action}`);
-  if (paperMachines.length) lines.push(`🟠 *Passagem de papel e bobinas:* ${paperMachines.join(', ')}. Cobrar passagem de papel, faixa e fundo e troca de bobina conforme o padrão; não transferir essa rotina para a manutenção.`);
-  if (qualityMachines.length) lines.push(`🟠 *Qualidade e retrabalho:* ${qualityMachines.join(', ')}. Segregar o material, realizar autocontrole no início, meio e fim e agir antes de produzir mais defeito.`);
-  if (setupMachines.length) lines.push(`🟡 *Setup e preparação:* ${setupMachines.join(', ')}. Conferir molde, preparação e regulagem operacional antes de iniciar.`);
-  if (cleaningMachines.length) lines.push(`🟡 *Limpeza e organização:* ${cleaningMachines.join(', ')}. Garantir o padrão durante o turno.`);
-  if (rework) lines.push(`🔴 *Retrabalho:* ${rework.description} ${rework.action}`);
-  if (training) lines.push(`🟡 *Treinamento:* ${training.description} ${training.action}`);
-  if (dde) lines.push(`🟡 *DDE:* ${dde.description}. ${dde.action}`);
-  if (!approved.length) lines.push('Nenhuma cobrança operacional adicional foi identificada.');
-
-  lines.push('');
-  lines.push('📌 Passagem de papel, faixa e fundo, troca de bobina, limpeza e regulagens operacionais são responsabilidade da produção.');
-  lines.push('📲 Quando houver defeito do equipamento, abrir a solicitação no *app do SGMan* com máquina, sintoma e horário. Não deixar serviço de manutenção sem OS/apontamento.');
+  let step = 1;
+  if (labor) lines.push(`${step++}. Redistribuir mão de obra: ${analysis.laborShortageMachines.join(', ')}.`);
+  if (paperMachines.length) lines.push(`${step++}. Corrigir passagem de papel e bobinas: ${paperMachines.join(', ')}. Não transferir rotina operacional para a manutenção.`);
+  if (qualityMachines.length || rework) lines.push(`${step++}. Fazer autocontrole no início, meio e fim${qualityMachines.length ? `: ${qualityMachines.join(', ')}` : ''}. Parar no primeiro defeito.`);
+  if (setupMachines.length) lines.push(`${step++}. Conferir setup e molde antes de liberar: ${setupMachines.join(', ')}.`);
+  if (step === 1) lines.push('1. Atuar nas perdas para recuperar o OEE e reduzir retrabalho.');
+  lines.push(`${step}. Defeito técnico: abrir solicitação no *SGMan* com máquina, sintoma e horário antes de chamar a manutenção.`);
+  lines.push('*Resolver durante o turno.*');
+  lines.push('Informar no grupo o que foi corrigido.');
   return lines.join('\n');
 }
 
@@ -857,6 +853,11 @@ function actionCardsHtml(actions) {
             <label>Responsável
               <input class="action-responsible" value="${escapeHtml(action.responsible)}" />
             </label>
+            <label>Status
+              <select class="action-status">
+                ${['Pendente','Em andamento','Concluída','Bloqueada'].map(v => `<option ${v === (action.status || 'Pendente') ? 'selected' : ''}>${v}</option>`).join('')}
+              </select>
+            </label>
           </div>
         </div>
       </div>
@@ -876,6 +877,7 @@ function bindActionCards() {
       renderAnalysis();
     });
     card.querySelector('.action-responsible').addEventListener('input', e => action.responsible = e.target.value);
+    card.querySelector('.action-status').addEventListener('change', e => action.status = e.target.value);
   });
 }
 
@@ -986,6 +988,8 @@ function buildSgmanPayload() {
     descricao: action.description,
     acao_sugerida: action.action,
     responsavel: action.responsible,
+    prazo_plano: 'Durante o turno',
+    status_plano: action.status,
     tempo_registrado_minutos: action.recordedMinutes,
     status_integracao: 'AGUARDANDO_CONFIGURACAO_SGMAN'
   }));

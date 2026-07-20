@@ -1,10 +1,9 @@
-# Testes da V4
+# Testes V6
 
-1. Recebido em 20/07/2026 19:00: relatório A1 e responsabilidade A2.
-2. Recebido em 21/07/2026 06:30: relatório A2 com data operacional 20/07 e responsabilidade B1 em 21/07.
-3. A mensagem da manutenção não deve incluir limpeza, troca de bobina, falta de mão de obra ou passagem de papel.
-4. A mensagem da produção deve agrupar passagem de papel/bobinas, limpeza, mão de obra, treinamento e qualidade.
-5. Líderes da produção: A1 Maria, A2 Reginaldo, B1 Wilma e B2 Marisa.
-6. As duas mensagens devem mostrar OEE, meta, produção e foco em redução de retrabalho.
-7. A mensagem da manutenção deve orientar o apontamento de toda intervenção no app do SGMan.
-8. A prévia do SGMan deve conter somente ações do departamento de manutenção.
+1. Cole um relatório e toque em **Analisar relatório**.
+2. Abra a aba de ações.
+3. A mensagem da manutenção deve mostrar somente as ações, sem data, sem OEE e sem horário de prazo.
+4. A mensagem da produção deve mostrar somente as ações e o nome do líder responsável.
+5. As duas mensagens devem conter **Resolver durante o turno**.
+6. A manutenção deve orientar o apontamento de todas as OS no SGMan.
+7. A prévia do SGMan deve usar `prazo_plano: "Durante o turno"`.
