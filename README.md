@@ -1,61 +1,22 @@
-# TurnoSmart V1
+# TurnoSmart V2
 
-Aplicativo PWA para transformar relatórios de produção em resumo gerencial, ações de manutenção e prévia de ordens para o SGMan.
+Aplicativo PWA para analisar relatórios de produção, identificar automaticamente a equipe 12x36 e gerar ações de manutenção.
 
-## O que já funciona
+## Regra automática de turno
 
-- Colar o relatório recebido no WhatsApp.
-- Identificar turno, líder, faltas, presentes, produção, plano e OEE.
-- Separar as ocorrências por máquina.
-- Somar os tempos informados.
-- Gerar ações com prioridade alta, média ou baixa.
-- Aprovar e editar as ações antes do envio.
-- Compartilhar a mensagem pelo menu do iPhone, inclusive para o WhatsApp.
-- Cadastrar escala dos líderes da manutenção.
-- Usar automaticamente o líder da data e do turno.
-- Gerar uma prévia JSON das futuras ordens do SGMan.
-- Salvar histórico no próprio aparelho.
-- Instalar como aplicativo PWA.
+- Mensagem recebida entre 00:00 e 07:59: pertence ao turno 2 (18:00–06:00) iniciado no dia anterior.
+- Mensagem recebida a partir das 17:00: pertence ao turno 1 (06:00–18:00) do próprio dia.
+- Entre 08:00 e 16:59: o aplicativo solicita conferência manual.
+- Referência inicial: 20/07/2026 = equipes A1 e A2. No dia seguinte entram B1 e B2, alternando diariamente.
 
-## Publicar na Vercel pelo iPhone
+## Novidades da V2
 
-1. Crie um repositório novo no GitHub, por exemplo `turnosmart`.
-2. Extraia este ZIP no aplicativo Arquivos.
-3. Envie todos os arquivos para a raiz do repositório.
-4. Na Vercel, toque em **Add New > Project**.
-5. Selecione o repositório `turnosmart`.
-6. Em Framework Preset, use **Other**.
-7. Não precisa cadastrar variável de ambiente nesta versão.
-8. Toque em **Deploy**.
+- Identificação automática da data operacional.
+- Identificação automática das equipes A1, A2, B1 e B2.
+- Cadastro recorrente do líder por equipe, sem preencher cada data.
+- Conferência entre a escala escrita no relatório e a escala calculada.
+- Inclusão da equipe e do horário nas mensagens e na prévia do SGMan.
 
-## Instalar no iPhone
+## Atualizar no GitHub
 
-1. Abra o endereço publicado no Safari.
-2. Toque no botão de compartilhar.
-3. Escolha **Adicionar à Tela de Início**.
-4. Confirme em **Adicionar**.
-
-## Próximas integrações
-
-### Supabase
-
-Será usado para login, sincronização entre aparelhos, escala central, histórico e permissões.
-
-### WhatsApp
-
-A versão futura receberá relatórios em um número oficial e enviará alertas por integração autorizada.
-
-### SGMan
-
-O arquivo `api/sgman.js` já reserva o ponto de integração. Para concluir, serão necessários:
-
-- URL/base da API utilizada pela Ecopack;
-- método de autenticação;
-- documentação dos endpoints;
-- códigos dos ativos/máquinas;
-- IDs dos usuários/líderes;
-- campos obrigatórios para criação de chamado ou OS.
-
-## Regra atual para ações
-
-O aplicativo não abre ação para limpeza, troca normal de bobina, treinamento, preventiva ou falta de mão de obra como OS. Falta de mão de obra vira ação de gestão. Quebra, vazamento, alarme, variação, defeito de qualidade e ajustes longos podem virar OS simulada.
+Extraia o ZIP e envie os arquivos para a raiz do mesmo repositório, aceitando substituir os arquivos existentes. A Vercel publicará a atualização automaticamente.

@@ -26,24 +26,28 @@
     <section id="view-novo" class="view active">
       <div class="hero card">
         <div>
-          <span class="badge">1ª versão</span>
+          <span class="badge">V2 • Escala automática</span>
           <h2>Transforme a mensagem do turno em ações</h2>
-          <p>Cole o relatório recebido no WhatsApp. O aplicativo identifica produção, OEE, perdas, máquinas críticas e o líder responsável pela escala.</p>
+          <p>Cole o relatório recebido no WhatsApp. Pelo horário de recebimento, o aplicativo identifica automaticamente a data operacional, a equipe A1/A2/B1/B2 e o líder responsável.</p>
         </div>
       </div>
 
       <div class="card form-card">
-        <div class="grid two">
-          <label>Data do relatório
+        <label>Mensagem recebida em
+          <input id="reportReceivedAt" type="datetime-local" />
+        </label>
+        <div id="autoDetection" class="detection-card" aria-live="polite"></div>
+        <div class="button-row compact-row">
+          <button id="manualToggleBtn" class="ghost" type="button">Corrigir data ou turno</button>
+        </div>
+        <div id="manualFields" class="grid two hidden">
+          <label>Data operacional
             <input id="reportDate" type="date" />
           </label>
-          <label>Turno
+          <label>Turno operacional
             <select id="reportShift">
-              <option value="1">1º</option>
-              <option value="2">2º</option>
-              <option value="3" selected>3º</option>
-              <option value="B1">B1</option>
-              <option value="B2">B2</option>
+              <option value="1">1 — 06:00 às 18:00</option>
+              <option value="2">2 — 18:00 às 06:00</option>
             </select>
           </label>
         </div>
@@ -133,18 +137,29 @@
             <h2>Escala dos líderes</h2>
           </div>
         </div>
-        <p class="muted">Cadastre quem responde por cada data e turno. O aplicativo usa essa escala automaticamente nas ações.</p>
-        <div class="grid three">
-          <label>Data
-            <input id="scaleDate" type="date" />
-          </label>
-          <label>Turno
-            <select id="scaleShift">
-              <option value="1">1º</option>
-              <option value="2">2º</option>
-              <option value="3" selected>3º</option>
-              <option value="B1">B1</option>
-              <option value="B2">B2</option>
+        <p class="muted">Cadastre uma vez o líder de cada equipe. A escala 12x36 alterna automaticamente entre A e B.</p>
+        <div class="reference-box">
+          <strong>Referência da escala</strong>
+          <div class="grid two">
+            <label>Data em que trabalhou a equipe de referência
+              <input id="referenceDate" type="date" />
+            </label>
+            <label>Equipe nessa data
+              <select id="referenceLetter">
+                <option value="A">A1 durante o dia e A2 à noite</option>
+                <option value="B">B1 durante o dia e B2 à noite</option>
+              </select>
+            </label>
+          </div>
+          <button id="saveReferenceBtn" class="secondary" type="button">Salvar referência</button>
+        </div>
+        <div class="grid two">
+          <label>Equipe fixa
+            <select id="scaleCrew">
+              <option value="A1">A1 — 06:00 às 18:00</option>
+              <option value="A2">A2 — 18:00 às 06:00</option>
+              <option value="B1">B1 — 06:00 às 18:00</option>
+              <option value="B2">B2 — 18:00 às 06:00</option>
             </select>
           </label>
           <label>Líder da manutenção
@@ -179,7 +194,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da primeira versão</h2>
+        <h2>Configuração da versão 2</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>

@@ -3,13 +3,15 @@
 const STORAGE = {
   history: 'turnosmart_history_v1',
   scale: 'turnosmart_scale_v1',
-  draft: 'turnosmart_draft_v1'
+  draft: 'turnosmart_draft_v1',
+  config: 'turnosmart_config_v2'
 };
 
 const state = {
   analysis: null,
   actions: [],
-  deferredPrompt: null
+  deferredPrompt: null,
+  manualSchedule: false
 };
 
 const $ = id => document.getElementById(id);
@@ -19,6 +21,113 @@ function todayISO() {
   const now = new Date();
   const offset = now.getTimezoneOffset();
   return new Date(now.getTime() - offset * 60000).toISOString().slice(0, 10);
+}
+
+
+function toLocalDateTimeInput(date = new Date()) {
+  const pad = value => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function dateToISO(date) {
+  const pad = value => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function parseISODateAtNoon(value) {
+  const [year, month, day] = String(value).split('-').map(Number);
+  return new Date(year, month - 1, day, 12, 0, 0, 0);
+}
+
+function addDaysISO(value, amount) {
+  const date = parseISODateAtNoon(value);
+  date.setDate(date.getDate() + amount);
+  return dateToISO(date);
+}
+
+function dayDifference(fromISO, toISO) {
+  const from = parseISODateAtNoon(fromISO);
+  const to = parseISODateAtNoon(toISO);
+  return Math.round((to - from) / 86400000);
+}
+
+function getConfig() {
+  const defaults = { referenceDate: '2026-07-20', referenceLetter: 'A' };
+  try { return { ...defaults, ...(JSON.parse(localStorage.getItem(STORAGE.config)) || {}) }; }
+  catch { return defaults; }
+}
+
+function saveConfig(config) {
+  localStorage.setItem(STORAGE.config, JSON.stringify(config));
+}
+
+function crewLetterForDate(operationalDate) {
+  const config = getConfig();
+  const difference = dayDifference(config.referenceDate, operationalDate);
+  const sameParity = Math.abs(difference) % 2 === 0;
+  if (sameParity) return config.referenceLetter;
+  return config.referenceLetter === 'A' ? 'B' : 'A';
+}
+
+function detectOperationalShift(receivedAtValue, manualDate = '', manualShift = '', forceManual = false) {
+  const receivedAt = receivedAtValue ? new Date(receivedAtValue) : new Date();
+  if (Number.isNaN(receivedAt.getTime())) return { automatic: false, reason: 'Horário de recebimento inválido.' };
+
+  const hour = receivedAt.getHours();
+  const receivedDate = dateToISO(receivedAt);
+  let date;
+  let shift;
+  let automatic = true;
+  let reason = '';
+
+  if (forceManual) {
+    automatic = false;
+    date = manualDate || receivedDate;
+    shift = manualShift || '1';
+    reason = 'Data e turno corrigidos manualmente.';
+  } else if (hour <= 7) {
+    date = addDaysISO(receivedDate, -1);
+    shift = '2';
+    reason = 'Recebido até 07:59: pertence ao turno noturno iniciado no dia anterior.';
+  } else if (hour >= 17) {
+    date = receivedDate;
+    shift = '1';
+    reason = 'Recebido no fim do dia: pertence ao turno diurno do próprio dia.';
+  } else {
+    automatic = false;
+    date = manualDate || receivedDate;
+    shift = manualShift || '1';
+    reason = 'Mensagem recebida fora dos horários normais de fechamento. Confirme a data e o turno.';
+  }
+
+  const letter = crewLetterForDate(date);
+  const crew = `${letter}${shift}`;
+  const schedule = shift === '1' ? '06:00 às 18:00' : '18:00 às 06:00';
+  return { automatic, date, shift, crew, schedule, reason, receivedAt: receivedAt.toISOString() };
+}
+
+function updateDetectedShift() {
+  const result = detectOperationalShift($('reportReceivedAt').value, $('reportDate').value, $('reportShift').value, state.manualSchedule);
+  if (result.date) $('reportDate').value = result.date;
+  if (result.shift) $('reportShift').value = result.shift;
+  const card = $('autoDetection');
+  if (!card) return result;
+  card.className = `detection-card${result.automatic ? '' : ' warning'}`;
+  if (!result.date) {
+    card.innerHTML = '<strong>Não foi possível identificar o turno.</strong>';
+    return result;
+  }
+  card.innerHTML = `
+    <div class="detection-main">
+      <div>
+        <strong>${result.automatic ? 'Identificação automática' : 'Confirmação necessária'}</strong>
+        <p>Data operacional: <b>${formatDate(result.date)}</b> • Turno ${result.shift} • ${result.schedule}</p>
+        <p>${escapeHtml(result.reason)}</p>
+      </div>
+      <span class="crew-pill">${result.crew}</span>
+    </div>`;
+  if (!result.automatic) $('manualFields').classList.remove('hidden');
+  return result;
 }
 
 function uid() {
@@ -162,44 +271,30 @@ function parseMachines(lines) {
   return machines.filter(m => m.incidents.length);
 }
 
-function parseReport(rawText, selectedDate, selectedShift) {
+function parseReport(rawText, scheduleInfo) {
   const text = normalizeText(rawText);
   const lines = text.split('\n');
   const cleanedLines = lines.map(cleanLine);
 
   const turnoMatch = text.match(/Turno\s*:\s*([123])\s*[º°]?/i);
+  const expectedCrewMatch = text.match(/Previsto\s+Escala\s*\(([AB][12])\)/i);
   const leaderLine = cleanedLines.find(line => /^L[ií]der(?:es)?\s*:/i.test(line));
   const leader = leaderLine ? leaderLine.split(':').slice(1).join(':').trim() : '';
 
   const absenceLine = cleanedLines.find(line => /^Faltas\b/i.test(line)) || '';
   const absenceCount = Number((absenceLine.match(/(\d+)\s*$/) || absenceLine.match(/:\s*(\d+)/) || [])[1] || 0);
-  const absences = extractPeople(
-    lines,
-    /^Faltas\b/i,
-    [/^Hora-Extra\b/i, /^Retrabalho\b/i, /^Pagando dia\b/i, /^Total Presente\b/i],
-    absenceCount || null
-  );
+  const absences = extractPeople(lines, /^Faltas\b/i, [/^Hora-Extra\b/i, /^Retrabalho\b/i, /^Pagando dia\b/i, /^Total Presente\b/i], absenceCount || null);
 
   const overtimeLine = cleanedLines.find(line => /^Hora-Extra\b/i.test(line)) || '';
   const overtimeCount = Number((overtimeLine.match(/(\d+)\s*$/) || overtimeLine.match(/:\s*(\d+)/) || [])[1] || 0);
-  const overtimePeople = extractPeople(
-    lines,
-    /^Hora-Extra\b/i,
-    [/^Retrabalho\b/i, /^Pagando dia\b/i, /^Total Presente\b/i],
-    overtimeCount || null
-  );
+  const overtimePeople = extractPeople(lines, /^Hora-Extra\b/i, [/^Retrabalho\b/i, /^Pagando dia\b/i, /^Total Presente\b/i], overtimeCount || null);
 
   const presentLine = cleanedLines.find(line => /^Total Presente\b/i.test(line)) || '';
   const present = Number((presentLine.match(/(\d+)/) || [])[1] || 0);
 
   const trainingLine = cleanedLines.find(line => /^Treinamento\b/i.test(line)) || '';
   const trainingCount = Number((trainingLine.match(/(\d+)/) || [])[1] || 0);
-  const trainingPeople = extractPeople(
-    lines,
-    /^Treinamento\b/i,
-    [/^DDE\b/i, /^Qualidade\b/i, /^Entrega\b/i],
-    trainingCount || null
-  );
+  const trainingPeople = extractPeople(lines, /^Treinamento\b/i, [/^DDE\b/i, /^Qualidade\b/i, /^Entrega\b/i], trainingCount || null);
 
   const plan = findLargeNumberInLine(cleanedLines, line => /Plano.*OEE/i.test(line) || /meta.*OEE/i.test(line));
   const realizedIndex = cleanedLines.findIndex(line => /^Realizado\b/i.test(line));
@@ -230,11 +325,20 @@ function parseReport(rawText, selectedDate, selectedShift) {
     .filter(machine => machine.incidents.some(i => /falta\s*(?:de\s*)?(?:m[.]?o|m[aã]o de obra)/i.test(i.description)))
     .map(machine => machine.code);
 
+  const expectedCrew = expectedCrewMatch ? expectedCrewMatch[1].toUpperCase() : '';
   return {
     id: uid(),
-    createdAt: new Date().toISOString(),
-    date: selectedDate || todayISO(),
-    shift: turnoMatch ? turnoMatch[1] : selectedShift,
+    createdAt: scheduleInfo.receivedAt || new Date().toISOString(),
+    receivedAt: scheduleInfo.receivedAt || new Date().toISOString(),
+    date: scheduleInfo.date || todayISO(),
+    shift: String(scheduleInfo.shift || '1'),
+    crew: scheduleInfo.crew || `${crewLetterForDate(scheduleInfo.date || todayISO())}${scheduleInfo.shift || '1'}`,
+    schedule: scheduleInfo.schedule || (String(scheduleInfo.shift) === '2' ? '18:00 às 06:00' : '06:00 às 18:00'),
+    detectedAutomatically: !!scheduleInfo.automatic,
+    detectionReason: scheduleInfo.reason || '',
+    reportedShift: turnoMatch ? turnoMatch[1] : '',
+    expectedCrew,
+    scheduleMismatch: !!expectedCrew && expectedCrew !== scheduleInfo.crew,
     productionLeader: leader || 'Não informado',
     safetyOccurrence,
     qualityOccurrence,
@@ -317,7 +421,7 @@ function generateActions(analysis) {
       machine: machine.code,
       priority,
       type,
-      responsible: findResponsible(analysis.date, analysis.shift),
+      responsible: findResponsible(analysis.date, analysis.shift, analysis.crew),
       description: significant.map(i => i.description).join('; '),
       action: suggestedAction(machine, categories),
       recordedMinutes: relevantMinutes,
@@ -367,9 +471,12 @@ function saveScale(items) {
   localStorage.setItem(STORAGE.scale, JSON.stringify(items));
 }
 
-function findResponsible(date, shift) {
-  const item = getScale().find(row => row.date === date && String(row.shift) === String(shift));
-  return item?.leader || 'Líder da manutenção não definido';
+function findResponsible(date, shift, crew = '') {
+  const items = getScale();
+  const recurring = crew ? items.find(row => row.crew === crew) : null;
+  if (recurring?.leader) return recurring.leader;
+  const legacy = items.find(row => row.date === date && String(row.shift) === String(shift));
+  return legacy?.leader || `Líder da equipe ${crew || '-'} não definido`;
 }
 
 function getHistory() {
@@ -397,7 +504,8 @@ function switchView(name) {
 
 function managementSummaryText(analysis) {
   const lines = [];
-  lines.push(`RELATÓRIO GERENCIAL - ${formatDate(analysis.date)} - ${analysis.shift}º TURNO`);
+  lines.push(`RELATÓRIO GERENCIAL - ${formatDate(analysis.date)} - EQUIPE ${analysis.crew}`);
+  lines.push(`Horário: ${analysis.schedule} | Recebido em: ${new Date(analysis.receivedAt).toLocaleString('pt-BR')}`);
   lines.push(`Líder da produção: ${analysis.productionLeader}`);
   if (analysis.realized) lines.push(`Produção realizada: ${formatNumber(analysis.realized)} unidades.`);
   if (analysis.plan) lines.push(`Plano: ${formatNumber(analysis.plan)} unidades | Atingimento: ${analysis.attainment}% | Diferença: ${formatNumber(analysis.gap)} unidades.`);
@@ -414,10 +522,10 @@ function maintenanceMessage() {
   if (!state.analysis) return '';
   const analysis = state.analysis;
   const approved = state.actions.filter(a => a.approved);
-  const responsible = findResponsible(analysis.date, analysis.shift);
+  const responsible = findResponsible(analysis.date, analysis.shift, analysis.crew);
   const lines = [
-    `*AÇÕES DA MANUTENÇÃO - ${analysis.shift}º TURNO*`,
-    `Data: ${formatDate(analysis.date)}`,
+    `*AÇÕES DA MANUTENÇÃO - EQUIPE ${analysis.crew}*`,
+    `Data operacional: ${formatDate(analysis.date)} | Horário: ${analysis.schedule}`, 
     `Produção: ${formatNumber(analysis.realized)} | OEE informado: ${analysis.reportedOee || '-'}%`,
     `Atingimento do plano: ${analysis.attainment ?? '-'}%`,
     `Responsável do turno: ${responsible}`,
@@ -448,8 +556,9 @@ function renderAnalysis() {
   $('analysisContent').classList.toggle('hidden', !analysis);
   if (!analysis) return;
 
-  $('analysisTitle').textContent = `${analysis.shift}º turno • ${formatDate(analysis.date)}`;
+  $('analysisTitle').textContent = `Equipe ${analysis.crew} • ${formatDate(analysis.date)} • ${analysis.schedule}`;
   const metrics = [
+    ['Equipe', analysis.crew || '-', analysis.schedule || '-'],
     ['Produção', analysis.realized ? formatNumber(analysis.realized) : '-', analysis.plan ? `Plano ${formatNumber(analysis.plan)}` : 'Plano não identificado'],
     ['OEE informado', analysis.reportedOee ? `${analysis.reportedOee}%` : '-', `Meta ${analysis.targetOee}%`],
     ['Atingimento', analysis.attainment != null ? `${analysis.attainment}%` : '-', analysis.gap != null ? `${formatNumber(analysis.gap)} abaixo do plano` : 'Sem comparação'],
@@ -465,6 +574,8 @@ function renderAnalysis() {
   if (analysis.trainingCount === 0 && analysis.trainingPeople.length) notes.push(`<li><strong>Divergência:</strong> treinamento informado como zero, mas há ${analysis.trainingPeople.length} nomes relacionados.</li>`);
   if (analysis.plan && analysis.attainment != null && analysis.reportedOee && Math.abs(analysis.attainment - analysis.reportedOee) > 5) notes.push(`<li><strong>Conferência:</strong> o volume representa ${analysis.attainment}% do plano, enquanto o OEE informado foi ${analysis.reportedOee}%.</li>`);
   if (analysis.laborShortageMachines.length) notes.push(`<li><strong>Mão de obra:</strong> ${analysis.laborShortageMachines.length} máquinas registradas sem operador.</li>`);
+  if (analysis.scheduleMismatch) notes.push(`<li><strong>Conferência de escala:</strong> o texto informa ${escapeHtml(analysis.expectedCrew)}, mas pelo horário e pela escala automática foi identificado ${escapeHtml(analysis.crew)}.</li>`);
+  if (analysis.reportedShift && analysis.reportedShift !== analysis.shift) notes.push(`<li><strong>Turno do relatório:</strong> o texto informa ${escapeHtml(analysis.reportedShift)}º turno. Para a escala 12x36, o aplicativo classificou como equipe ${escapeHtml(analysis.crew)} (${escapeHtml(analysis.schedule)}).</li>`);
 
   $('managementSummary').innerHTML = `
     <p><strong>${escapeHtml(analysis.productionLeader)}</strong> registrou ${formatNumber(analysis.realized)} unidades no turno. O resultado atingiu <strong>${analysis.attainment ?? '-'}%</strong> do plano informado.</p>
@@ -493,7 +604,7 @@ function renderActions() {
   $('actionsContent').classList.toggle('hidden', !has);
   if (!has) return;
 
-  const responsible = findResponsible(state.analysis.date, state.analysis.shift);
+  const responsible = findResponsible(state.analysis.date, state.analysis.shift, state.analysis.crew);
   $('responsibleBadge').textContent = responsible;
   $('actionsList').innerHTML = state.actions.map((action, index) => `
     <div class="action-card" data-action-id="${action.id}">
@@ -533,11 +644,12 @@ function renderActions() {
 }
 
 function renderScale() {
-  const items = getScale().sort((a, b) => `${b.date}${b.shift}`.localeCompare(`${a.date}${a.shift}`));
+  const order = { A1: 1, A2: 2, B1: 3, B2: 4 };
+  const items = getScale().filter(item => item.crew).sort((a, b) => (order[a.crew] || 99) - (order[b.crew] || 99));
   $('scaleList').innerHTML = items.length ? items.map(item => `
     <div class="list-item">
       <div>
-        <h3>${formatDate(item.date)} • ${escapeHtml(String(item.shift))}º turno</h3>
+        <h3>Equipe ${escapeHtml(item.crew)}</h3>
         <p><strong>${escapeHtml(item.leader)}</strong>${item.team ? ` — ${escapeHtml(item.team)}` : ''}</p>
       </div>
       <div class="list-actions">
@@ -545,19 +657,18 @@ function renderScale() {
         <button class="danger delete-scale" data-id="${item.id}">Excluir</button>
       </div>
     </div>
-  `).join('') : '<div class="empty-state"><h2>Nenhuma escala cadastrada</h2><p>Cadastre o líder do próximo turno para atribuir as ações automaticamente.</p></div>';
+  `).join('') : '<div class="empty-state"><h2>Nenhuma equipe cadastrada</h2><p>Cadastre os líderes das equipes A1, A2, B1 e B2.</p></div>';
 
   $$('.delete-scale').forEach(btn => btn.addEventListener('click', () => {
     saveScale(getScale().filter(item => item.id !== btn.dataset.id));
     renderScale();
-    showToast('Escala excluída.');
+    showToast('Equipe excluída.');
   }));
 
   $$('.edit-scale').forEach(btn => btn.addEventListener('click', () => {
     const item = getScale().find(row => row.id === btn.dataset.id);
     if (!item) return;
-    $('scaleDate').value = item.date;
-    $('scaleShift').value = item.shift;
+    $('scaleCrew').value = item.crew;
     $('scaleLeader').value = item.leader;
     $('scaleTeam').value = item.team || '';
     $('saveScaleBtn').dataset.editId = item.id;
@@ -570,7 +681,7 @@ function renderHistory() {
   $('historyList').innerHTML = history.length ? history.map(item => `
     <div class="list-item">
       <div>
-        <h3>${formatDate(item.date)} • ${escapeHtml(String(item.shift))}º turno</h3>
+        <h3>${formatDate(item.date)} • Equipe ${escapeHtml(item.crew || String(item.shift))}</h3>
         <p>${formatNumber(item.realized)} unidades | OEE ${item.reportedOee || '-'}% | ${item.actions?.length || 0} ações</p>
       </div>
       <div class="list-actions">
@@ -602,6 +713,9 @@ function buildSgmanPayload() {
     origem: 'TurnoSmart',
     data_relatorio: state.analysis.date,
     turno: state.analysis.shift,
+    equipe: state.analysis.crew,
+    horario_turno: state.analysis.schedule,
+    recebido_em: state.analysis.receivedAt,
     ativo: action.machine,
     tipo: 'Corretiva planejada',
     prioridade: action.priority,
@@ -648,7 +762,8 @@ function analyzeCurrentReport() {
     showToast('Cole o relatório antes de analisar.');
     return;
   }
-  const analysis = parseReport(text, $('reportDate').value, $('reportShift').value);
+  const scheduleInfo = detectOperationalShift($('reportReceivedAt').value, $('reportDate').value, $('reportShift').value, state.manualSchedule);
+  const analysis = parseReport(text, scheduleInfo);
   state.analysis = analysis;
   state.actions = generateActions(analysis);
 
@@ -657,6 +772,7 @@ function analyzeCurrentReport() {
     id: analysis.id,
     date: analysis.date,
     shift: analysis.shift,
+    crew: analysis.crew,
     realized: analysis.realized,
     reportedOee: analysis.reportedOee,
     analysis,
@@ -835,13 +951,37 @@ Aguardando
 1)falta de mão de obra e máquina preparada para amostras`;
 
 function init() {
-  $('reportDate').value = todayISO();
-  $('scaleDate').value = todayISO();
+  $('reportReceivedAt').value = toLocalDateTimeInput(new Date());
+  const config = getConfig();
+  $('referenceDate').value = config.referenceDate;
+  $('referenceLetter').value = config.referenceLetter;
+  updateDetectedShift();
 
   const draft = localStorage.getItem(STORAGE.draft);
   if (draft) $('reportText').value = draft;
 
   $$('.nav-btn').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.view)));
+  $('reportReceivedAt').addEventListener('change', () => {
+    state.manualSchedule = false;
+    $('manualFields').classList.add('hidden');
+    updateDetectedShift();
+  });
+  $('reportDate').addEventListener('change', () => { state.manualSchedule = true; updateDetectedShift(); });
+  $('reportShift').addEventListener('change', () => { state.manualSchedule = true; updateDetectedShift(); });
+  $('manualToggleBtn').addEventListener('click', () => {
+    const willShow = $('manualFields').classList.contains('hidden');
+    $('manualFields').classList.toggle('hidden');
+    state.manualSchedule = willShow;
+    updateDetectedShift();
+  });
+  $('saveReferenceBtn').addEventListener('click', () => {
+    const referenceDate = $('referenceDate').value;
+    const referenceLetter = $('referenceLetter').value;
+    if (!referenceDate) return showToast('Informe a data de referência.');
+    saveConfig({ referenceDate, referenceLetter });
+    updateDetectedShift();
+    showToast('Referência da escala salva.');
+  });
   $('analyzeBtn').addEventListener('click', analyzeCurrentReport);
   $('sampleBtn').addEventListener('click', () => { $('reportText').value = SAMPLE_REPORT; localStorage.setItem(STORAGE.draft, SAMPLE_REPORT); showToast('Exemplo carregado.'); });
   $('clearBtn').addEventListener('click', () => { $('reportText').value = ''; localStorage.removeItem(STORAGE.draft); });
@@ -867,15 +1007,14 @@ function init() {
   $('downloadPayloadBtn').addEventListener('click', () => downloadJson(`sgman-${state.analysis?.date || todayISO()}.json`, buildSgmanPayload()));
 
   $('saveScaleBtn').addEventListener('click', () => {
-    const date = $('scaleDate').value;
-    const shift = $('scaleShift').value;
+    const crew = $('scaleCrew').value;
     const leader = $('scaleLeader').value.trim();
     const team = $('scaleTeam').value.trim();
-    if (!date || !leader) return showToast('Informe a data e o líder.');
+    if (!crew || !leader) return showToast('Informe a equipe e o líder.');
     const items = getScale();
     const editId = $('saveScaleBtn').dataset.editId;
-    const duplicateIndex = items.findIndex(item => item.date === date && item.shift === shift && item.id !== editId);
-    const record = { id: editId || uid(), date, shift, leader, team };
+    const duplicateIndex = items.findIndex(item => item.crew === crew && item.id !== editId);
+    const record = { id: editId || uid(), crew, leader, team };
     let updated;
     if (editId) updated = items.map(item => item.id === editId ? record : item);
     else if (duplicateIndex >= 0) updated = items.map((item, index) => index === duplicateIndex ? { ...record, id: item.id } : item);
@@ -886,7 +1025,7 @@ function init() {
     $('scaleTeam').value = '';
     renderScale();
     if (state.analysis) {
-      const newResponsible = findResponsible(state.analysis.date, state.analysis.shift);
+      const newResponsible = findResponsible(state.analysis.date, state.analysis.shift, state.analysis.crew);
       state.actions.forEach(action => { if (action.machine !== 'GESTÃO' && action.machine !== 'TREINAMENTO') action.responsible = newResponsible; });
       renderActions();
     }

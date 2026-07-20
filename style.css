@@ -180,3 +180,23 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
   .list-actions { width: 100%; }
   .list-actions button { flex: 1; }
 }
+
+
+.detection-card {
+  margin-top: 12px;
+  border: 1px solid #99f6e4;
+  background: #f0fdfa;
+  border-radius: 16px;
+  padding: 14px;
+  line-height: 1.5;
+}
+.detection-card.warning { border-color: #fcd34d; background: #fffbeb; }
+.detection-card.error { border-color: #fca5a5; background: #fef2f2; }
+.detection-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.detection-main strong { font-size: 1.02rem; }
+.detection-card p { margin: 5px 0 0; color: #475569; font-size: .84rem; }
+.crew-pill { white-space: nowrap; display: inline-flex; border-radius: 999px; padding: 7px 11px; font-size: .78rem; font-weight: 900; background: #0f766e; color: white; }
+.compact-row { margin-top: 8px; }
+.reference-box { border: 1px solid var(--line); background: var(--surface-soft); border-radius: 16px; padding: 14px; margin-bottom: 14px; }
+.reference-box > strong { display: block; margin-bottom: 10px; }
+.reference-box button { margin-top: 10px; }
