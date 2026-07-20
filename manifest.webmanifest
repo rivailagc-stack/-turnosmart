@@ -1,0 +1,14 @@
+{
+  "name": "TurnoSmart - Produção e Manutenção",
+  "short_name": "TurnoSmart",
+  "description": "Analisa relatórios de produção e transforma ocorrências em ações de manutenção.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#eef2f7",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {"src":"icons/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},
+    {"src":"icons/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
+  ]
+}

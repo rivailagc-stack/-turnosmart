@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="TurnoSmart" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="style.css" />
+  <title>TurnoSmart</title>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">PRODUÇÃO + MANUTENÇÃO</div>
+      <h1>TurnoSmart</h1>
+    </div>
+    <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
+  </header>
+
+  <main class="app-shell">
+    <section id="view-novo" class="view active">
+      <div class="hero card">
+        <div>
+          <span class="badge">1ª versão</span>
+          <h2>Transforme a mensagem do turno em ações</h2>
+          <p>Cole o relatório recebido no WhatsApp. O aplicativo identifica produção, OEE, perdas, máquinas críticas e o líder responsável pela escala.</p>
+        </div>
+      </div>
+
+      <div class="card form-card">
+        <div class="grid two">
+          <label>Data do relatório
+            <input id="reportDate" type="date" />
+          </label>
+          <label>Turno
+            <select id="reportShift">
+              <option value="1">1º</option>
+              <option value="2">2º</option>
+              <option value="3" selected>3º</option>
+              <option value="B1">B1</option>
+              <option value="B2">B2</option>
+            </select>
+          </label>
+        </div>
+        <label>Mensagem do relatório
+          <textarea id="reportText" rows="20" placeholder="Cole aqui o relatório completo do grupo..."></textarea>
+        </label>
+        <div class="button-row">
+          <button id="analyzeBtn" class="primary" type="button">Analisar relatório</button>
+          <button id="sampleBtn" class="secondary" type="button">Carregar exemplo</button>
+          <button id="clearBtn" class="ghost" type="button">Limpar</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-analise" class="view">
+      <div id="emptyAnalysis" class="card empty-state">
+        <h2>Nenhuma análise ainda</h2>
+        <p>Cole um relatório e toque em “Analisar relatório”.</p>
+      </div>
+      <div id="analysisContent" class="hidden">
+        <div class="summary-grid" id="summaryCards"></div>
+
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">RESUMO DO TURNO</span>
+              <h2 id="analysisTitle">Análise</h2>
+            </div>
+            <button id="copySummaryBtn" class="secondary" type="button">Copiar resumo</button>
+          </div>
+          <div id="managementSummary" class="prose"></div>
+        </div>
+
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">MÁQUINAS</span>
+              <h2>Impactos registrados</h2>
+            </div>
+          </div>
+          <div id="machineTableWrap" class="table-wrap"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-acoes" class="view">
+      <div id="emptyActions" class="card empty-state">
+        <h2>Nenhuma ação gerada</h2>
+        <p>As ações aparecem depois da análise do relatório.</p>
+      </div>
+      <div id="actionsContent" class="hidden">
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">APROVAÇÃO</span>
+              <h2>Ações da manutenção</h2>
+            </div>
+            <span id="responsibleBadge" class="badge neutral">Responsável não definido</span>
+          </div>
+          <p class="muted">Revise, edite e marque somente o que deve seguir para a manutenção ou virar futura ordem no SGMan.</p>
+          <div id="actionsList" class="actions-list"></div>
+          <div class="button-row sticky-actions">
+            <button id="shareActionsBtn" class="primary" type="button">Compartilhar manutenção</button>
+            <button id="copyActionsBtn" class="secondary" type="button">Copiar mensagem</button>
+            <button id="sgmanPreviewBtn" class="ghost" type="button">Gerar OS simuladas</button>
+          </div>
+        </div>
+
+        <div id="sgmanPreview" class="card hidden">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">SGMAN</span>
+              <h2>Prévia das ordens</h2>
+            </div>
+            <button id="downloadPayloadBtn" class="secondary" type="button">Baixar JSON</button>
+          </div>
+          <pre id="sgmanJson"></pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-escala" class="view">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">RESPONSABILIDADE</span>
+            <h2>Escala dos líderes</h2>
+          </div>
+        </div>
+        <p class="muted">Cadastre quem responde por cada data e turno. O aplicativo usa essa escala automaticamente nas ações.</p>
+        <div class="grid three">
+          <label>Data
+            <input id="scaleDate" type="date" />
+          </label>
+          <label>Turno
+            <select id="scaleShift">
+              <option value="1">1º</option>
+              <option value="2">2º</option>
+              <option value="3" selected>3º</option>
+              <option value="B1">B1</option>
+              <option value="B2">B2</option>
+            </select>
+          </label>
+          <label>Líder da manutenção
+            <input id="scaleLeader" type="text" placeholder="Ex.: Emerson" />
+          </label>
+        </div>
+        <label>Equipe / observação
+          <input id="scaleTeam" type="text" placeholder="Ex.: Ricardo, Carlos e Jean" />
+        </label>
+        <div class="button-row">
+          <button id="saveScaleBtn" class="primary" type="button">Salvar escala</button>
+        </div>
+      </div>
+      <div class="card">
+        <div id="scaleList" class="list-stack"></div>
+      </div>
+    </section>
+
+    <section id="view-historico" class="view">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">ACOMPANHAMENTO</span>
+            <h2>Histórico de relatórios</h2>
+          </div>
+          <button id="exportHistoryBtn" class="secondary" type="button">Exportar histórico</button>
+        </div>
+        <div id="historyList" class="list-stack"></div>
+      </div>
+    </section>
+
+    <section id="view-config" class="view">
+      <div class="card">
+        <span class="eyebrow">INTEGRAÇÕES</span>
+        <h2>Configuração da primeira versão</h2>
+        <div class="integration-grid">
+          <div class="integration-item done">
+            <strong>Análise local</strong>
+            <span>Ativa</span>
+            <p>Funciona diretamente no celular, sem chave de API.</p>
+          </div>
+          <div class="integration-item done">
+            <strong>Compartilhamento</strong>
+            <span>Ativo</span>
+            <p>Usa o menu de compartilhamento do iPhone, incluindo WhatsApp.</p>
+          </div>
+          <div class="integration-item waiting">
+            <strong>WhatsApp automático</strong>
+            <span>Próxima etapa</span>
+            <p>Será conectado por número oficial e webhook.</p>
+          </div>
+          <div class="integration-item waiting">
+            <strong>SGMan</strong>
+            <span>Simulação</span>
+            <p>O aplicativo já monta o conteúdo das ordens em JSON.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card danger-zone">
+        <h2>Dados do aparelho</h2>
+        <p class="muted">Esta versão salva histórico e escala apenas neste navegador.</p>
+        <button id="resetAppBtn" class="danger" type="button">Apagar todos os dados</button>
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottom-nav" aria-label="Navegação principal">
+    <button class="nav-btn active" data-view="novo"><span>＋</span>Novo</button>
+    <button class="nav-btn" data-view="analise"><span>▦</span>Análise</button>
+    <button class="nav-btn" data-view="acoes"><span>✓</span>Ações</button>
+    <button class="nav-btn" data-view="escala"><span>◷</span>Escala</button>
+    <button class="nav-btn" data-view="historico"><span>≡</span>Histórico</button>
+    <button class="nav-btn" data-view="config"><span>⚙</span>Config</button>
+  </nav>
+
+  <div id="toast" class="toast" role="status"></div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
