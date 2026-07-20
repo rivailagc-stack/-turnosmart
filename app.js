@@ -482,6 +482,51 @@ function compactIssue(text = '') {
     .replace(/[.;]+$/, '');
 }
 
+function directMaintenanceAction(action) {
+  const key = normalizeKey(`${action.description || ''} ${action.action || ''}`);
+
+  if (/mangueira|reservatorio.*cola|cola.*faixa/.test(key)) {
+    return 'Trocar a mangueira da cola, conferir as conexões e testar.';
+  }
+  if (/variacao.*altura|altura.*variacao/.test(key)) {
+    return 'Eliminar a variação de altura e acompanhar a estabilidade.';
+  }
+  if (/tampao.*vaz|vaz.*tampao/.test(key)) {
+    return 'Eliminar o vazamento do tampão e testar sem reincidência.';
+  }
+  if (/faca/.test(key) && /estrela|saida/.test(key)) {
+    return 'Corrigir faca, estrela e saída e testar a máquina.';
+  }
+  if (/alarme.*lubrificacao|lubrificacao.*alarme/.test(key)) {
+    return 'Eliminar o alarme de lubrificação e testar.';
+  }
+  if (/faca.*fundo/.test(key)) {
+    return 'Corrigir faca e contrafaca do fundo e testar.';
+  }
+  if (/faca.*faixa/.test(key)) {
+    return 'Corrigir a faca da faixa e testar.';
+  }
+  if (/bobina.*estour|estour.*bobina/.test(key)) {
+    return 'Eliminar a causa da bobina estourando e acompanhar.';
+  }
+  if (/peca.*volt|volt.*peca|faixa.*volt|volt.*faixa/.test(key)) {
+    return 'Eliminar o retorno da peça ou faixa e acompanhar.';
+  }
+  if (/marcas.*parafuso/.test(key)) {
+    return 'Eliminar as marcas de parafuso e liberar após amostra aprovada.';
+  }
+  if (/garra/.test(key)) {
+    return 'Corrigir a garra e testar o ciclo da máquina.';
+  }
+
+  const first = firstSentence(action.action || 'Corrigir a falha e testar a máquina.');
+  return first.endsWith('.') ? first : `${first}.`;
+}
+
+function messageHtml(text = '') {
+  return `<div class="short-message">${escapeHtml(text)}</div>`;
+}
+
 function generateActions(analysis) {
   const actions = [];
   const maintenanceCategories = new Set(['breakdown', 'leak', 'variation', 'alarm', 'maintenance-quality', 'instability', 'missing', 'adjustment']);
@@ -729,15 +774,15 @@ function maintenanceMessage() {
   const lines = ['*AÇÕES DA MANUTENÇÃO*'];
 
   if (!shown.length) {
-    lines.push('Sem ação técnica pendente identificada.');
+    lines.push('Sem ação técnica pendente.');
   } else {
     shown.forEach((action, index) => {
-      const issue = compactIssue(action.description);
-      lines.push(`${index + 1}. *${action.machine}* — ${issue ? `${issue}. ` : ''}${action.action}`);
+      lines.push(`${index + 1}. *${action.machine}* — ${directMaintenanceAction(action)}`);
     });
-    if (approved.length > shown.length) lines.push(`+${approved.length - shown.length} ação(ões) no TurnoSmart.`);
+    if (approved.length > shown.length) lines.push(`+${approved.length - shown.length} ação(ões) pendente(s).`);
   }
 
+  lines.push('');
   lines.push('*Resolver durante o turno.*');
   lines.push('*SGMan:* apontar todas as OS e informar no grupo ao concluir.');
   return lines.join('\n');
@@ -887,16 +932,18 @@ function renderActions() {
   $('actionsContent').classList.toggle('hidden', !has);
   if (!has) return;
 
-  const maintenanceResponsible = findMaintenanceResponsible(state.analysis.responsibleDate, state.analysis.responsibleShift, state.analysis.responsibleCrew);
+  const maintenanceResponsible = findMaintenanceResponsible(
+    state.analysis.responsibleDate,
+    state.analysis.responsibleShift,
+    state.analysis.responsibleCrew
+  );
   const productionResponsible = findProductionResponsible(state.analysis.responsibleCrew);
-  $('responsibleBadge').textContent = `${state.analysis.responsibleCrew}: ${maintenanceResponsible}`;
-  $('productionResponsibleBadge').textContent = `${state.analysis.responsibleCrew}: ${productionResponsible}`;
 
-  const maintenanceActions = state.actions.filter(action => action.department === 'maintenance');
-  const productionActions = state.actions.filter(action => action.department === 'production');
-  $('maintenanceActionsList').innerHTML = actionCardsHtml(maintenanceActions);
-  $('productionActionsList').innerHTML = actionCardsHtml(productionActions);
-  bindActionCards();
+  $('responsibleBadge').textContent = maintenanceResponsible;
+  $('productionResponsibleBadge').textContent = productionResponsible;
+
+  $('maintenanceActionsList').innerHTML = messageHtml(maintenanceMessage());
+  $('productionActionsList').innerHTML = messageHtml(productionMessage());
 }
 
 function fillScaleForm(crew) {
@@ -1336,7 +1383,14 @@ function init() {
     $('installBtn').classList.add('hidden');
   });
 
-  if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', async () => {
+      try {
+        const registration = await navigator.serviceWorker.register('/sw.js?v=7.0.1');
+        registration.update();
+      } catch {}
+    });
+  }
 
   renderAnalysis();
   renderActions();
