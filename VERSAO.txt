@@ -1,3 +1,3 @@
-TurnoSmart V11.0.0
-Leitura guiada do quadro de OEE.
-Recorta somente a coluna correta, remove a grade, aumenta os números e exige confirmação em tabela.
+TurnoSmart V8.0.0
+Cruza relatório com foto do quadro de OEE.
+Mostra OEE abaixo de 65, reincidência e reforço do SGMan.

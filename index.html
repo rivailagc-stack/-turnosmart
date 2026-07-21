@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=10.0.0" />
+  <link rel="stylesheet" href="style.css?v=8.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -26,9 +26,9 @@
     <section id="view-novo" class="view active">
       <div class="hero card">
         <div>
-          <span class="badge">V10 • OEE 3 dias</span>
-          <h2>OEE do turno + histórico de 3 dias</h2>
-          <p>Cole o relatório e a foto do quadro. O app usa a coluna das últimas 12 horas e acumula os dados para mostrar o OEE dos últimos três dias.</p>
+          <span class="badge">V8 • Relatório + foto OEE</span>
+          <h2>Análise do relatório + quadro de OEE</h2>
+          <p>Cole o relatório e, se quiser, adicione a foto do quadro de OEE. O app cruza os dois dados e prioriza máquinas abaixo de 65%.</p>
         </div>
       </div>
 
@@ -56,16 +56,15 @@
         </label>
 
         <div class="oee-upload">
-          <label>Foto do quadro semanal de OEE (opcional)
+          <label>Foto do quadro de OEE (opcional)
             <input id="oeeImageInput" type="file" accept="image/*" />
           </label>
           <div id="oeePreviewWrap" class="hidden image-preview-wrap">
             <img id="oeePreview" alt="Prévia do quadro de OEE" class="image-preview" />
           </div>
-          <div class="reference-box"><strong>Regra das últimas 12 horas</strong><p id="oeeScopeHint" class="muted">O aplicativo vai indicar qual coluna do quadro deve ser usada.</p></div>
           <small id="oeeStatus" class="muted"></small>
-          <label>Texto da coluna do OEE usada na análise (pode corrigir)
-            <textarea id="oeeOcrText" rows="6" placeholder="Use somente a coluna indicada nas últimas 12 horas. Ex.:&#10;170 64%&#10;172 54%&#10;149 63%"></textarea>
+          <label>Texto lido da foto do OEE (opcional, pode corrigir)
+            <textarea id="oeeOcrText" rows="6" placeholder="Se a leitura automática errar, corrija aqui. Ex.:&#10;170 64%&#10;172 54%&#10;149 63%"></textarea>
           </label>
         </div>
         <div class="button-row">
@@ -121,7 +120,7 @@
             </div>
             <span id="responsibleBadge" class="badge neutral">Responsável não definido</span>
           </div>
-          <p class="muted">Ações técnicas com foco na coluna correta do quadro, OEE abaixo de 65, reincidência e SGMan.</p>
+          <p class="muted">Ações técnicas + OEE abaixo de 65 + reincidência + cobrança de uso do SGMan.</p>
           <div id="maintenanceActionsList" class="actions-list"></div>
           <div class="button-row sticky-actions">
             <button id="shareMaintenanceBtn" class="primary" type="button">Compartilhar manutenção</button>
@@ -155,48 +154,6 @@
             <button id="downloadPayloadBtn" class="secondary" type="button">Baixar JSON</button>
           </div>
           <pre id="sgmanJson"></pre>
-        </div>
-      </div>
-    </section>
-
-
-    <section id="view-oee" class="view">
-      <div id="emptyOeeDashboard" class="card empty-state">
-        <h2>Sem dados suficientes</h2>
-        <p>Analise os relatórios com o OEE das máquinas. O painel usará os últimos três dias salvos neste aparelho.</p>
-      </div>
-
-      <div id="oeeDashboardContent" class="hidden">
-        <div class="card">
-          <div class="section-head">
-            <div>
-              <span class="eyebrow">EMPRESA</span>
-              <h2>OEE geral dos últimos 3 dias</h2>
-            </div>
-          </div>
-          <div id="oeeDashboardCards" class="summary-grid"></div>
-        </div>
-
-        <div class="card">
-          <div class="section-head">
-            <div>
-              <span class="eyebrow">PRIORIDADE</span>
-              <h2>Máquinas que precisam de ação</h2>
-            </div>
-          </div>
-          <p class="muted">Prioridade quando a média fica abaixo de 65%, quando há duas ou mais leituras abaixo de 65% ou quando a tendência está caindo.</p>
-          <div id="oeePriorityList" class="priority-oee-list"></div>
-        </div>
-
-        <div class="card">
-          <div class="section-head">
-            <div>
-              <span class="eyebrow">MÁQUINA POR MÁQUINA</span>
-              <h2>OEE das últimas 72 horas</h2>
-            </div>
-          </div>
-          <p class="muted">Quando existem os turnos A e B no mesmo dia, o aplicativo mostra a média diária e os dois resultados abaixo.</p>
-          <div id="oeeMachineTable" class="table-wrap"></div>
         </div>
       </div>
     </section>
@@ -269,7 +226,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 10</h2>
+        <h2>Configuração da versão 8</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -306,7 +263,6 @@
     <button class="nav-btn active" data-view="novo"><span>＋</span>Novo</button>
     <button class="nav-btn" data-view="analise"><span>▦</span>Análise</button>
     <button class="nav-btn" data-view="acoes"><span>✓</span>Ações</button>
-    <button class="nav-btn" data-view="oee"><span>%</span>OEE 3 dias</button>
     <button class="nav-btn" data-view="escala"><span>◷</span>Escala</button>
     <button class="nav-btn" data-view="historico"><span>≡</span>Histórico</button>
     <button class="nav-btn" data-view="config"><span>⚙</span>Config</button>
@@ -315,6 +271,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=10.0.0" defer></script>
+  <script src="app.js?v=8.0.0" defer></script>
 </body>
 </html>
