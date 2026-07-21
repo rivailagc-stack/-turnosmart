@@ -1,7 +1,7 @@
 {
   "name": "TurnoSmart - Produção e Manutenção",
   "short_name": "TurnoSmart",
-  "description": "Separa relatórios de manutenção e produção, com foco em OEE, retrabalho e apontamentos no SGMan.",
+  "description": "Analisa turnos e permite abrir ordens no SGMan por foto, voz ou texto.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#eef2f7",

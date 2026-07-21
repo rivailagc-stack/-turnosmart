@@ -193,7 +193,12 @@ const state = {
     recurrentMachines: 0,
     rows: [],
     note: 'Aguardando dados exclusivamente do SGMan.'
-  }
+  },
+  quickOsPhotoDataUrl: '',
+  quickOsRecognition: null,
+  quickOsListening: false,
+  quickOsSending: false,
+  quickOsContext: null
 };
 
 const $ = id => document.getElementById(id);
@@ -310,6 +315,514 @@ function getIncomingResponsibility(operationalDate, deliveredShift) {
   const crew = `${crewLetterForDate(date)}${incomingShift}`;
   const schedule = incomingShift === '1' ? '06:00 às 18:00' : '18:00 às 06:00';
   return { date, shift: incomingShift, crew, schedule };
+}
+
+function detectWorkingCrew(dateTimeValue = '') {
+  const date = dateTimeValue ? new Date(dateTimeValue) : new Date();
+
+  if (Number.isNaN(date.getTime())) {
+    return {
+      valid: false,
+      reason: 'Data ou horário inválido.'
+    };
+  }
+
+  const hour = date.getHours();
+  let operationalDate = dateToISO(date);
+  let shift;
+  let schedule;
+
+  if (hour < 6) {
+    operationalDate = addDaysISO(operationalDate, -1);
+    shift = '2';
+    schedule = '18:00 às 06:00';
+  } else if (hour < 18) {
+    shift = '1';
+    schedule = '06:00 às 18:00';
+  } else {
+    shift = '2';
+    schedule = '18:00 às 06:00';
+  }
+
+  const letter = crewLetterForDate(operationalDate);
+  const crew = `${letter}${shift}`;
+  const scale = getScaleRecord(crew);
+  const roster = findSgmanTeamExecutantes(crew);
+  const leader = resolveSgmanUsername(scale.sgmanExecutante) ||
+    String(scale.sgmanExecutante || '').trim();
+
+  return {
+    valid: true,
+    date,
+    operationalDate,
+    shift,
+    schedule,
+    crew,
+    leader,
+    leaderName: scale.maintenanceLeader || '',
+    roster,
+    scale
+  };
+}
+
+function populateQuickOsMachineSelect(selectedValue = '') {
+  const select = $('quickOsMachine');
+  if (!select) return;
+
+  const config = getConfig();
+  const machines = uniqueStrings([
+    ...Object.keys(config.sgmanTagMap || {}),
+    ...OEE_BOARD_MACHINES
+  ]).sort((a, b) =>
+    a.localeCompare(b, 'pt-BR', { numeric: true })
+  );
+
+  select.innerHTML = `
+    <option value="">Selecione a máquina</option>
+    ${machines.map(machine => {
+      const hasTag = Boolean(config.sgmanTagMap?.[machine]);
+      return `
+        <option value="${escapeHtml(machine)}">
+          ${escapeHtml(machine)}${hasTag ? '' : ' — TAG não cadastrada'}
+        </option>`;
+    }).join('')}
+  `;
+
+  if (selectedValue && machines.includes(selectedValue)) {
+    select.value = selectedValue;
+  }
+}
+
+function updateQuickOsContext() {
+  const context = detectWorkingCrew(
+    $('quickOsDateTime')?.value || toLocalDateTimeInput(new Date())
+  );
+
+  state.quickOsContext = context;
+
+  const card = $('quickOsDetection');
+  const executanteSelect = $('quickOsExecutante');
+
+  if (!context.valid) {
+    if (card) {
+      card.innerHTML = '<strong>Não foi possível identificar a equipe.</strong>';
+    }
+    if (executanteSelect) {
+      executanteSelect.innerHTML = '<option value="">Não definido</option>';
+    }
+    return;
+  }
+
+  if (card) {
+    card.innerHTML = `
+      <strong>Equipe trabalhando: ${escapeHtml(context.crew)}</strong>
+      <span>${escapeHtml(context.schedule)} • Data operacional ${escapeHtml(formatDate(context.operationalDate))}</span>
+      <span>Líder automático: ${escapeHtml(
+        context.leader
+          ? sgmanUserLabel(context.leader)
+          : 'não cadastrado'
+      )}</span>`;
+  }
+
+  if (executanteSelect) {
+    const roster = context.roster || [];
+    executanteSelect.innerHTML = roster.length
+      ? roster.map((username, index) => `
+          <option value="${escapeHtml(username)}" ${index === 0 ? 'selected' : ''}>
+            ${index === 0 ? 'Líder automático — ' : ''}${escapeHtml(sgmanUserLabel(username))}
+          </option>
+        `).join('')
+      : '<option value="">Cadastre a equipe na Escala</option>';
+  }
+}
+
+function detectQuickMachineFromText(text = '') {
+  const machine = machineKeyFromText(text);
+  if (!machine) return;
+
+  populateQuickOsMachineSelect(machine);
+
+  if ($('quickOsMachine')) {
+    $('quickOsMachine').value = machine;
+  }
+
+  updateQuickOsTagStatus();
+}
+
+function updateQuickOsTagStatus() {
+  const machine = $('quickOsMachine')?.value || '';
+  const tag = getConfig().sgmanTagMap?.[machine] || '';
+  const status = $('quickOsTagStatus');
+
+  if (!status) return;
+
+  if (!machine) {
+    status.textContent = 'Escolha a máquina ou fale o código, por exemplo: “MK 172”.';
+    status.className = 'integration-status';
+  } else if (!tag) {
+    status.textContent = `${machine}: TAG ainda não cadastrada na Configuração.`;
+    status.className = 'integration-status error';
+  } else {
+    status.textContent = `${machine}: TAG SGMan ${tag}.`;
+    status.className = 'integration-status success';
+  }
+}
+
+async function compressQuickOsPhoto(file) {
+  const original = await dataUrlFromFile(file);
+  const image = await loadImageElement(original);
+
+  const maxDimension = 1280;
+  const scale = Math.min(
+    1,
+    maxDimension / Math.max(image.width, image.height)
+  );
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(image.width * scale));
+  canvas.height = Math.max(1, Math.round(image.height * scale));
+
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+  return canvas.toDataURL('image/jpeg', 0.76);
+}
+
+function quickOsAutomaticResolution(problem = '') {
+  const action = {
+    description: problem,
+    action: 'Verificar a causa, corrigir a falha e testar a máquina.'
+  };
+
+  return directMaintenanceAction(action)
+    .replace(/\.$/, '')
+    .trim();
+}
+
+function buildQuickSgmanOrder() {
+  const dateTime = $('quickOsDateTime')?.value || '';
+  const context = detectWorkingCrew(dateTime);
+  const machine = $('quickOsMachine')?.value || '';
+  const problem = compactIssue($('quickOsProblem')?.value || '');
+  const manualResolution = compactIssue(
+    $('quickOsResolution')?.value || ''
+  );
+  const executante = $('quickOsExecutante')?.value || context.leader || '';
+  const priority = $('quickOsPriority')?.value || 'Média';
+  const machineStopped = $('quickOsMachineStopped')?.checked ? 1 : 0;
+  const tag = getConfig().sgmanTagMap?.[machine] || '';
+
+  if (!context.valid) {
+    return { error: 'Data ou horário inválido.' };
+  }
+
+  if (!machine) {
+    return { error: 'Selecione a máquina.' };
+  }
+
+  if (!tag) {
+    return {
+      error: `Cadastre a TAG da ${machine} na tela Config.`
+    };
+  }
+
+  if (!problem) {
+    return {
+      error: 'Escreva ou fale o problema encontrado.'
+    };
+  }
+
+  if (!executante) {
+    return {
+      error: `Cadastre o líder da equipe ${context.crew} na Escala.`
+    };
+  }
+
+  const resolution = manualResolution ||
+    quickOsAutomaticResolution(problem);
+
+  const serviceAction = {
+    machine,
+    description: problem,
+    action: resolution
+  };
+
+  const config = getConfig();
+  const tipoServicoConfig = String(
+    config.sgmanTipoServico || 'AUTOMÁTICO'
+  ).trim();
+
+  const tipoManutencaoConfig = String(
+    config.sgmanTipoManutencao || 'AUTOMÁTICO'
+  ).trim();
+
+  const timestamp = Date.now();
+
+  const order = {
+    data_programada: formatSgmanDateTime(
+      dateTime ? new Date(dateTime) : new Date()
+    ),
+    qtd_executantes: 1,
+    tag,
+    prioridade: priority,
+    id_ext: `turnosmart-rapida-${timestamp}-${machine}`.slice(0, 100),
+    pendente: 1,
+    duracao_estimada: String(
+      config.sgmanDuracaoEstimada || '01:00'
+    ),
+    descricao: `${machine} - ${problem}`.slice(0, 500),
+    comentario: [
+      `Problema: ${problem}.`,
+      `Possível resolução: ${resolution}.`,
+      'Atenção: testar a máquina, confirmar estabilidade e liberar somente após verificar que o defeito não voltou, evitando retrabalho.'
+    ].join(' ').slice(0, 2000),
+    maquina_parada: machineStopped,
+    executante,
+    tipo_servico:
+      normalizeKey(tipoServicoConfig) === 'automatico'
+        ? automaticSgmanServiceType(serviceAction)
+        : tipoServicoConfig,
+    tipo_manutencao:
+      normalizeKey(tipoManutencaoConfig) === 'automatico'
+        ? automaticSgmanMaintenanceType(serviceAction)
+        : tipoManutencaoConfig
+  };
+
+  if (state.quickOsPhotoDataUrl) {
+    order.fotos = [
+      {
+        base64: state.quickOsPhotoDataUrl
+      }
+    ];
+  }
+
+  return {
+    order,
+    context,
+    machine,
+    problem,
+    resolution
+  };
+}
+
+function renderQuickOsResult(data) {
+  const target = $('quickOsResult');
+  if (!target) return;
+
+  const result = Array.isArray(data?.results)
+    ? data.results[0]
+    : null;
+
+  if (!result) {
+    target.textContent = JSON.stringify(data, null, 2);
+    return;
+  }
+
+  const orderNumber = result.order_number || result.order_id || '';
+  const label = resultStatusLabel(result.status);
+  const responseText = typeof result.response === 'string'
+    ? result.response
+    : JSON.stringify(result.response, null, 2);
+
+  target.innerHTML = `
+    <div class="sgman-result-row ${escapeHtml(result.status)}">
+      <strong>${label} — ${escapeHtml(result.machine || result.tag || '-')}</strong>
+      ${orderNumber ? `<span>OS: ${escapeHtml(String(orderNumber))}</span>` : ''}
+      <span><strong>Executante:</strong> ${escapeHtml(result.executante || '-')}</span>
+      <span>${escapeHtml(result.reason || '')}</span>
+      <details>
+        <summary>Ver resposta do SGMan</summary>
+        <pre>${escapeHtml(responseText || 'Resposta vazia')}</pre>
+      </details>
+    </div>`;
+}
+
+function clearQuickOsForm(keepContext = true) {
+  $('quickOsProblem').value = '';
+  $('quickOsResolution').value = '';
+  $('quickOsPhotoInput').value = '';
+  $('quickOsPhotoPreview').src = '';
+  $('quickOsPhotoWrap').classList.add('hidden');
+  $('quickOsSpeechStatus').textContent = '';
+  state.quickOsPhotoDataUrl = '';
+
+  if (!keepContext) {
+    $('quickOsMachine').value = '';
+  }
+
+  updateQuickOsTagStatus();
+}
+
+async function sendQuickOsToSgman() {
+  if (state.quickOsSending) {
+    showToast('A OS já está sendo enviada.');
+    return;
+  }
+
+  const built = buildQuickSgmanOrder();
+
+  if (built.error) {
+    showToast(built.error);
+    $('quickOsResult').textContent = built.error;
+    return;
+  }
+
+  const { order, context, resolution } = built;
+
+  const confirmed = window.confirm(
+    `Criar esta OS no SGMan?\n\n` +
+    `Equipe: ${context.crew}\n` +
+    `Executante: ${order.executante}\n` +
+    `Máquina: ${order.tag}\n` +
+    `Problema: ${order.descricao}\n` +
+    `Possível resolução: ${resolution}\n` +
+    `Foto: ${order.fotos?.length ? 'sim' : 'não'}`
+  );
+
+  if (!confirmed) return;
+
+  const button = $('quickOsSendBtn');
+
+  try {
+    state.quickOsSending = true;
+    button.disabled = true;
+    button.textContent = 'Enviando...';
+    $('quickOsResult').textContent =
+      'Enviando uma OS ao SGMan...';
+
+    const response = await fetch('/api/sgman', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        orders: [order]
+      })
+    });
+
+    const data = await response.json().catch(() => ({
+      ok: false,
+      error: 'Resposta inválida do conector.'
+    }));
+
+    if (!response.ok) {
+      throw new Error(data.error || `Erro HTTP ${response.status}`);
+    }
+
+    renderQuickOsResult(data);
+
+    const confirmedResult = (data.results || []).some(
+      result => result.status === 'confirmed'
+    );
+
+    if (confirmedResult) {
+      showToast('OS aberta e confirmada pelo SGMan.');
+      clearQuickOsForm(true);
+      await refreshSgmanHistory(false);
+    } else {
+      showToast('O SGMan não confirmou a abertura. Veja a resposta.');
+    }
+  } catch (error) {
+    $('quickOsResult').textContent =
+      `Falha ao abrir a OS: ${error.message}`;
+    showToast('Falha ao abrir a OS.');
+  } finally {
+    state.quickOsSending = false;
+    button.disabled = false;
+    button.textContent = 'Criar OS no SGMan';
+  }
+}
+
+function startQuickOsSpeech() {
+  const Recognition =
+    window.SpeechRecognition ||
+    window.webkitSpeechRecognition;
+
+  if (!Recognition) {
+    $('quickOsSpeechStatus').textContent =
+      'O reconhecimento de voz não está disponível neste navegador. Digite o problema no campo abaixo.';
+    showToast('Ditado por voz não disponível.');
+    return;
+  }
+
+  if (state.quickOsListening && state.quickOsRecognition) {
+    state.quickOsRecognition.stop();
+    return;
+  }
+
+  const recognition = new Recognition();
+  state.quickOsRecognition = recognition;
+  recognition.lang = 'pt-BR';
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+
+  let finalTranscript = '';
+
+  recognition.onstart = () => {
+    state.quickOsListening = true;
+    $('quickOsSpeechBtn').textContent = 'Parar áudio';
+    $('quickOsSpeechStatus').textContent =
+      'Ouvindo... fale a máquina e o problema.';
+  };
+
+  recognition.onresult = event => {
+    let interimTranscript = '';
+
+    for (
+      let index = event.resultIndex;
+      index < event.results.length;
+      index++
+    ) {
+      const transcript = event.results[index][0].transcript;
+
+      if (event.results[index].isFinal) {
+        finalTranscript += `${transcript} `;
+      } else {
+        interimTranscript += transcript;
+      }
+    }
+
+    const existing = $('quickOsProblem').dataset.beforeSpeech || '';
+    const combined = `${existing} ${finalTranscript || interimTranscript}`
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    $('quickOsProblem').value = combined;
+    detectQuickMachineFromText(combined);
+  };
+
+  recognition.onerror = event => {
+    const messages = {
+      'not-allowed': 'Permissão do microfone negada.',
+      'no-speech': 'Nenhuma fala foi detectada.',
+      'audio-capture': 'Microfone não encontrado.',
+      network: 'Falha de rede durante o reconhecimento.'
+    };
+
+    $('quickOsSpeechStatus').textContent =
+      messages[event.error] ||
+      `Não foi possível reconhecer o áudio: ${event.error}.`;
+  };
+
+  recognition.onend = () => {
+    state.quickOsListening = false;
+    $('quickOsSpeechBtn').textContent = 'Falar o problema';
+    $('quickOsProblem').dataset.beforeSpeech = '';
+    $('quickOsSpeechStatus').textContent =
+      $('quickOsProblem').value
+        ? 'Áudio convertido em texto. Confira antes de enviar.'
+        : 'O áudio terminou sem texto reconhecido.';
+  };
+
+  $('quickOsProblem').dataset.beforeSpeech =
+    $('quickOsProblem').value.trim();
+
+  recognition.start();
 }
 
 function detectOperationalShift(receivedAtValue, manualDate = '', manualShift = '', forceManual = false) {
@@ -3767,6 +4280,11 @@ function init() {
   updateOeeScopeHint();
   fillScaleForm('A1');
 
+  $('quickOsDateTime').value = toLocalDateTimeInput(new Date());
+  populateQuickOsMachineSelect();
+  updateQuickOsContext();
+  updateQuickOsTagStatus();
+
   state.sgmanHistory = getCachedSgmanHistory();
   renderSgmanDailyStatus();
   refreshSgmanHistory(false);
@@ -3775,6 +4293,54 @@ function init() {
   if (draft) $('reportText').value = draft;
 
   $$('.nav-btn').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.view)));
+
+  $('openQuickOsBtn').addEventListener('click', () => {
+    $('quickOsDateTime').value = toLocalDateTimeInput(new Date());
+    populateQuickOsMachineSelect($('quickOsMachine').value);
+    updateQuickOsContext();
+    switchView('osrapida');
+  });
+
+  $('quickOsDateTime').addEventListener('change', updateQuickOsContext);
+  $('quickOsMachine').addEventListener('change', updateQuickOsTagStatus);
+  $('quickOsProblem').addEventListener('input', event => {
+    detectQuickMachineFromText(event.target.value);
+  });
+  $('quickOsSpeechBtn').addEventListener('click', startQuickOsSpeech);
+
+  $('quickOsPhotoInput').addEventListener('change', async event => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      $('quickOsPhotoStatus').textContent = 'Preparando a foto...';
+      const dataUrl = await compressQuickOsPhoto(file);
+      state.quickOsPhotoDataUrl = dataUrl;
+      $('quickOsPhotoPreview').src = dataUrl;
+      $('quickOsPhotoWrap').classList.remove('hidden');
+      $('quickOsPhotoStatus').textContent =
+        'Foto pronta para ser anexada à OS.';
+    } catch (error) {
+      state.quickOsPhotoDataUrl = '';
+      $('quickOsPhotoStatus').textContent =
+        `Não foi possível preparar a foto: ${error.message}`;
+    }
+  });
+
+  $('quickOsRemovePhotoBtn').addEventListener('click', () => {
+    state.quickOsPhotoDataUrl = '';
+    $('quickOsPhotoInput').value = '';
+    $('quickOsPhotoPreview').src = '';
+    $('quickOsPhotoWrap').classList.add('hidden');
+    $('quickOsPhotoStatus').textContent = 'Foto removida.';
+  });
+
+  $('quickOsSendBtn').addEventListener('click', sendQuickOsToSgman);
+  $('quickOsClearBtn').addEventListener('click', () => {
+    clearQuickOsForm(false);
+    $('quickOsResult').textContent = '';
+    showToast('Formulário da OS limpo.');
+  });
   $('reportReceivedAt').addEventListener('change', () => {
     state.manualSchedule = false;
     $('manualFields').classList.add('hidden');
@@ -4030,6 +4596,8 @@ function init() {
 
     $('sgmanTagMap').value = stringifySgmanTagMap(tagMap);
     $('sgmanTagCount').textContent = `${Object.keys(tagMap).length} TAG(s) reconhecida(s).`;
+    populateQuickOsMachineSelect($('quickOsMachine')?.value || '');
+    updateQuickOsTagStatus();
     showToast(`${Object.keys(tagMap).length} TAG(s) do SGMan salva(s).`);
   });
   $('testSgmanBtn').addEventListener('click', getSgmanConnectorStatus);
@@ -4079,7 +4647,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=29.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=30.0.0');
         registration.update();
       } catch {}
     });

@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=29.0.0" />
+  <link rel="stylesheet" href="style.css?v=30.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -26,9 +26,12 @@
     <section id="view-novo" class="view active">
       <div class="hero card">
         <div>
-          <span class="badge">V29 • Rosental incluído</span>
-          <h2>Distribuição das OS para líder e mecânicos</h2>
-          <p>As ordens são distribuídas em rodízio entre o líder e os três mecânicos da equipe que está entrando.</p>
+          <span class="badge">V30 • OS por foto e áudio</span>
+          <h2>Relatórios e abertura rápida de OS</h2>
+          <p>Abra uma OS por foto ou voz, com o líder do horário selecionado automaticamente.</p>
+          <div class="button-row">
+            <button id="openQuickOsBtn" class="primary" type="button">📷 🎙 Abrir OS rápida</button>
+          </div>
         </div>
       </div>
 
@@ -103,6 +106,99 @@
           <button id="sampleBtn" class="secondary" type="button">Carregar exemplo</button>
           <button id="clearBtn" class="ghost" type="button">Limpar</button>
         </div>
+      </div>
+    </section>
+
+
+    <section id="view-osrapida" class="view">
+      <div class="hero card quick-os-hero">
+        <div>
+          <span class="badge">FOTO + ÁUDIO + SGMAN</span>
+          <h2>Abrir ordem de serviço</h2>
+          <p>Tire uma foto ou fale o problema. O aplicativo identifica a equipe pelo horário e seleciona o líder automaticamente.</p>
+        </div>
+      </div>
+
+      <div class="card form-card">
+        <label>Data e horário da ocorrência
+          <input id="quickOsDateTime" type="datetime-local" />
+        </label>
+
+        <div id="quickOsDetection" class="detection-card" aria-live="polite"></div>
+
+        <div class="grid two">
+          <label>Máquina
+            <select id="quickOsMachine">
+              <option value="">Selecione a máquina</option>
+            </select>
+          </label>
+
+          <label>Responsável no SGMan
+            <select id="quickOsExecutante">
+              <option value="">Líder automático</option>
+            </select>
+          </label>
+
+          <label>Prioridade
+            <select id="quickOsPriority">
+              <option value="Alta">Alta</option>
+              <option value="Média" selected>Média</option>
+              <option value="Baixa">Baixa</option>
+            </select>
+          </label>
+
+          <label class="check-field">
+            <input id="quickOsMachineStopped" type="checkbox" />
+            Máquina parada
+          </label>
+        </div>
+
+        <p id="quickOsTagStatus" class="integration-status"></p>
+
+        <div class="quick-os-capture-grid">
+          <div class="capture-card">
+            <strong>📷 Tirar foto</strong>
+            <p>A foto será comprimida e anexada à ordem no SGMan.</p>
+            <label class="file-action">
+              Abrir câmera
+              <input id="quickOsPhotoInput" type="file" accept="image/*" capture="environment" />
+            </label>
+            <small id="quickOsPhotoStatus" class="muted"></small>
+          </div>
+
+          <div class="capture-card">
+            <strong>🎙 Falar o problema</strong>
+            <p>O áudio vira texto. Confira a descrição antes de enviar.</p>
+            <button id="quickOsSpeechBtn" class="secondary" type="button">Falar o problema</button>
+            <small id="quickOsSpeechStatus" class="muted"></small>
+          </div>
+        </div>
+
+        <div id="quickOsPhotoWrap" class="hidden image-preview-wrap quick-photo-wrap">
+          <span class="preview-label">Foto que será anexada</span>
+          <img id="quickOsPhotoPreview" class="image-preview" alt="Foto da ocorrência" />
+          <button id="quickOsRemovePhotoBtn" class="ghost" type="button">Remover foto</button>
+        </div>
+
+        <label>Problema encontrado
+          <textarea id="quickOsProblem" rows="6" placeholder="Ex.: MK 172 com variação de altura e faca fora de posição."></textarea>
+        </label>
+
+        <label>Possível resolução — opcional
+          <textarea id="quickOsResolution" rows="4" placeholder="Deixe vazio para o aplicativo sugerir uma ação."></textarea>
+        </label>
+
+        <div class="reference-box">
+          <strong>Como será aberta</strong>
+          <p>Tipo de manutenção corretiva, um executante, comentário direto com problema, possível resolução e alerta para testar e evitar retrabalho.</p>
+        </div>
+
+        <div class="button-row">
+          <button id="quickOsSendBtn" class="primary" type="button">Criar OS no SGMan</button>
+          <button id="quickOsClearBtn" class="ghost" type="button">Limpar</button>
+        </div>
+
+        <div id="quickOsResult" class="integration-result quick-os-result"></div>
       </div>
     </section>
 
@@ -365,7 +461,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 29</h2>
+        <h2>Configuração da versão 30</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -472,6 +568,7 @@
 
   <nav class="bottom-nav" aria-label="Navegação principal">
     <button class="nav-btn active" data-view="novo"><span>＋</span>Novo</button>
+    <button class="nav-btn quick-nav" data-view="osrapida"><span>📷</span>Abrir OS</button>
     <button class="nav-btn" data-view="analise"><span>▦</span>Análise</button>
     <button class="nav-btn" data-view="acoes"><span>✓</span>Ações</button>
     <button class="nav-btn" data-view="oee"><span>%</span>OEE 3 dias</button>
@@ -483,6 +580,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=29.0.0"></script>
+  <script src="app.js?v=30.0.0"></script>
 </body>
 </html>

@@ -1,12 +1,17 @@
-# Testes da V28
+# Testes da V30
 
-1. Abra Escala.
-2. Selecione A1, A2, B1 e B2.
-3. Confirme líder e três mecânicos em cada equipe.
-4. Analise um relatório com pelo menos quatro OS.
-5. Abra a prévia do SGMan.
-6. Confirme a distribuição entre quatro pessoas.
-7. Envie uma OS de teste.
-8. Confira se a resposta mostra o executante correto.
-9. Envie as restantes e confirme o rodízio.
-10. Verifique que o comentário continua apenas com problema, possível resolução e alerta contra retrabalho.
+1. Abra a tela Abrir OS.
+2. Confira a equipe e o líder identificados pelo horário.
+3. Troque a data para um turno A1, A2, B1 e B2.
+4. Fale “MK 172 com variação de altura”.
+5. Confirme se MK-172 foi selecionada.
+6. Tire uma foto e confira a prévia.
+7. Crie uma OS de teste.
+8. Confira no SGMan:
+   - executante;
+   - TAG;
+   - descrição;
+   - comentário;
+   - foto anexada.
+9. Teste a abertura sem foto.
+10. Teste escolher um mecânico em vez do líder.

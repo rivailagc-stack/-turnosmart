@@ -1,4 +1,7 @@
-TurnoSmart V29.0.0
-Incluído Rosental Lima no diretório de usuários do SGMan.
-Login exato: Rosental.Lima
-Disponível para seleção como líder ou mecânico em qualquer equipe.
+TurnoSmart V30.0.0
+Nova tela Abrir OS.
+Permite tirar foto e anexar ao SGMan.
+Permite ditar o problema pelo microfone e transformar em texto.
+Identifica automaticamente a equipe trabalhando pela data e horário.
+Seleciona o líder da equipe como executante padrão.
+Também permite escolher outro integrante da equipe.
