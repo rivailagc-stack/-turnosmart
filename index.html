@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=15.0.0" />
+  <link rel="stylesheet" href="style.css?v=18.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -26,9 +26,9 @@
     <section id="view-novo" class="view active">
       <div class="hero card">
         <div>
-          <span class="badge">V15 • Líder automático</span>
-          <h2>Executante automático por equipe</h2>
-          <p>O executante da OS é escolhido automaticamente pela equipe que está entrando. Você cadastra cada líder apenas uma vez.</p>
+          <span class="badge">V18 • Manutenção automática</span>
+          <h2>Tipo de serviço e manutenção automáticos</h2>
+          <p>O aplicativo usa os nomes exatos cadastrados no SGMan e classifica automaticamente o tipo de serviço e o tipo de manutenção.</p>
         </div>
       </div>
 
@@ -305,7 +305,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 15</h2>
+        <h2>Configuração da versão 18</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -341,18 +341,44 @@
         </div>
 
         <p id="sgmanConnectorStatus" class="integration-status">Verificando conector...</p>
+        <div class="reference-box">
+          <strong>Tipos confirmados no SGMan</strong>
+          <p>Para falhas do relatório será usado tipo de manutenção CORRETIVA. O app também reconhece preventiva, melhoria, programação, qualidade, segurança, teste, troca de altura e troca de molde.</p>
+        </div>
 
         <div class="grid two">
           <label>Executante de emergência
             <input id="sgmanExecutante" type="text" placeholder="Usado apenas se a equipe não estiver cadastrada" />
           </label>
 
-          <label>Tipo de serviço
-            <input id="sgmanTipoServico" type="text" value="Mecânica" />
+          <label>Tipo de serviço no SGMan
+            <select id="sgmanTipoServico">
+              <option value="AUTOMÁTICO">Automático conforme a falha</option>
+              <option value="003 MECÂNICO">003 MECÂNICO</option>
+              <option value="007 ELETRICA">007 ELETRICA</option>
+              <option value="009 LUBRIFICAR">009 LUBRIFICAR</option>
+              <option value="010 PROGRAMAÇÃO">010 PROGRAMAÇÃO</option>
+              <option value="011 TROCA">011 TROCA</option>
+              <option value="014 REGULAGEM MECÂNICA">014 REGULAGEM MECÂNICA</option>
+              <option value="015 PNEUMÁTICA">015 PNEUMÁTICA</option>
+              <option value="016 COLOCAR CALÇO">016 COLOCAR CALÇO</option>
+            </select>
           </label>
 
-          <label>Tipo de manutenção
-            <input id="sgmanTipoManutencao" type="text" value="Corretiva" />
+          <label>Tipo de manutenção no SGMan
+            <select id="sgmanTipoManutencao">
+              <option value="AUTOMÁTICO">Automático conforme a ocorrência</option>
+              <option value="CORRETIVA">CORRETIVA</option>
+              <option value="MELHORIA">MELHORIA</option>
+              <option value="PREVENTIVA">PREVENTIVA</option>
+              <option value="PROGRAMAÇÃO">PROGRAMAÇÃO</option>
+              <option value="QUALIDADE">QUALIDADE</option>
+              <option value="ROTINA LIDER PRODUÇÃO">ROTINA LIDER PRODUÇÃO</option>
+              <option value="SEGURANÇA">SEGURANÇA</option>
+              <option value="TESTE">TESTE</option>
+              <option value="TROCA DE ALTURA">TROCA DE ALTURA</option>
+              <option value="TROCA DE MOLDE">TROCA DE MOLDE</option>
+            </select>
           </label>
 
           <label>Quantidade de executantes
@@ -396,6 +422,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=15.0.0" defer></script>
+  <script src="app.js?v=18.0.0" defer></script>
 </body>
 </html>

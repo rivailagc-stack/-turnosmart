@@ -78,8 +78,8 @@ function getConfig() {
     referenceDate: '2026-07-20',
     referenceLetter: 'A',
     sgmanExecutante: '',
-    sgmanTipoServico: 'Mecânica',
-    sgmanTipoManutencao: 'Corretiva',
+    sgmanTipoServico: 'AUTOMÁTICO',
+    sgmanTipoManutencao: 'AUTOMÁTICO',
     sgmanQtdExecutantes: 1,
     sgmanDuracaoEstimada: '01:00',
     sgmanTagMap: {}
@@ -97,6 +97,33 @@ function getConfig() {
 
 function saveConfig(config) {
   localStorage.setItem(STORAGE.config, JSON.stringify(config));
+}
+
+function migrateSgmanConfig() {
+  const config = getConfig();
+  let changed = false;
+
+  // Migra o valor antigo inválido para o modo automático.
+  if (
+    !config.sgmanTipoServico ||
+    normalizeKey(config.sgmanTipoServico) === 'mecanica'
+  ) {
+    config.sgmanTipoServico = 'AUTOMÁTICO';
+    changed = true;
+  }
+
+  // Agora os nomes exatos dos tipos de manutenção foram confirmados.
+  // Migra valor antigo vazio/Corretiva para a classificação automática.
+  if (
+    !config.sgmanTipoManutencao ||
+    normalizeKey(config.sgmanTipoManutencao) === 'corretiva'
+  ) {
+    config.sgmanTipoManutencao = 'AUTOMÁTICO';
+    changed = true;
+  }
+
+  if (changed) saveConfig(config);
+  return config;
 }
 
 function crewLetterForDate(operationalDate) {
@@ -1850,6 +1877,109 @@ function isMachineStopped(action) {
   return /maquina parada|parada|nao funciona|sem funcionar|quebra|quebrou|rompimento/.test(key) ? 1 : 0;
 }
 
+
+const SGMAN_SERVICE_TYPES = {
+  GENERAL_MECHANIC: '003 MECÂNICO',
+  ELECTRICAL: '007 ELETRICA',
+  LUBRICATION: '009 LUBRIFICAR',
+  PROGRAMMING: '010 PROGRAMAÇÃO',
+  REPLACEMENT: '011 TROCA',
+  MECHANICAL_ADJUSTMENT: '014 REGULAGEM MECÂNICA',
+  PNEUMATIC: '015 PNEUMÁTICA',
+  SHIM: '016 COLOCAR CALÇO'
+};
+
+function automaticSgmanServiceType(action) {
+  const key = normalizeKey(
+    `${action.machine || ''} ${action.description || ''} ${action.action || ''}`
+  );
+
+  if (/lubrific|oleo|graxa/.test(key)) {
+    return SGMAN_SERVICE_TYPES.LUBRICATION;
+  }
+
+  if (/programacao|programar|clp|software|ihm/.test(key)) {
+    return SGMAN_SERVICE_TYPES.PROGRAMMING;
+  }
+
+  if (/eletric|sensor|encoder|termopar|resistencia|drive|motor eletr|cabo|fusivel|rele/.test(key)) {
+    return SGMAN_SERVICE_TYPES.ELECTRICAL;
+  }
+
+  if (/pneumat|mangueira|valvula|cilindro|ar comprimido|vazamento de ar/.test(key)) {
+    return SGMAN_SERVICE_TYPES.PNEUMATIC;
+  }
+
+  if (/calco|calçar|calcar/.test(key)) {
+    return SGMAN_SERVICE_TYPES.SHIM;
+  }
+
+  if (/trocar|troca|substituir|quebra|quebrou|rompeu|mola|patino/.test(key)) {
+    return SGMAN_SERVICE_TYPES.REPLACEMENT;
+  }
+
+  if (/ajuste|regulagem|variacao|altura|faca|tampao|garra|estrela|saida|sincronismo/.test(key)) {
+    return SGMAN_SERVICE_TYPES.MECHANICAL_ADJUSTMENT;
+  }
+
+  return SGMAN_SERVICE_TYPES.GENERAL_MECHANIC;
+}
+
+
+const SGMAN_MAINTENANCE_TYPES = {
+  CORRECTIVE: 'CORRETIVA',
+  IMPROVEMENT: 'MELHORIA',
+  PREVENTIVE: 'PREVENTIVA',
+  PROGRAMMING: 'PROGRAMAÇÃO',
+  QUALITY: 'QUALIDADE',
+  PRODUCTION_LEADER_ROUTINE: 'ROTINA LIDER PRODUÇÃO',
+  SAFETY: 'SEGURANÇA',
+  TEST: 'TESTE',
+  HEIGHT_CHANGE: 'TROCA DE ALTURA',
+  MOLD_CHANGE: 'TROCA DE MOLDE'
+};
+
+function automaticSgmanMaintenanceType(action) {
+  const key = normalizeKey(
+    `${action.machine || ''} ${action.description || ''} ${action.action || ''}`
+  );
+
+  if (/troca de molde|trocar molde|mudanca de molde|mudança de molde/.test(key)) {
+    return SGMAN_MAINTENANCE_TYPES.MOLD_CHANGE;
+  }
+
+  if (/troca de altura|trocar altura|mudanca de altura|mudança de altura/.test(key)) {
+    return SGMAN_MAINTENANCE_TYPES.HEIGHT_CHANGE;
+  }
+
+  if (/preventiva|preventivo|inspecao programada|inspeção programada/.test(key)) {
+    return SGMAN_MAINTENANCE_TYPES.PREVENTIVE;
+  }
+
+  if (/melhoria|melhorar|modificacao|modificação|retrofit|upgrade/.test(key)) {
+    return SGMAN_MAINTENANCE_TYPES.IMPROVEMENT;
+  }
+
+  if (/programacao|programar|clp|software|ihm/.test(key)) {
+    return SGMAN_MAINTENANCE_TYPES.PROGRAMMING;
+  }
+
+  if (/qualidade|retrabalho|defeito de qualidade|autocontrole/.test(key)) {
+    return SGMAN_MAINTENANCE_TYPES.QUALITY;
+  }
+
+  if (/seguranca|segurança|nr12|protecao|proteção|intertravamento/.test(key)) {
+    return SGMAN_MAINTENANCE_TYPES.SAFETY;
+  }
+
+  if (/teste|testar|amostra/.test(key) && !/corrigir|eliminar|quebra|falha/.test(key)) {
+    return SGMAN_MAINTENANCE_TYPES.TEST;
+  }
+
+  // Falhas, ajustes e quebras provenientes do relatório diário são corretivas.
+  return SGMAN_MAINTENANCE_TYPES.CORRECTIVE;
+}
+
 function sgmanComment(action) {
   const analysis = state.analysis;
   const parts = [
@@ -1890,8 +2020,6 @@ function buildSgmanOrders() {
     const order = {
       data_programada: formatSgmanDateTime(new Date()),
       qtd_executantes: Math.max(1, Number(config.sgmanQtdExecutantes || 1)),
-      tipo_servico: String(config.sgmanTipoServico || 'Mecânica'),
-      tipo_manutencao: String(config.sgmanTipoManutencao || 'Corretiva'),
       tag,
       prioridade: action.priority || 'Média',
       id_ext: `turnosmart-${state.analysis.id}-${action.machine}`.slice(0, 100),
@@ -1902,7 +2030,24 @@ function buildSgmanOrders() {
       maquina_parada: isMachineStopped(action)
     };
 
+    const tipoServicoConfig = String(
+      config.sgmanTipoServico || 'AUTOMÁTICO'
+    ).trim();
+
+    const tipoManutencaoConfig = String(
+      config.sgmanTipoManutencao || 'AUTOMÁTICO'
+    ).trim();
+
+    order.tipo_servico = normalizeKey(tipoServicoConfig) === 'automatico'
+      ? automaticSgmanServiceType(action)
+      : tipoServicoConfig;
+
+    order.tipo_manutencao = normalizeKey(tipoManutencaoConfig) === 'automatico'
+      ? automaticSgmanMaintenanceType(action)
+      : tipoManutencaoConfig;
+
     if (executante) order.executante = String(executante);
+
     orders.push(order);
   }
 
@@ -2345,12 +2490,12 @@ Aguardando
 
 function init() {
   $('reportReceivedAt').value = toLocalDateTimeInput(new Date());
-  const config = getConfig();
+  const config = migrateSgmanConfig();
   $('referenceDate').value = config.referenceDate;
   $('referenceLetter').value = config.referenceLetter;
   $('sgmanExecutante').value = config.sgmanExecutante || '';
-  $('sgmanTipoServico').value = config.sgmanTipoServico || 'Mecânica';
-  $('sgmanTipoManutencao').value = config.sgmanTipoManutencao || 'Corretiva';
+  $('sgmanTipoServico').value = config.sgmanTipoServico || 'AUTOMÁTICO';
+  $('sgmanTipoManutencao').value = config.sgmanTipoManutencao || 'AUTOMÁTICO';
   $('sgmanQtdExecutantes').value = config.sgmanQtdExecutantes || 1;
   $('sgmanDuracaoEstimada').value = config.sgmanDuracaoEstimada || '01:00';
   $('sgmanTagMap').value = stringifySgmanTagMap(config.sgmanTagMap || {});
@@ -2482,8 +2627,22 @@ function init() {
       $('sgmanSendResult').textContent =
         `Cadastre as TAGs antes de enviar: ${missingTags.join(', ')}`;
     } else {
+      const serviceSummary = [...new Set(
+        orders.map(order => order.tipo_servico).filter(Boolean)
+      )].join(', ');
+
+      const maintenanceSummary = [...new Set(
+        orders.map(order => order.tipo_manutencao).filter(Boolean)
+      )].join(', ');
+
+      const optionalFields = [
+        `tipo de serviço: ${serviceSummary || 'não definido'}`,
+        `tipo de manutenção: ${maintenanceSummary || 'não definido'}`
+      ].join(' • ');
+
       $('sgmanSendResult').textContent =
-        `${orders.length} OS pronta(s). Executante automático: ${executante}. Primeiro envie apenas 1 OS de teste.`;
+        `${orders.length} OS pronta(s). Executante automático: ${executante}. ` +
+        `${optionalFields}. Primeiro envie apenas 1 OS de teste.`;
     }
 
     showToast(`${orders.length} OS preparada(s) para ${executante || 'executante não definido'}.`);
@@ -2550,8 +2709,8 @@ function init() {
     saveConfig({
       ...current,
       sgmanExecutante: $('sgmanExecutante').value.trim(),
-      sgmanTipoServico: $('sgmanTipoServico').value.trim() || 'Mecânica',
-      sgmanTipoManutencao: $('sgmanTipoManutencao').value.trim() || 'Corretiva',
+      sgmanTipoServico: $('sgmanTipoServico').value.trim() || 'AUTOMÁTICO',
+      sgmanTipoManutencao: $('sgmanTipoManutencao').value.trim() || 'AUTOMÁTICO',
       sgmanQtdExecutantes: Math.max(1, Number($('sgmanQtdExecutantes').value || 1)),
       sgmanDuracaoEstimada: $('sgmanDuracaoEstimada').value.trim() || '01:00',
       sgmanTagMap: tagMap
@@ -2606,7 +2765,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=15.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=18.0.0');
         registration.update();
       } catch {}
     });
