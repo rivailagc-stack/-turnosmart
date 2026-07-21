@@ -7,7 +7,8 @@ const STORAGE = {
   config: 'turnosmart_config_v3',
   sgmanConfirmed: 'turnosmart_sgman_confirmed_v1',
   sgmanLastResult: 'turnosmart_sgman_last_result_v1',
-  sgmanHistory: 'turnosmart_sgman_history_v1'
+  sgmanHistory: 'turnosmart_sgman_history_v1',
+  sgmanMachineHistory: 'turnosmart_sgman_machine_history_v1'
 };
 
 const DEFAULT_PRODUCTION_LEADERS = {
@@ -198,7 +199,9 @@ const state = {
   quickOsRecognition: null,
   quickOsListening: false,
   quickOsSending: false,
-  quickOsContext: null
+  quickOsContext: null,
+  sgmanMachineHistory: {},
+  sgmanMachineHistoryLoading: false
 };
 
 const $ = id => document.getElementById(id);
@@ -2466,6 +2469,17 @@ function maintenanceMessage() {
   } else {
     shown.forEach((action, index) => {
       lines.push(`${index + 1}. *${action.machine}* — ${action.sgmanSuggestedResolution || suggestedResolutionFromHistory(action)}`);
+
+      if (action.sgmanHistoryAnalysis?.similarOrders) {
+        const patterns = action.sgmanHistoryAnalysis.patterns
+          ?.slice(0, 3)
+          .map(pattern => `${pattern.shortLabel} ${pattern.count}x`)
+          .join(', ');
+
+        lines.push(
+          `   Base SGMan: ${action.sgmanHistoryAnalysis.similarOrders}/${action.sgmanHistoryAnalysis.totalMachineOrders} OS semelhantes da própria máquina${patterns ? ` — ${patterns}` : ''}.`
+        );
+      }
     });
   }
 
@@ -2654,6 +2668,7 @@ function renderActions() {
 
   $('maintenanceActionsList').innerHTML = messageHtml(maintenanceMessage());
   $('productionActionsList').innerHTML = messageHtml(productionMessage());
+  renderSgmanMachineAnalysis();
 }
 
 function fillScaleForm(crew) {
@@ -3358,24 +3373,13 @@ function renderSgmanDailyStatus() {
   }
 
   if (detail) {
-    const completed = (state.sgmanHistory?.orders || [])
-      .filter(order => order.statusKey === 'completed')
-      .slice(0, 5);
-
-    detail.innerHTML = completed.length
-      ? `<strong>Últimas OS concluídas usadas como referência:</strong><ul>${
-          completed.map(order => `<li>${escapeHtml(order.machine || order.tag || 'Máquina não identificada')} — ${escapeHtml(order.solution || order.description || 'Serviço concluído')}</li>`).join('')
-        }</ul>`
-      : (() => {
-          const diagnostic = state.sgmanHistory?.diagnostic || {};
-          const largestArray = Number(diagnostic.largestArrayLength || 0);
-
-          if (largestArray > 0) {
-            return `<span class="muted">A API devolveu ${largestArray} item(ns), mas nenhum foi classificado como OS concluída. A V24 mostra o diagnóstico acima para ajuste.</span>`;
-          }
-
-          return '<span class="muted">O SGMan não devolveu ordens no período consultado.</span>';
-        })();
+    detail.innerHTML = `
+      <strong>Referência técnica por máquina</strong>
+      <p class="muted">
+        As possíveis resoluções não usam mais as últimas OS gerais.
+        Para cada apontamento, o aplicativo consulta até 100 OS da própria máquina
+        e compara somente problemas semelhantes.
+      </p>`;
   }
 
   if (status) {
@@ -3455,18 +3459,600 @@ async function refreshSgmanHistory(showMessage = true) {
   }
 }
 
-function completedOrdersForAction(action) {
-  const machine = machineKeyFromText(action.machine);
-  const tag = normalizeKey(getConfig().sgmanTagMap?.[action.machine] || '');
+function waitMilliseconds(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
 
-  return (state.sgmanHistory?.orders || [])
-    .filter(order => order.statusKey === 'completed')
-    .filter(order => {
-      const orderMachine = machineKeyFromText(order.machine || order.tag || order.description);
-      const orderTag = normalizeKey(order.tag || '');
-      return (machine && orderMachine === machine) || (tag && orderTag === tag);
+function getCachedSgmanMachineHistory() {
+  try {
+    const cached = JSON.parse(
+      localStorage.getItem(STORAGE.sgmanMachineHistory)
+    );
+
+    return cached && typeof cached === 'object'
+      ? cached
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSgmanMachineHistory() {
+  localStorage.setItem(
+    STORAGE.sgmanMachineHistory,
+    JSON.stringify(state.sgmanMachineHistory || {})
+  );
+}
+
+function machineHistoryCacheIsFresh(entry, tag) {
+  if (!entry?.loadedAt || entry.tag !== tag) return false;
+
+  const loadedAt = new Date(entry.loadedAt);
+  if (Number.isNaN(loadedAt.getTime())) return false;
+
+  const sixHours = 6 * 60 * 60 * 1000;
+  return Date.now() - loadedAt.getTime() < sixHours;
+}
+
+function machineHistoryForMachine(machine = '') {
+  return state.sgmanMachineHistory?.[machine]?.orders || [];
+}
+
+async function fetchSgmanMachineHistory(machine, force = false) {
+  const config = getConfig();
+  const tag = config.sgmanTagMap?.[machine] || '';
+
+  if (!tag) {
+    return {
+      machine,
+      tag: '',
+      orders: [],
+      error: `TAG não cadastrada para ${machine}.`
+    };
+  }
+
+  const cached = state.sgmanMachineHistory?.[machine];
+
+  if (!force && machineHistoryCacheIsFresh(cached, tag)) {
+    return cached;
+  }
+
+  const response = await fetch('/api/sgman-list', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      data_inicio: '2020-01-01 00:00',
+      data_fim: formatSgmanDateTime(new Date()),
+      tag,
+      calc_custos: 1,
+      limit: 100
     })
-    .slice(0, 8);
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || data.ok === false) {
+    throw new Error(
+      data.error || `Erro HTTP ${response.status} ao consultar ${machine}`
+    );
+  }
+
+  const normalizedTag = normalizeKey(tag);
+
+  const orders = (Array.isArray(data.orders) ? data.orders : [])
+    .filter(order => {
+      const orderMachine = machineKeyFromText(
+        `${order.machine || ''} ${order.description || ''}`
+      );
+      const orderTag = normalizeKey(order.tag || '');
+
+      return (
+        orderMachine === machine ||
+        (normalizedTag && orderTag === normalizedTag)
+      );
+    })
+    .slice(0, 100);
+
+  const entry = {
+    machine,
+    tag,
+    loadedAt: new Date().toISOString(),
+    orders,
+    diagnostic: data.diagnostic || {},
+    returnedCount: orders.length
+  };
+
+  state.sgmanMachineHistory[machine] = entry;
+  saveSgmanMachineHistory();
+
+  return entry;
+}
+
+async function loadSgmanMachineHistories(actions = [], force = false) {
+  if (state.sgmanMachineHistoryLoading) return;
+
+  const machines = uniqueStrings(
+    actions
+      .filter(action =>
+        action.department === 'maintenance' &&
+        /^MK-/.test(action.machine)
+      )
+      .map(action => action.machine)
+  );
+
+  if (!machines.length) return;
+
+  state.sgmanMachineHistoryLoading = true;
+
+  const status = $('sgmanMachineAnalysisStatus');
+  const button = $('refreshMachineHistoryBtn');
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Analisando...';
+  }
+
+  try {
+    for (let index = 0; index < machines.length; index++) {
+      const machine = machines[index];
+
+      if (status) {
+        status.textContent =
+          `Consultando até 100 OS da ${machine} — ${index + 1} de ${machines.length}...`;
+      }
+
+      try {
+        await fetchSgmanMachineHistory(machine, force);
+      } catch (error) {
+        state.sgmanMachineHistory[machine] = {
+          machine,
+          tag: getConfig().sgmanTagMap?.[machine] || '',
+          loadedAt: new Date().toISOString(),
+          orders: [],
+          error: error.message
+        };
+      }
+
+      if (index < machines.length - 1) {
+        await waitMilliseconds(900);
+      }
+    }
+
+    saveSgmanMachineHistory();
+
+    if (status) {
+      status.textContent =
+        `Análise concluída para ${machines.length} máquina(s).`;
+    }
+  } finally {
+    state.sgmanMachineHistoryLoading = false;
+
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Atualizar análise';
+    }
+  }
+}
+
+const HISTORY_STOP_WORDS = new Set([
+  'para', 'com', 'sem', 'uma', 'uns', 'das', 'dos', 'de', 'da', 'do',
+  'em', 'na', 'no', 'nas', 'nos', 'por', 'que', 'foi', 'esta', 'está',
+  'ficou', 'fazer', 'feito', 'maquina', 'máquina', 'ajuste', 'ajustar',
+  'verificar', 'problema', 'possivel', 'possível', 'resolucao', 'resolução',
+  'troca', 'trocar', 'servico', 'serviço', 'mk'
+]);
+
+function historyMeaningfulTokens(value = '') {
+  return normalizeKey(value)
+    .split(/\s+/)
+    .map(token => token.trim())
+    .filter(token =>
+      token.length >= 4 &&
+      !HISTORY_STOP_WORDS.has(token) &&
+      !/^\d+$/.test(token)
+    );
+}
+
+const HISTORY_ISSUE_CATEGORIES = [
+  {
+    key: 'altura',
+    label: 'variação de altura',
+    regex: /variacao.{0,20}altura|altura.{0,20}vari|desnivel|altura irregular|alto.{0,10}baixo/
+  },
+  {
+    key: 'faca',
+    label: 'faca ou corte',
+    regex: /faca|contra ?faca|corte|cortando/
+  },
+  {
+    key: 'tampao',
+    label: 'tampão ou vedação',
+    regex: /tampao|vedacao|vazamento/
+  },
+  {
+    key: 'bobina',
+    label: 'bobina',
+    regex: /bobina|desbobin/
+  },
+  {
+    key: 'faixa',
+    label: 'faixa',
+    regex: /faixa/
+  },
+  {
+    key: 'fundo',
+    label: 'fundo',
+    regex: /fundo/
+  },
+  {
+    key: 'retorno',
+    label: 'peça voltando',
+    regex: /peca.{0,15}volt|voltando|retorno/
+  },
+  {
+    key: 'lubrificacao',
+    label: 'lubrificação',
+    regex: /lubrific|oleo|graxa/
+  },
+  {
+    key: 'cola',
+    label: 'cola',
+    regex: /cola|colagem/
+  },
+  {
+    key: 'sensor',
+    label: 'sensor ou elétrica',
+    regex: /sensor|encoder|drive|eletric|rele|fusivel|cabo/
+  },
+  {
+    key: 'pneumatica',
+    label: 'pneumática',
+    regex: /pneumat|mangueira|cilindro|valvula|ar comprimido/
+  },
+  {
+    key: 'saida',
+    label: 'saída',
+    regex: /saida|esteira|estrela|garra/
+  }
+];
+
+function historyIssueCategories(value = '') {
+  const key = normalizeKey(value);
+
+  return HISTORY_ISSUE_CATEGORIES
+    .filter(category => category.regex.test(key))
+    .map(category => category.key);
+}
+
+function extractHistorySection(text = '', section = 'problema') {
+  const value = String(text || '');
+
+  const patterns = {
+    problema: /problema\s*:\s*([\s\S]*?)(?=poss[ií]vel resolu[cç][aã]o\s*:|aten[cç][aã]o\s*:|$)/i,
+    resolucao: /poss[ií]vel resolu[cç][aã]o\s*:\s*([\s\S]*?)(?=aten[cç][aã]o\s*:|$)/i
+  };
+
+  return value.match(patterns[section])?.[1]?.trim() || '';
+}
+
+function historicalProblemText(order = {}) {
+  return [
+    order.description || '',
+    extractHistorySection(order.comment || '', 'problema')
+  ].join(' ').trim();
+}
+
+function historicalResolutionText(order = {}) {
+  return [
+    order.solution || '',
+    extractHistorySection(order.comment || '', 'resolucao'),
+    order.comment || '',
+    order.description || ''
+  ].join(' ').trim();
+}
+
+function historySimilarityScore(currentProblem, order) {
+  const currentKey = normalizeKey(currentProblem);
+  const historicalProblem = historicalProblemText(order);
+  const historicalKey = normalizeKey(historicalProblem);
+
+  if (!historicalKey) return 0;
+
+  const currentCategories = historyIssueCategories(currentKey);
+  const historicalCategories = historyIssueCategories(historicalKey);
+  const categoryMatches = currentCategories.filter(category =>
+    historicalCategories.includes(category)
+  ).length;
+
+  const currentTokens = new Set(historyMeaningfulTokens(currentKey));
+  const historicalTokens = new Set(historyMeaningfulTokens(historicalKey));
+
+  let tokenMatches = 0;
+
+  currentTokens.forEach(token => {
+    if (historicalTokens.has(token)) tokenMatches++;
+  });
+
+  let score = categoryMatches * 20 + tokenMatches * 5;
+
+  if (
+    currentKey.length >= 8 &&
+    (
+      historicalKey.includes(currentKey) ||
+      currentKey.includes(historicalKey)
+    )
+  ) {
+    score += 15;
+  }
+
+  return score;
+}
+
+const HISTORY_SOLUTION_PATTERNS = [
+  {
+    key: 'mola',
+    label: 'verificar mola quebrada, cansada ou fora de posição',
+    shortLabel: 'mola',
+    regex: /mola/
+  },
+  {
+    key: 'posicao_faca',
+    label: 'conferir posição, alinhamento e aperto da faca',
+    shortLabel: 'posição da faca',
+    regex: /(posi|reposi|alinh|regul|ajust).{0,35}faca|faca.{0,35}(posi|reposi|alinh|regul|ajust)/
+  },
+  {
+    key: 'troca_faca',
+    label: 'verificar desgaste, quebra e necessidade de troca da faca',
+    shortLabel: 'troca da faca',
+    regex: /(troca|trocad|substitu|nova).{0,30}faca|faca.{0,30}(quebrad|desgast|danific|substitu|trocad)/
+  },
+  {
+    key: 'contrafaca',
+    label: 'verificar contrafaca, folga e alinhamento',
+    shortLabel: 'contrafaca',
+    regex: /contra ?faca/
+  },
+  {
+    key: 'calco',
+    label: 'conferir calços e nivelamento do conjunto',
+    shortLabel: 'calços',
+    regex: /calco|cal[cç]ar/
+  },
+  {
+    key: 'fixacao',
+    label: 'reapertar fixações, suportes e parafusos',
+    shortLabel: 'fixações',
+    regex: /apert|fixa[cç][aã]o|parafuso|suporte solto/
+  },
+  {
+    key: 'came',
+    label: 'verificar came, leva e sincronismo',
+    shortLabel: 'came/sincronismo',
+    regex: /came|leva|sincronismo/
+  },
+  {
+    key: 'garra',
+    label: 'verificar garra, guia e passagem da peça',
+    shortLabel: 'garra/guia',
+    regex: /garra|guia/
+  },
+  {
+    key: 'rolamento',
+    label: 'verificar rolamentos, eixos e folgas',
+    shortLabel: 'rolamentos/eixos',
+    regex: /rolament|eixo|folga/
+  },
+  {
+    key: 'vedacao',
+    label: 'verificar vedação, desgaste e alinhamento do tampão',
+    shortLabel: 'vedação',
+    regex: /vedacao|vazamento|anel|borracha/
+  },
+  {
+    key: 'bobina',
+    label: 'verificar alinhamento, tensão, freio e roletes da bobina',
+    shortLabel: 'alinhamento da bobina',
+    regex: /bobina|tensao|freio|rolete/
+  },
+  {
+    key: 'sensor',
+    label: 'verificar sensor, cabo, ajuste e sinal elétrico',
+    shortLabel: 'sensor/elétrica',
+    regex: /sensor|encoder|cabo|rele|fusivel|drive/
+  },
+  {
+    key: 'pneumatica',
+    label: 'verificar mangueira, válvula, cilindro e pressão de ar',
+    shortLabel: 'pneumática',
+    regex: /mangueira|valvula|cilindro|pneumat|pressao de ar/
+  },
+  {
+    key: 'limpeza',
+    label: 'limpar o conjunto e remover resíduos que impedem o movimento',
+    shortLabel: 'limpeza',
+    regex: /limp|residuo|refilo|sujeira/
+  }
+];
+
+function countHistorySolutionPatterns(orders = []) {
+  const counts = new Map();
+
+  orders.forEach(order => {
+    const text = normalizeKey(historicalResolutionText(order));
+
+    HISTORY_SOLUTION_PATTERNS.forEach(pattern => {
+      if (!pattern.regex.test(text)) return;
+
+      counts.set(pattern.key, {
+        ...pattern,
+        count: (counts.get(pattern.key)?.count || 0) + 1
+      });
+    });
+  });
+
+  return [...counts.values()]
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    .slice(0, 5);
+}
+
+function analyzeMachineHistoryForAction(action) {
+  const machineOrders = machineHistoryForMachine(action.machine)
+    .slice(0, 100);
+
+  const completedOrders = machineOrders
+    .filter(order => order.statusKey === 'completed');
+
+  const currentProblem = action.description || '';
+
+  const scored = completedOrders
+    .map(order => ({
+      order,
+      score: historySimilarityScore(currentProblem, order)
+    }))
+    .filter(item => item.score >= 10)
+    .sort((a, b) =>
+      b.score - a.score ||
+      String(b.order.endDate || b.order.startDate)
+        .localeCompare(String(a.order.endDate || a.order.startDate))
+    );
+
+  const similarOrders = scored
+    .slice(0, 50)
+    .map(item => item.order);
+
+  const patterns = countHistorySolutionPatterns(similarOrders);
+  const fallbackSnippets = similarOrders
+    .map(order =>
+      actionableHistorySnippet(
+        order.solution ||
+        extractHistorySection(order.comment || '', 'resolucao') ||
+        order.comment ||
+        order.description
+      )
+    )
+    .filter(Boolean)
+    .slice(0, 3);
+
+  let resolutionParts = patterns.map(pattern =>
+    `${pattern.label} (${pattern.count} registro${pattern.count === 1 ? '' : 's'})`
+  );
+
+  if (!resolutionParts.length) {
+    resolutionParts = fallbackSnippets;
+  }
+
+  if (!resolutionParts.length) {
+    resolutionParts = ruleBasedResolutionChecks(action);
+  }
+
+  if (!resolutionParts.length) {
+    resolutionParts = [
+      String(action.baseAction || directMaintenanceAction(action))
+        .replace(/\.$/, '')
+    ];
+  }
+
+  const resolution = resolutionParts
+    .slice(0, 4)
+    .map(value => String(value).trim().replace(/[.;]+$/, ''))
+    .filter(Boolean)
+    .join('; ');
+
+  const compactPatterns = patterns
+    .slice(0, 4)
+    .map(pattern => `${pattern.shortLabel} ${pattern.count}x`)
+    .join(', ');
+
+  let summary;
+
+  if (!machineOrders.length) {
+    summary =
+      `${action.machine}: nenhuma OS da própria máquina foi retornada pelo SGMan.`;
+  } else if (!completedOrders.length) {
+    summary =
+      `${action.machine}: ${machineOrders.length} OS consultada(s), mas nenhuma concluída com solução disponível.`;
+  } else if (!similarOrders.length) {
+    summary =
+      `${action.machine}: analisadas ${machineOrders.length} OS da própria máquina; nenhuma ocorrência semelhante suficiente para “${currentProblem}”.`;
+  } else {
+    summary =
+      `${action.machine}: ${similarOrders.length} ocorrência(s) semelhante(s) encontradas nas últimas ${machineOrders.length} OS da própria máquina` +
+      (compactPatterns ? ` — ${compactPatterns}.` : '.');
+  }
+
+  return {
+    machine: action.machine,
+    totalMachineOrders: machineOrders.length,
+    completedMachineOrders: completedOrders.length,
+    similarOrders: similarOrders.length,
+    patterns,
+    summary,
+    resolution: resolution.endsWith('.') ? resolution : `${resolution}.`
+  };
+}
+
+function renderSgmanMachineAnalysis() {
+  const target = $('sgmanMachineAnalysisList');
+  const status = $('sgmanMachineAnalysisStatus');
+
+  if (!target) return;
+
+  const maintenanceActions = state.actions.filter(action =>
+    action.department === 'maintenance' &&
+    /^MK-/.test(action.machine)
+  );
+
+  if (!maintenanceActions.length) {
+    target.innerHTML =
+      '<p class="muted">Nenhuma máquina com ação de manutenção neste relatório.</p>';
+    return;
+  }
+
+  target.innerHTML = maintenanceActions.map(action => {
+    const analysis = action.sgmanHistoryAnalysis;
+
+    if (!analysis) {
+      return `
+        <div class="machine-history-card">
+          <strong>${escapeHtml(action.machine)}</strong>
+          <p class="muted">Aguardando análise das OS da própria máquina.</p>
+        </div>`;
+    }
+
+    const patternHtml = analysis.patterns?.length
+      ? `<div class="machine-history-patterns">${
+          analysis.patterns.slice(0, 5).map(pattern => `
+            <span>${escapeHtml(pattern.shortLabel)} <strong>${pattern.count}x</strong></span>
+          `).join('')
+        }</div>`
+      : '';
+
+    return `
+      <div class="machine-history-card">
+        <div class="machine-history-title">
+          <strong>${escapeHtml(action.machine)}</strong>
+          <span>${analysis.similarOrders}/${analysis.totalMachineOrders} semelhantes</span>
+        </div>
+        <p><strong>Problema atual:</strong> ${escapeHtml(action.description)}</p>
+        <p>${escapeHtml(analysis.summary)}</p>
+        ${patternHtml}
+        <p><strong>Possível resolução:</strong> ${escapeHtml(analysis.resolution)}</p>
+      </div>`;
+  }).join('');
+
+  if (status && !state.sgmanMachineHistoryLoading) {
+    status.textContent =
+      'Referência feita somente com OS da mesma máquina e problema semelhante.';
+  }
+}
+
+function completedOrdersForAction(action) {
+  return machineHistoryForMachine(action.machine)
+    .filter(order => order.statusKey === 'completed')
+    .slice(0, 100);
 }
 
 function actionableHistorySnippet(text = '') {
@@ -3528,41 +4114,39 @@ function ruleBasedResolutionChecks(action) {
 }
 
 function suggestedResolutionFromHistory(action) {
-  const base = String(action.baseAction || directMaintenanceAction(action))
-    .replace(/\.$/, '')
-    .trim();
+  const analysis =
+    action.sgmanHistoryAnalysis ||
+    analyzeMachineHistoryForAction(action);
 
-  const ruleChecks = ruleBasedResolutionChecks(action);
-  const historyChecks = completedOrdersForAction(action)
-    .map(order => actionableHistorySnippet(order.solution || order.comment || order.description))
-    .filter(Boolean)
-    .slice(0, 2);
-
-  const parts = [base, ...ruleChecks, ...historyChecks]
-    .map(value => String(value).trim().replace(/[.;]+$/, ''))
-    .filter(Boolean);
-
-  const unique = [];
-  const seen = new Set();
-
-  for (const part of parts) {
-    const key = normalizeKey(part);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    unique.push(part);
-  }
-
-  return unique.join('; ').slice(0, 480) + '.';
+  return analysis.resolution;
 }
 
 function applySgmanHistoryToActions() {
   state.actions.forEach(action => {
-    if (action.department !== 'maintenance') return;
+    if (
+      action.department !== 'maintenance' ||
+      !/^MK-/.test(action.machine)
+    ) {
+      return;
+    }
+
     action.baseAction = action.baseAction || action.action;
-    action.sgmanHistoryCount = completedOrdersForAction(action).length;
-    action.sgmanSuggestedResolution = suggestedResolutionFromHistory(action);
+    action.sgmanHistoryAnalysis =
+      analyzeMachineHistoryForAction(action);
+
+    action.sgmanHistoryCount =
+      action.sgmanHistoryAnalysis.totalMachineOrders;
+
+    action.sgmanSimilarHistoryCount =
+      action.sgmanHistoryAnalysis.similarOrders;
+
+    action.sgmanSuggestedResolution =
+      action.sgmanHistoryAnalysis.resolution;
+
     action.action = action.sgmanSuggestedResolution;
   });
+
+  renderSgmanMachineAnalysis();
 }
 
 function isMachineStopped(action) {
@@ -4073,6 +4657,8 @@ async function analyzeCurrentReport() {
   analysis.reliability3Days = { ...calculateReliability3Days() };
   state.analysis = analysis;
   state.actions = generateActions(analysis);
+
+  await loadSgmanMachineHistories(state.actions, false);
   applySgmanHistoryToActions();
 
   const history = getHistory();
@@ -4286,6 +4872,7 @@ function init() {
   updateQuickOsTagStatus();
 
   state.sgmanHistory = getCachedSgmanHistory();
+  state.sgmanMachineHistory = getCachedSgmanMachineHistory();
   renderSgmanDailyStatus();
   refreshSgmanHistory(false);
 
@@ -4367,6 +4954,19 @@ function init() {
     showToast('Referência da escala salva.');
   });
   $('refreshSgmanHistoryBtn').addEventListener('click', () => refreshSgmanHistory(true));
+
+  $('refreshMachineHistoryBtn').addEventListener('click', async () => {
+    if (!state.analysis) {
+      showToast('Analise um relatório primeiro.');
+      return;
+    }
+
+    await loadSgmanMachineHistories(state.actions, true);
+    applySgmanHistoryToActions();
+    renderActions();
+    renderAnalysis();
+    showToast('Análise das OS por máquina atualizada.');
+  });
   $('refreshReliabilityBtn').addEventListener('click', async () => {
     await refreshSgmanHistory(true);
     renderReliability3Days();
@@ -4647,7 +5247,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=30.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=31.0.0');
         registration.update();
       } catch {}
     });

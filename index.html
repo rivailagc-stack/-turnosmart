@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=30.0.0" />
+  <link rel="stylesheet" href="style.css?v=31.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -26,9 +26,9 @@
     <section id="view-novo" class="view active">
       <div class="hero card">
         <div>
-          <span class="badge">V30 • OS por foto e áudio</span>
-          <h2>Relatórios e abertura rápida de OS</h2>
-          <p>Abra uma OS por foto ou voz, com o líder do horário selecionado automaticamente.</p>
+          <span class="badge">V31 • Histórico por máquina</span>
+          <h2>Análise técnica pelas OS da própria máquina</h2>
+          <p>Cada problema do relatório é comparado com até 100 OS da mesma máquina para encontrar as soluções mais recorrentes.</p>
           <div class="button-row">
             <button id="openQuickOsBtn" class="primary" type="button">📷 🎙 Abrir OS rápida</button>
           </div>
@@ -208,6 +208,23 @@
         <p>Cole um relatório e toque em “Analisar relatório”.</p>
       </div>
       <div id="analysisContent" class="hidden">
+
+
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">HISTÓRICO TÉCNICO DO SGMAN</span>
+              <h2>Análise por máquina e problema</h2>
+            </div>
+            <button id="refreshMachineHistoryBtn" class="secondary" type="button">Atualizar análise</button>
+          </div>
+
+          <p id="sgmanMachineAnalysisStatus" class="muted">
+            A referência usa somente OS da máquina apontada no relatório.
+          </p>
+
+          <div id="sgmanMachineAnalysisList" class="machine-history-list"></div>
+        </div>
 
         <div class="card">
           <div class="section-head">
@@ -461,7 +478,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 30</h2>
+        <h2>Configuração da versão 31</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -580,6 +597,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=30.0.0"></script>
+  <script src="app.js?v=31.0.0"></script>
 </body>
 </html>

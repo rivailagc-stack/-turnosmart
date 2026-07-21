@@ -1,43 +1,51 @@
-# TurnoSmart V30 — Abrir OS por foto e áudio
+# TurnoSmart V31 — Análise de até 100 OS da própria máquina
 
-## Tela Abrir OS
+## Regra principal
 
-O usuário pode:
+Uma ação da `MK-173` usa somente as OS da `MK-173`.
 
-1. tirar uma foto da ocorrência;
-2. falar o código da máquina e o problema;
-3. conferir o texto reconhecido;
-4. escolher a máquina;
-5. criar a ordem diretamente no SGMan.
+Uma ação da `MK-172` usa somente as OS da `MK-172`.
 
-## Responsável automático
+As últimas OS gerais da empresa não entram na sugestão técnica.
 
-A equipe que está trabalhando é definida pela data e pelo horário:
+## Processo
 
-- 06:00 às 18:00: equipe 1 do dia;
-- 18:00 às 06:00: equipe 2 iniciada naquela data;
-- antes das 06:00: turno noturno iniciado no dia anterior.
+1. O relatório identifica a máquina e o problema atual.
+2. O aplicativo consulta até 100 OS recentes daquela TAG no SGMan.
+3. Mantém as OS concluídas, pois elas possuem referência de solução.
+4. Compara o problema atual com os problemas anteriores.
+5. Seleciona as ocorrências semelhantes.
+6. Conta as soluções mais recorrentes.
+7. Monta a possibilidade de resolução.
 
-O líder da equipe é selecionado por padrão. O usuário pode trocar para um dos mecânicos cadastrados na mesma equipe.
+## Exemplo
 
-## Foto
+Problema atual:
 
-A imagem é comprimida no celular e enviada no campo:
-
-```json
-{
-  "fotos": [
-    {
-      "base64": "data:image/jpeg;base64,..."
-    }
-  ]
-}
+```text
+MK-173 — variação de altura
 ```
 
-## Áudio
+Resultado:
 
-O navegador converte a fala em texto em português do Brasil. O SGMan recebe a descrição escrita, não um arquivo de áudio. Quando o navegador não oferecer reconhecimento de voz, o problema pode ser digitado normalmente.
+```text
+Analisadas: 100 OS da MK-173
+Semelhantes: 22
+Mola: 11 ocorrências
+Posição da faca: 8 ocorrências
+Troca da faca: 6 ocorrências
+Contrafaca/calços: 4 ocorrências
+```
 
-## Segurança
+Possível resolução:
 
-O mesmo `SGMAN_TOKEN` da Vercel continua sendo usado. O token não aparece no navegador nem no GitHub.
+```text
+Verificar mola quebrada, cansada ou fora de posição;
+conferir posição, alinhamento e aperto da faca;
+verificar desgaste e necessidade de troca da faca;
+verificar contrafaca e calços.
+```
+
+## Cache
+
+A consulta por máquina fica armazenada por seis horas. O botão **Atualizar análise** força uma nova consulta ao SGMan.
