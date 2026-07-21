@@ -1,9 +1,12 @@
-# Testes da V27
+# Testes da V28
 
-1. Atualize os dados do SGMan.
-2. Confirme que MTTR usa somente OS corretivas concluídas.
-3. Confirme que MTTF exige reparo concluído e falha posterior na mesma máquina.
-4. Confirme que MTBF exige duas falhas da mesma máquina.
-5. Confirme a confiabilidade para um turno de 12 horas.
-6. Verifique que relatório de produção e OEE não alteram os indicadores.
-7. Confirme “Dados insuficientes” quando faltarem horários ou eventos.
+1. Abra Escala.
+2. Selecione A1, A2, B1 e B2.
+3. Confirme líder e três mecânicos em cada equipe.
+4. Analise um relatório com pelo menos quatro OS.
+5. Abra a prévia do SGMan.
+6. Confirme a distribuição entre quatro pessoas.
+7. Envie uma OS de teste.
+8. Confira se a resposta mostra o executante correto.
+9. Envie as restantes e confirme o rodízio.
+10. Verifique que o comentário continua apenas com problema, possível resolução e alerta contra retrabalho.

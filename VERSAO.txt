@@ -1,6 +1,5 @@
-TurnoSmart V27.0.0
-MTTR, MTTF, MTBF e confiabilidade calculados exclusivamente com dados do SGMan.
-MTTR: média entre início e conclusão das OS corretivas.
-MTTF: média entre conclusão do reparo e a próxima falha da mesma máquina.
-MTBF: média entre o início de falhas consecutivas da mesma máquina.
-Confiabilidade: probabilidade estimada de operar um turno de 12 horas sem falha, baseada no MTBF do SGMan.
+TurnoSmart V28.0.0
+Distribui as ordens do SGMan entre toda a equipe que está entrando.
+Rodízio padrão: líder, mecânico 1, mecânico 2, mecânico 3.
+Cada OS possui um único executante.
+Os usuários da manutenção encontrados no cadastro do SGMan estão disponíveis como opções.

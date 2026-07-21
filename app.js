@@ -36,6 +36,121 @@ const DEFAULT_MAINTENANCE_TEAMS = {
   }
 };
 
+const SGMAN_MAINTENANCE_USERS = [
+  { username: 'aleilson.almeida', name: 'Aleilson Almeida', role: 'Mantenedor', aliases: ['aleilson'] },
+  { username: 'allan.teodorak', name: 'Allan Teodorak', role: 'Líder Mantenedor', aliases: ['allan'] },
+  { username: 'CAIO.AUGUSTO', name: 'Caio Augusto', role: 'Mecânico', aliases: ['caio'] },
+  { username: 'carlos.silva', name: 'Carlos Matos', role: 'Mantenedor', aliases: ['carlos', 'carlos matos'] },
+  { username: 'Danilo', name: 'Danilo Nepomuceno', role: 'Líder Mantenedor', aliases: ['danilo'] },
+  { username: 'emerson.nunes', name: 'Emerson Nunes', role: 'Líder Mantenedor', aliases: ['emerson nunes'] },
+  { username: 'ezequielSantos', name: 'Ezequiel Santos', role: 'Mecânico', aliases: ['ezequiel'] },
+  { username: 'fiderlânio.reis', name: 'Fiderlânio Reis', role: 'Líder Mantenedor', aliases: ['fider', 'fiderlanio', 'fiderlânio'] },
+  { username: 'gabriel.henrique', name: 'Gabriel Bretas', role: 'Ferramenteiro', aliases: ['gabriel', 'gabriel bretas'] },
+  { username: 'gustavo.yano', name: 'Gustavo Yano', role: 'Aprendiz de manutenção', aliases: ['gustavo'] },
+  { username: 'igor.henrique', name: 'Igor Henrique', role: 'Manutenção', aliases: ['igor'] },
+  { username: 'jean.mendes', name: 'Jean Mendes', role: 'Usuário SGMan', aliases: ['jean', 'jean mendes'] },
+  { username: 'jeanderson.costa', name: 'Jeanderson Costa', role: 'Mantenedor', aliases: ['jeanderson'] },
+  { username: 'JOÃO.SOUZA', name: 'João Aparecido de Souza', role: 'Mecânico', aliases: ['joao', 'joão', 'joao souza'] },
+  { username: 'Lucas.eletricista', name: 'Lucas Eletricista', role: 'Eletricista', aliases: ['lucas', 'lucas eletricista'] },
+  { username: 'luiz.afonso', name: 'Luiz Afonso', role: 'Líder Mantenedor', aliases: ['luiz', 'luiz afonso'] },
+  { username: 'marcelo.souza', name: 'Marcelo Souza', role: 'Mantenedor', aliases: ['marcelo'] },
+  { username: 'marcos.roberto', name: 'Marcos Roberto', role: 'Mantenedor', aliases: ['marcos'] },
+  { username: 'ricardo.serafim', name: 'Ricardo Serafim', role: 'Líder Mantenedor', aliases: ['ricardo'] },
+  { username: 'roberto.beraldo', name: 'Roberto Beraldo', role: 'Mantenedor', aliases: ['roberto'] },
+  { username: 'rogger.sampaio', name: 'Rogger Sampaio', role: 'Mantenedor', aliases: ['rogger', 'roger'] },
+  { username: 'thiago.nascimento', name: 'Thiago Nascimento', role: 'Mantenedor', aliases: ['thiago'] }
+];
+
+function uniqueStrings(values = []) {
+  return [...new Set(
+    values
+      .map(value => String(value || '').trim())
+      .filter(Boolean)
+  )];
+}
+
+function sgmanUserKey(value = '') {
+  return normalizeKey(String(value))
+    .replace(/[._-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function resolveSgmanUsername(value = '') {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  const exactUsername = SGMAN_MAINTENANCE_USERS.find(user =>
+    user.username.toLocaleLowerCase('pt-BR') ===
+      raw.toLocaleLowerCase('pt-BR')
+  );
+  if (exactUsername) return exactUsername.username;
+
+  const key = sgmanUserKey(raw);
+
+  const match = SGMAN_MAINTENANCE_USERS.find(user => {
+    const candidates = [
+      user.username,
+      user.name,
+      ...(user.aliases || [])
+    ].map(sgmanUserKey);
+
+    return candidates.includes(key);
+  });
+
+  return match?.username || '';
+}
+
+function sgmanUserLabel(username = '') {
+  const user = SGMAN_MAINTENANCE_USERS.find(item =>
+    item.username.toLocaleLowerCase('pt-BR') ===
+      String(username).toLocaleLowerCase('pt-BR')
+  );
+
+  return user
+    ? `${user.name} — ${user.username}`
+    : String(username || '');
+}
+
+function parseLegacyTeamSgmanUsers(teamText = '') {
+  const parts = String(teamText)
+    .replace(/\s+e\s+/gi, ',')
+    .split(/[\n,;|/]+/)
+    .map(value => value.trim())
+    .filter(Boolean);
+
+  return uniqueStrings(
+    parts.map(resolveSgmanUsername).filter(Boolean)
+  );
+}
+
+function populateSgmanUserSelect(selectId, selectedValue = '') {
+  const select = $(selectId);
+  if (!select) return;
+
+  const selected = String(selectedValue || '').trim();
+  const known = SGMAN_MAINTENANCE_USERS.some(user =>
+    user.username.toLocaleLowerCase('pt-BR') ===
+      selected.toLocaleLowerCase('pt-BR')
+  );
+
+  const customOption = selected && !known
+    ? `<option value="${escapeHtml(selected)}">${escapeHtml(selected)} — usuário personalizado</option>`
+    : '';
+
+  select.innerHTML = `
+    <option value="">Não definido</option>
+    ${customOption}
+    ${SGMAN_MAINTENANCE_USERS.map(user => `
+      <option value="${escapeHtml(user.username)}">
+        ${escapeHtml(user.name)} — ${escapeHtml(user.username)}
+      </option>
+    `).join('')}
+  `;
+
+  select.value = selected;
+}
+
 const state = {
   analysis: null,
   actions: [],
@@ -1589,6 +1704,7 @@ function migrateConfirmedSgmanUsers() {
         crew,
         maintenanceLeader: defaults.maintenanceLeader,
         sgmanExecutante: defaults.sgmanExecutante,
+        sgmanMechanics: [],
         productionLeader: DEFAULT_PRODUCTION_LEADERS[crew] || '',
         team: ''
       });
@@ -1596,19 +1712,47 @@ function migrateConfirmedSgmanUsers() {
       return;
     }
 
+    const savedMechanics = Array.isArray(existing.sgmanMechanics)
+      ? existing.sgmanMechanics
+      : [
+          existing.sgmanMechanic1,
+          existing.sgmanMechanic2,
+          existing.sgmanMechanic3
+        ].filter(Boolean);
+
+    const derivedMechanics = savedMechanics.length
+      ? savedMechanics
+      : parseLegacyTeamSgmanUsers(existing.team || '');
+
+    const leader = defaults.sgmanExecutante;
+    const mechanics = uniqueStrings(
+      derivedMechanics
+        .map(value => resolveSgmanUsername(value) || String(value).trim())
+        .filter(value =>
+          value &&
+          value.toLocaleLowerCase('pt-BR') !==
+            leader.toLocaleLowerCase('pt-BR')
+        )
+    ).slice(0, 3);
+
+    const next = {
+      ...existing,
+      maintenanceLeader: defaults.maintenanceLeader,
+      sgmanExecutante: leader,
+      sgmanMechanics: mechanics,
+      productionLeader:
+        existing.productionLeader ||
+        DEFAULT_PRODUCTION_LEADERS[crew] ||
+        ''
+    };
+
     if (
-      existing.maintenanceLeader !== defaults.maintenanceLeader ||
-      existing.sgmanExecutante !== defaults.sgmanExecutante
+      existing.maintenanceLeader !== next.maintenanceLeader ||
+      existing.sgmanExecutante !== next.sgmanExecutante ||
+      JSON.stringify(existing.sgmanMechanics || []) !==
+        JSON.stringify(next.sgmanMechanics)
     ) {
-      byCrew.set(crew, {
-        ...existing,
-        maintenanceLeader: defaults.maintenanceLeader,
-        sgmanExecutante: defaults.sgmanExecutante,
-        productionLeader:
-          existing.productionLeader ||
-          DEFAULT_PRODUCTION_LEADERS[crew] ||
-          ''
-      });
+      byCrew.set(crew, next);
       changed = true;
     }
   });
@@ -1624,6 +1768,34 @@ function getScaleRecord(crew) {
   const saved = getScale().find(row => row.crew === crew) || {};
   const defaults = DEFAULT_MAINTENANCE_TEAMS[crew] || {};
 
+  const leader =
+    saved.sgmanExecutante ||
+    saved.sgmanUser ||
+    defaults.sgmanExecutante ||
+    '';
+
+  const savedMechanics = Array.isArray(saved.sgmanMechanics)
+    ? saved.sgmanMechanics
+    : [
+        saved.sgmanMechanic1,
+        saved.sgmanMechanic2,
+        saved.sgmanMechanic3
+      ].filter(Boolean);
+
+  const derivedMechanics = savedMechanics.length
+    ? savedMechanics
+    : parseLegacyTeamSgmanUsers(saved.team || '');
+
+  const sgmanMechanics = uniqueStrings(
+    derivedMechanics
+      .map(value => resolveSgmanUsername(value) || String(value).trim())
+      .filter(value =>
+        value &&
+        value.toLocaleLowerCase('pt-BR') !==
+          String(leader).toLocaleLowerCase('pt-BR')
+      )
+  ).slice(0, 3);
+
   return {
     ...saved,
     crew,
@@ -1632,11 +1804,8 @@ function getScaleRecord(crew) {
       saved.leader ||
       defaults.maintenanceLeader ||
       '',
-    sgmanExecutante:
-      saved.sgmanExecutante ||
-      saved.sgmanUser ||
-      defaults.sgmanExecutante ||
-      '',
+    sgmanExecutante: leader,
+    sgmanMechanics,
     productionLeader:
       saved.productionLeader ||
       DEFAULT_PRODUCTION_LEADERS[crew] ||
@@ -1653,13 +1822,45 @@ function findMaintenanceResponsible(date, shift, crew = '') {
 }
 
 function findSgmanExecutante(crew = '') {
+  return findSgmanTeamExecutantes(crew)[0] || '';
+}
+
+function findSgmanTeamExecutantes(crew = '') {
   const record = crew ? getScaleRecord(crew) : null;
+  if (!record) return [];
 
-  // Só aceita o usuário/login explicitamente cadastrado para a equipe.
-  // Não usa o nome comum do líder, pois ele pode não existir no cadastro do SGMan.
-  if (record?.sgmanExecutante) return record.sgmanExecutante;
+  const leader = resolveSgmanUsername(record.sgmanExecutante) ||
+    String(record.sgmanExecutante || '').trim();
 
-  return '';
+  const mechanics = (record.sgmanMechanics || [])
+    .map(value => resolveSgmanUsername(value) || String(value).trim())
+    .filter(Boolean);
+
+  return uniqueStrings([leader, ...mechanics]);
+}
+
+function distributeSgmanOrders(sourceActions, executantes) {
+  const roster = uniqueStrings(executantes);
+  if (!roster.length) return [];
+
+  return sourceActions.map((action, index) => ({
+    action,
+    executante: roster[index % roster.length]
+  }));
+}
+
+function summarizeSgmanDistribution(assignments = []) {
+  const counts = {};
+
+  assignments.forEach(item => {
+    counts[item.executante] = (counts[item.executante] || 0) + 1;
+  });
+
+  return Object.entries(counts).map(([username, count]) => ({
+    username,
+    label: sgmanUserLabel(username),
+    count
+  }));
 }
 
 function findProductionResponsible(crew = '') {
@@ -1943,10 +2144,21 @@ function renderActions() {
 
 function fillScaleForm(crew) {
   const item = getScaleRecord(crew);
+  const mechanics = item.sgmanMechanics || [];
+
   $('scaleCrew').value = crew;
   $('scaleMaintenanceLeader').value = item.maintenanceLeader || '';
   $('scaleSgmanExecutante').value = item.sgmanExecutante || '';
-  $('scaleProductionLeader').value = item.productionLeader || DEFAULT_PRODUCTION_LEADERS[crew] || '';
+
+  populateSgmanUserSelect('scaleSgmanMechanic1', mechanics[0] || '');
+  populateSgmanUserSelect('scaleSgmanMechanic2', mechanics[1] || '');
+  populateSgmanUserSelect('scaleSgmanMechanic3', mechanics[2] || '');
+
+  $('scaleProductionLeader').value =
+    item.productionLeader ||
+    DEFAULT_PRODUCTION_LEADERS[crew] ||
+    '';
+
   $('scaleTeam').value = item.team || '';
 }
 
@@ -1959,7 +2171,13 @@ function renderScale() {
       <div>
         <h3>Equipe ${escapeHtml(item.crew)}</h3>
         <p><strong>Manutenção:</strong> ${escapeHtml(item.maintenanceLeader || 'não definido')}${item.team ? ` — ${escapeHtml(item.team)}` : ''}</p>
-        <p><strong>Login SGMan:</strong> ${escapeHtml(item.sgmanExecutante || 'não definido')}</p>
+        <p><strong>Líder SGMan:</strong> ${escapeHtml(sgmanUserLabel(item.sgmanExecutante) || 'não definido')}</p>
+        <p><strong>Mecânicos SGMan:</strong> ${
+          item.sgmanMechanics?.length
+            ? item.sgmanMechanics.map(user => escapeHtml(sgmanUserLabel(user))).join(' • ')
+            : 'não definidos'
+        }</p>
+        <p><strong>Distribuição:</strong> rodízio entre ${1 + Number(item.sgmanMechanics?.length || 0)} executante(s)</p>
         <p><strong>Produção:</strong> ${escapeHtml(item.productionLeader || 'não definido')}</p>
       </div>
       <div class="list-actions">
@@ -2959,11 +3177,21 @@ function sgmanComment(action) {
 
 function buildSgmanOrders() {
   if (!state.analysis) {
-    return { orders: [], missingTags: [], missingExecutante: true, executante: '' };
+    return {
+      orders: [],
+      missingTags: [],
+      missingExecutante: true,
+      executantes: [],
+      distribution: [],
+      teamIncomplete: true
+    };
   }
 
   const config = getConfig();
-  const executante = findSgmanExecutante(state.analysis.responsibleCrew);
+  const executantes = findSgmanTeamExecutantes(
+    state.analysis.responsibleCrew
+  );
+
   const sourceActions = state.actions.filter(action =>
     action.approved &&
     action.department === 'maintenance' &&
@@ -2971,19 +3199,25 @@ function buildSgmanOrders() {
     action.status !== 'Concluída'
   );
 
+  const assignments = distributeSgmanOrders(
+    sourceActions,
+    executantes
+  );
+
   const missingTags = [];
   const orders = [];
 
-  for (const action of sourceActions) {
+  assignments.forEach(({ action, executante }) => {
     const tag = config.sgmanTagMap?.[action.machine];
+
     if (!tag) {
       missingTags.push(action.machine);
-      continue;
+      return;
     }
 
     const order = {
       data_programada: formatSgmanDateTime(new Date()),
-      qtd_executantes: Math.max(1, Number(config.sgmanQtdExecutantes || 1)),
+      qtd_executantes: 1,
       tag,
       prioridade: action.priority || 'Média',
       id_ext: `turnosmart-${state.analysis.id}-${action.machine}`.slice(0, 100),
@@ -2991,7 +3225,8 @@ function buildSgmanOrders() {
       duracao_estimada: String(config.sgmanDuracaoEstimada || '01:00'),
       descricao: `${action.machine} - ${action.sgmanSuggestedResolution || suggestedResolutionFromHistory(action)}`.slice(0, 500),
       comentario: sgmanComment(action).slice(0, 2000),
-      maquina_parada: isMachineStopped(action)
+      maquina_parada: isMachineStopped(action),
+      executante
     };
 
     const tipoServicoConfig = String(
@@ -3002,24 +3237,27 @@ function buildSgmanOrders() {
       config.sgmanTipoManutencao || 'AUTOMÁTICO'
     ).trim();
 
-    order.tipo_servico = normalizeKey(tipoServicoConfig) === 'automatico'
-      ? automaticSgmanServiceType(action)
-      : tipoServicoConfig;
+    order.tipo_servico =
+      normalizeKey(tipoServicoConfig) === 'automatico'
+        ? automaticSgmanServiceType(action)
+        : tipoServicoConfig;
 
-    order.tipo_manutencao = normalizeKey(tipoManutencaoConfig) === 'automatico'
-      ? automaticSgmanMaintenanceType(action)
-      : tipoManutencaoConfig;
+    order.tipo_manutencao =
+      normalizeKey(tipoManutencaoConfig) === 'automatico'
+        ? automaticSgmanMaintenanceType(action)
+        : tipoManutencaoConfig;
 
-    if (executante) order.executante = String(executante);
-
+    action.sgmanExecutante = executante;
     orders.push(order);
-  }
+  });
 
   return {
     orders,
     missingTags: [...new Set(missingTags)],
-    missingExecutante: !executante,
-    executante
+    missingExecutante: !executantes.length,
+    executantes,
+    distribution: summarizeSgmanDistribution(assignments),
+    teamIncomplete: executantes.length < 4
   };
 }
 
@@ -3121,6 +3359,7 @@ function renderSgmanResults(data) {
     return `
       <div class="sgman-result-row ${escapeHtml(result.status)}">
         <strong>${resultStatusLabel(result.status)} — ${escapeHtml(result.machine || result.tag || '-')}</strong>${extra}
+        ${result.executante ? `<span><strong>Executante:</strong> ${escapeHtml(result.executante)}</span>` : ''}
         <span>${escapeHtml(result.reason || '')}</span>
         ${Number(result.attempts || 1) > 1
           ? `<small>Tentativas automáticas: ${Number(result.attempts)}</small>`
@@ -3148,13 +3387,20 @@ async function sendOrdersToSgman(mode = 'test') {
     return;
   }
 
-  const { orders, missingTags, missingExecutante, executante } = buildSgmanOrders();
+  const {
+    orders,
+    missingTags,
+    missingExecutante,
+    executantes,
+    distribution,
+    teamIncomplete
+  } = buildSgmanOrders();
 
   if (missingExecutante) {
     showToast(`Cadastre o login exato do SGMan para a equipe ${state.analysis?.responsibleCrew || '-'}.`);
     $('sgmanSendResult').textContent =
-      `Executante não definido para a equipe ${state.analysis?.responsibleCrew || '-'}. ` +
-      'Abra Escala e informe o login/nome exatamente como aparece no cadastro de usuários do SGMan.';
+      `Nenhum executante foi definido para a equipe ${state.analysis?.responsibleCrew || '-'}. ` +
+      'Abra Escala e cadastre o líder e os mecânicos da equipe.';
     return;
   }
 
@@ -3184,7 +3430,9 @@ async function sendOrdersToSgman(mode = 'test') {
 
   const confirmed = window.confirm(
     `${title}\n\n` +
-    selected.map(order => `${order.tag} — ${order.descricao}`).join('\n') +
+    selected.map(order =>
+      `${order.tag} — ${order.descricao}\nResponsável: ${order.executante}`
+    ).join('\n\n') +
     '\n\nO aplicativo só marcará como aberta se o SGMan confirmar.'
   );
   if (!confirmed) return;
@@ -3501,6 +3749,9 @@ Aguardando
 function init() {
   $('reportReceivedAt').value = toLocalDateTimeInput(new Date());
   migrateConfirmedSgmanUsers();
+  populateSgmanUserSelect('scaleSgmanMechanic1');
+  populateSgmanUserSelect('scaleSgmanMechanic2');
+  populateSgmanUserSelect('scaleSgmanMechanic3');
   const config = migrateSgmanConfig();
   $('referenceDate').value = config.referenceDate;
   $('referenceLetter').value = config.referenceLetter;
@@ -3630,14 +3881,23 @@ function init() {
   });
 
   $('sgmanPreviewBtn').addEventListener('click', () => {
-    const { orders, missingTags, missingExecutante, executante } = buildSgmanOrders();
+    const {
+      orders,
+      missingTags,
+      missingExecutante,
+      executantes,
+      distribution,
+      teamIncomplete
+    } = buildSgmanOrders();
 
     $('sgmanJson').textContent = JSON.stringify({
       equipe_responsavel: state.analysis?.responsibleCrew || '',
-      executante_automatico: executante || '',
+      executantes_da_equipe: executantes,
+      distribuicao: distribution,
       orders,
       missingTags,
-      missingExecutante
+      missingExecutante,
+      teamIncomplete
     }, null, 2);
 
     $('sgmanPreview').classList.remove('hidden');
@@ -3649,8 +3909,7 @@ function init() {
 
     if (missingExecutante) {
       $('sgmanSendResult').textContent =
-        `Cadastre na Escala o login exato do SGMan do líder da equipe ${state.analysis?.responsibleCrew || '-'}. ` +
-        'Não use apenas o nome comum do líder.';
+        `Cadastre na Escala o líder e os mecânicos da equipe ${state.analysis?.responsibleCrew || '-'}.`;
     } else if (missingTags.length) {
       $('sgmanSendResult').textContent =
         `Cadastre as TAGs antes de enviar: ${missingTags.join(', ')}`;
@@ -3668,12 +3927,20 @@ function init() {
         `tipo de manutenção: ${maintenanceSummary || 'não definido'}`
       ].join(' • ');
 
+      const distributionText = distribution
+        .map(item => `${item.username}: ${item.count}`)
+        .join(' • ');
+
+      const teamWarning = teamIncomplete
+        ? ` A equipe possui ${executantes.length} executante(s); para usar o líder e três mecânicos, cadastre os quatro.`
+        : '';
+
       $('sgmanSendResult').textContent =
-        `${orders.length} OS pronta(s). Executante automático: ${executante}. ` +
-        `${optionalFields}. Primeiro envie apenas 1 OS de teste.`;
+        `${orders.length} OS distribuída(s) entre ${executantes.length} pessoa(s). ` +
+        `${distributionText}. ${optionalFields}.${teamWarning} Primeiro envie apenas 1 OS de teste.`;
     }
 
-    showToast(`${orders.length} OS preparada(s) para ${executante || 'executante não definido'}.`);
+    showToast(`${orders.length} OS distribuída(s) entre ${executantes.length} executante(s).`);
   });
   $('testOneSgmanBtn').addEventListener('click', () => sendOrdersToSgman('test'));
   $('sendSgmanBtn').addEventListener('click', () => sendOrdersToSgman('all'));
@@ -3684,6 +3951,14 @@ function init() {
     const crew = $('scaleCrew').value;
     const maintenanceLeader = $('scaleMaintenanceLeader').value.trim();
     const sgmanExecutante = $('scaleSgmanExecutante').value.trim();
+    const sgmanMechanics = uniqueStrings([
+      $('scaleSgmanMechanic1').value,
+      $('scaleSgmanMechanic2').value,
+      $('scaleSgmanMechanic3').value
+    ]).filter(value =>
+      value.toLocaleLowerCase('pt-BR') !==
+        sgmanExecutante.toLocaleLowerCase('pt-BR')
+    );
     const productionLeader = $('scaleProductionLeader').value.trim();
     const team = $('scaleTeam').value.trim();
 
@@ -3698,6 +3973,7 @@ function init() {
       crew,
       maintenanceLeader,
       sgmanExecutante,
+      sgmanMechanics,
       productionLeader: productionLeader || DEFAULT_PRODUCTION_LEADERS[crew] || '',
       team
     };
@@ -3726,10 +4002,14 @@ function init() {
       renderActions();
     }
 
+    const rosterSize = 1 + sgmanMechanics.length;
+
     if (!sgmanExecutante) {
-      showToast(`Equipe ${crew} salva, mas falta o login exato do SGMan.`);
+      showToast(`Equipe ${crew} salva, mas falta o líder do SGMan.`);
+    } else if (rosterSize < 4) {
+      showToast(`Equipe ${crew} salva com ${rosterSize} executante(s). Cadastre os três mecânicos para completar.`);
     } else {
-      showToast(`Equipe ${crew} salva. Executante SGMan: ${sgmanExecutante}.`);
+      showToast(`Equipe ${crew} salva com líder e três mecânicos.`);
     }
   });
 
@@ -3798,7 +4078,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=27.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=28.0.0');
         registration.update();
       } catch {}
     });

@@ -652,3 +652,24 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
   left: 0;
   background: inherit;
 }
+
+
+#scaleSgmanMechanic1,
+#scaleSgmanMechanic2,
+#scaleSgmanMechanic3 {
+  min-width: 0;
+}
+
+.distribution-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.distribution-person {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #f1f5f9;
+}

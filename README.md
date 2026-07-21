@@ -1,42 +1,36 @@
-# TurnoSmart V27 — Indicadores exclusivos do SGMan
+# TurnoSmart V28 — OS distribuídas para toda a equipe
 
-Nenhum dado do relatório de produção, quadro de OEE ou tempo digitado manualmente entra nos cálculos.
+## Funcionamento
 
-## Fonte
+Para cada equipe A1, A2, B1 e B2, cadastre:
 
-Somente as ordens corretivas retornadas por:
+- líder da manutenção;
+- usuário exato do líder no SGMan;
+- mecânico 1;
+- mecânico 2;
+- mecânico 3.
 
-```text
-POST https://api.sgman.com.br/os/listar
-```
+As ações já são ordenadas por prioridade. A distribuição fica:
 
-## Indicadores
+1. líder;
+2. mecânico 1;
+3. mecânico 2;
+4. mecânico 3;
+5. volta para o líder.
 
-### MTTR
-
-Média do tempo entre `data_inicio` e `data_fim` das OS corretivas concluídas.
-
-### MTTF
-
-Média do tempo entre a conclusão de um reparo e o início da próxima falha corretiva da mesma máquina.
-
-### MTBF
-
-Média do tempo entre o início de duas falhas corretivas consecutivas da mesma máquina.
-
-### Confiabilidade
-
-Probabilidade estimada de a máquina operar durante o próximo turno de 12 horas sem falhar:
+Cada OS é criada com:
 
 ```text
-R(12h) = e ^ (-12h / MTBF)
+qtd_executantes: 1
+executante: usuário escolhido pelo rodízio
 ```
 
-## Regras de segurança dos dados
+## Migração
 
-- apenas as últimas 72 horas;
-- apenas OS corretivas;
-- sem duas falhas na mesma máquina: MTBF indisponível;
-- sem reparo concluído antes de nova falha: MTTF indisponível;
-- sem início/fim ou duração válida: MTTR indisponível;
-- nenhum valor é inventado ou completado pelo relatório de produção.
+O aplicativo tenta aproveitar automaticamente os nomes já escritos no campo “Equipe da manutenção / observação”. Quando encontra correspondência no diretório do SGMan, preenche os mecânicos da escala.
+
+## Usuários disponíveis
+
+A lista inclui os usuários de manutenção mostrados nas telas do SGMan, como Carlos Matos, Roberto Beraldo, Rogger Sampaio, Thiago Nascimento, Jeanderson Costa, Marcelo Souza, Marcos Roberto, Aleilson Almeida, Igor Henrique, Lucas Eletricista e outros.
+
+Revise a escala uma vez após a atualização para confirmar os três mecânicos de cada equipe.
