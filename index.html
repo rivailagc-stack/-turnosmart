@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=18.0.0" />
+  <link rel="stylesheet" href="style.css?v=20.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -26,9 +26,9 @@
     <section id="view-novo" class="view active">
       <div class="hero card">
         <div>
-          <span class="badge">V18 • Manutenção automática</span>
-          <h2>Tipo de serviço e manutenção automáticos</h2>
-          <p>O aplicativo usa os nomes exatos cadastrados no SGMan e classifica automaticamente o tipo de serviço e o tipo de manutenção.</p>
+          <span class="badge">V20 • Usuários cadastrados</span>
+          <h2>Executantes SGMan cadastrados</h2>
+          <p>Os quatro executantes foram cadastrados automaticamente com os usuários exatos encontrados no SGMan.</p>
         </div>
       </div>
 
@@ -242,7 +242,7 @@
             <h2>Escala dos líderes</h2>
           </div>
         </div>
-        <p class="muted">Cadastre uma vez o líder e o usuário dele no SGMan para A1, A2, B1 e B2. Depois o aplicativo escolhe automaticamente a equipe que está entrando.</p>
+        <p class="muted">Os líderes e os usuários exatos do SGMan já estão preenchidos. Você ainda pode editar a escala caso haja mudança futura.</p>
         <div class="reference-box">
           <strong>Referência da escala</strong>
           <div class="grid two">
@@ -258,6 +258,16 @@
           </div>
           <button id="saveReferenceBtn" class="secondary" type="button">Salvar referência</button>
         </div>
+        <div class="reference-box">
+          <strong>Usuários SGMan confirmados</strong>
+          <p>
+            A1: ricardo.serafim •
+            A2: luiz.afonso •
+            B1: Danilo •
+            B2: fiderlânio.reis
+          </p>
+        </div>
+
         <div class="grid two">
           <label>Equipe fixa
             <select id="scaleCrew">
@@ -270,8 +280,8 @@
           <label>Líder da manutenção
             <input id="scaleMaintenanceLeader" type="text" placeholder="Ex.: Emerson" />
           </label>
-          <label>Usuário do líder no SGMan
-            <input id="scaleSgmanExecutante" type="text" placeholder="Ex.: emerson ou nome exato do SGMan" />
+          <label>Login/nome exato do líder no SGMan
+            <input id="scaleSgmanExecutante" type="text" placeholder="Copie exatamente do cadastro de usuários do SGMan" />
           </label>
           <label>Líder da produção
             <input id="scaleProductionLeader" type="text" placeholder="Ex.: Maria" />
@@ -305,7 +315,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 18</h2>
+        <h2>Configuração da versão 20</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -347,8 +357,8 @@
         </div>
 
         <div class="grid two">
-          <label>Executante de emergência
-            <input id="sgmanExecutante" type="text" placeholder="Usado apenas se a equipe não estiver cadastrada" />
+          <label class="hidden">Executante antigo
+            <input id="sgmanExecutante" type="text" />
           </label>
 
           <label>Tipo de serviço no SGMan
@@ -422,6 +432,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=18.0.0" defer></script>
+  <script src="app.js?v=20.0.0" defer></script>
 </body>
 </html>

@@ -16,6 +16,25 @@ const DEFAULT_PRODUCTION_LEADERS = {
   B2: 'Marisa'
 };
 
+const DEFAULT_MAINTENANCE_TEAMS = {
+  A1: {
+    maintenanceLeader: 'Ricardo Serafim',
+    sgmanExecutante: 'ricardo.serafim'
+  },
+  A2: {
+    maintenanceLeader: 'Luiz Afonso',
+    sgmanExecutante: 'luiz.afonso'
+  },
+  B1: {
+    maintenanceLeader: 'Danilo Nepomuceno',
+    sgmanExecutante: 'Danilo'
+  },
+  B2: {
+    maintenanceLeader: 'Fiderlânio Reis',
+    sgmanExecutante: 'fiderlânio.reis'
+  }
+};
+
 const state = {
   analysis: null,
   actions: [],
@@ -1452,14 +1471,72 @@ function saveScale(items) {
   localStorage.setItem(STORAGE.scale, JSON.stringify(items));
 }
 
+function migrateConfirmedSgmanUsers() {
+  const current = getScale();
+  const byCrew = new Map(current.map(item => [item.crew, item]));
+  let changed = false;
+
+  Object.entries(DEFAULT_MAINTENANCE_TEAMS).forEach(([crew, defaults]) => {
+    const existing = byCrew.get(crew);
+
+    if (!existing) {
+      byCrew.set(crew, {
+        id: uid(),
+        crew,
+        maintenanceLeader: defaults.maintenanceLeader,
+        sgmanExecutante: defaults.sgmanExecutante,
+        productionLeader: DEFAULT_PRODUCTION_LEADERS[crew] || '',
+        team: ''
+      });
+      changed = true;
+      return;
+    }
+
+    if (
+      existing.maintenanceLeader !== defaults.maintenanceLeader ||
+      existing.sgmanExecutante !== defaults.sgmanExecutante
+    ) {
+      byCrew.set(crew, {
+        ...existing,
+        maintenanceLeader: defaults.maintenanceLeader,
+        sgmanExecutante: defaults.sgmanExecutante,
+        productionLeader:
+          existing.productionLeader ||
+          DEFAULT_PRODUCTION_LEADERS[crew] ||
+          ''
+      });
+      changed = true;
+    }
+  });
+
+  if (changed) {
+    saveScale([...byCrew.values()]);
+  }
+
+  return [...byCrew.values()];
+}
+
 function getScaleRecord(crew) {
   const saved = getScale().find(row => row.crew === crew) || {};
+  const defaults = DEFAULT_MAINTENANCE_TEAMS[crew] || {};
+
   return {
     ...saved,
     crew,
-    maintenanceLeader: saved.maintenanceLeader || saved.leader || '',
-    sgmanExecutante: saved.sgmanExecutante || saved.sgmanUser || '',
-    productionLeader: saved.productionLeader || DEFAULT_PRODUCTION_LEADERS[crew] || '',
+    maintenanceLeader:
+      saved.maintenanceLeader ||
+      saved.leader ||
+      defaults.maintenanceLeader ||
+      '',
+    sgmanExecutante:
+      saved.sgmanExecutante ||
+      saved.sgmanUser ||
+      defaults.sgmanExecutante ||
+      '',
+    productionLeader:
+      saved.productionLeader ||
+      DEFAULT_PRODUCTION_LEADERS[crew] ||
+      '',
     team: saved.team || ''
   };
 }
@@ -1473,14 +1550,12 @@ function findMaintenanceResponsible(date, shift, crew = '') {
 
 function findSgmanExecutante(crew = '') {
   const record = crew ? getScaleRecord(crew) : null;
+
+  // Só aceita o usuário/login explicitamente cadastrado para a equipe.
+  // Não usa o nome comum do líder, pois ele pode não existir no cadastro do SGMan.
   if (record?.sgmanExecutante) return record.sgmanExecutante;
 
-  // Quando o usuário do SGMan for igual ao nome do líder, usa o nome do líder.
-  if (record?.maintenanceLeader) return record.maintenanceLeader;
-
-  // Compatibilidade com a configuração antiga: executante padrão.
-  const config = getConfig();
-  return config.sgmanExecutante || '';
+  return '';
 }
 
 function findProductionResponsible(crew = '') {
@@ -1766,7 +1841,7 @@ function renderScale() {
       <div>
         <h3>Equipe ${escapeHtml(item.crew)}</h3>
         <p><strong>Manutenção:</strong> ${escapeHtml(item.maintenanceLeader || 'não definido')}${item.team ? ` — ${escapeHtml(item.team)}` : ''}</p>
-        <p><strong>Usuário SGMan:</strong> ${escapeHtml(item.sgmanExecutante || item.maintenanceLeader || 'não definido')}</p>
+        <p><strong>Login SGMan:</strong> ${escapeHtml(item.sgmanExecutante || 'não definido')}</p>
         <p><strong>Produção:</strong> ${escapeHtml(item.productionLeader || 'não definido')}</p>
       </div>
       <div class="list-actions">
@@ -2108,6 +2183,25 @@ function resultStatusLabel(status) {
   return '⚠️ NÃO CONFIRMADA';
 }
 
+
+function sgmanFailureGuidance(result) {
+  const text = normalizeKey(`${result.reason || ''} ${JSON.stringify(result.response || '')}`);
+
+  if (/executante.*nao existe|executante.*não existe/.test(text)) {
+    return 'Abra Escala e corrija o login do SGMan da equipe responsável. Use exatamente o usuário cadastrado no SGMan.';
+  }
+
+  if (/tipo de servico.*nao existe|tipo de serviço.*não existe/.test(text)) {
+    return 'Confira o tipo de serviço configurado. Use o nome exato cadastrado no SGMan.';
+  }
+
+  if (/tag.*nao existe|tag.*não existe|local.*nao existe|local.*não existe/.test(text)) {
+    return 'Confira a TAG da máquina na tela Config.';
+  }
+
+  return '';
+}
+
 function renderSgmanResults(data) {
   const resultEl = $('sgmanSendResult');
   const results = Array.isArray(data?.results) ? data.results : [];
@@ -2124,10 +2218,13 @@ function renderSgmanResults(data) {
       ? result.response
       : JSON.stringify(result.response, null, 2);
 
+    const guidance = sgmanFailureGuidance(result);
+
     return `
       <div class="sgman-result-row ${escapeHtml(result.status)}">
         <strong>${resultStatusLabel(result.status)} — ${escapeHtml(result.machine || result.tag || '-')}</strong>${extra}
         <span>${escapeHtml(result.reason || '')}</span>
+        ${guidance ? `<p class="sgman-guidance">${escapeHtml(guidance)}</p>` : ''}
         <details>
           <summary>Ver resposta do SGMan</summary>
           <pre>${escapeHtml(responseText || 'Resposta vazia')}</pre>
@@ -2148,10 +2245,10 @@ async function sendOrdersToSgman(mode = 'test') {
   const { orders, missingTags, missingExecutante, executante } = buildSgmanOrders();
 
   if (missingExecutante) {
-    showToast(`Cadastre o usuário SGMan do líder da equipe ${state.analysis?.responsibleCrew || '-'}.`);
+    showToast(`Cadastre o login exato do SGMan para a equipe ${state.analysis?.responsibleCrew || '-'}.`);
     $('sgmanSendResult').textContent =
       `Executante não definido para a equipe ${state.analysis?.responsibleCrew || '-'}. ` +
-      'Abra Escala e cadastre o usuário SGMan do líder.';
+      'Abra Escala e informe o login/nome exatamente como aparece no cadastro de usuários do SGMan.';
     return;
   }
 
@@ -2490,6 +2587,7 @@ Aguardando
 
 function init() {
   $('reportReceivedAt').value = toLocalDateTimeInput(new Date());
+  migrateConfirmedSgmanUsers();
   const config = migrateSgmanConfig();
   $('referenceDate').value = config.referenceDate;
   $('referenceLetter').value = config.referenceLetter;
@@ -2525,7 +2623,11 @@ function init() {
     const referenceDate = $('referenceDate').value;
     const referenceLetter = $('referenceLetter').value;
     if (!referenceDate) return showToast('Informe a data de referência.');
-    saveConfig({ referenceDate, referenceLetter });
+    saveConfig({
+      ...getConfig(),
+      referenceDate,
+      referenceLetter
+    });
     updateDetectedShift();
     showToast('Referência da escala salva.');
   });
@@ -2622,7 +2724,8 @@ function init() {
 
     if (missingExecutante) {
       $('sgmanSendResult').textContent =
-        `Cadastre na Escala o usuário SGMan do líder da equipe ${state.analysis?.responsibleCrew || '-'}.`;
+        `Cadastre na Escala o login exato do SGMan do líder da equipe ${state.analysis?.responsibleCrew || '-'}. ` +
+        'Não use apenas o nome comum do líder.';
     } else if (missingTags.length) {
       $('sgmanSendResult').textContent =
         `Cadastre as TAGs antes de enviar: ${missingTags.join(', ')}`;
@@ -2698,8 +2801,11 @@ function init() {
       renderActions();
     }
 
-    const sgmanUser = sgmanExecutante || maintenanceLeader;
-    showToast(`Equipe ${crew} salva. Executante SGMan: ${sgmanUser || 'não definido'}.`);
+    if (!sgmanExecutante) {
+      showToast(`Equipe ${crew} salva, mas falta o login exato do SGMan.`);
+    } else {
+      showToast(`Equipe ${crew} salva. Executante SGMan: ${sgmanExecutante}.`);
+    }
   });
 
   $('saveSgmanConfigBtn').addEventListener('click', () => {
@@ -2765,7 +2871,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=18.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=20.0.0');
         registration.update();
       } catch {}
     });

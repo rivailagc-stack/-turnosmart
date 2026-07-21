@@ -516,3 +516,13 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
   padding: 10px;
   border-radius: 10px;
 }
+
+
+.sgman-guidance {
+  margin: 0;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .75);
+  font-weight: 700;
+  color: #7f1d1d;
+}

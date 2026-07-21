@@ -1,28 +1,15 @@
-# TurnoSmart V18 — Tipo de manutenção automático
+# TurnoSmart V20 — Executantes SGMan confirmados
 
-Foram confirmados no SGMan:
+Os usuários foram copiados diretamente da lista de usuários do SGMan:
 
-- `CORRETIVA`
-- `MELHORIA`
-- `PREVENTIVA`
-- `PROGRAMAÇÃO`
-- `QUALIDADE`
-- `ROTINA LIDER PRODUÇÃO`
-- `SEGURANÇA`
-- `TESTE`
-- `TROCA DE ALTURA`
-- `TROCA DE MOLDE`
+| Equipe | Líder | Usuário SGMan |
+|---|---|---|
+| A1 | Ricardo Serafim | `ricardo.serafim` |
+| A2 | Luiz Afonso | `luiz.afonso` |
+| B1 | Danilo Nepomuceno | `Danilo` |
+| B2 | Fiderlânio Reis | `fiderlânio.reis` |
 
-## Regras
+A versão faz uma migração automática dos dados já salvos no celular.  
+Não é necessário cadastrar os quatro novamente.
 
-- falhas, quebras e ajustes do relatório diário → `CORRETIVA`
-- preventiva informada no relatório → `PREVENTIVA`
-- melhoria, retrofit ou modificação → `MELHORIA`
-- CLP, software ou programação → `PROGRAMAÇÃO`
-- ocorrência ligada à qualidade/retrabalho → `QUALIDADE`
-- segurança, proteção ou intertravamento → `SEGURANÇA`
-- atividade somente de teste → `TESTE`
-- troca de altura → `TROCA DE ALTURA`
-- troca de molde → `TROCA DE MOLDE`
-
-Na Configuração, mantenha **Automático conforme a ocorrência**.
+Também foi corrigido o salvamento da referência da escala para não apagar as TAGs e demais configurações do SGMan.

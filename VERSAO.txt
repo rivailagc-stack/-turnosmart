@@ -1,3 +1,6 @@
-TurnoSmart V18.0.0
-Tipo de manutenção automático com nomes exatos do SGMan.
-Padrão das falhas diárias: CORRETIVA.
+TurnoSmart V20.0.0
+Usuários exatos do SGMan cadastrados automaticamente:
+A1 ricardo.serafim
+A2 luiz.afonso
+B1 Danilo
+B2 fiderlânio.reis
