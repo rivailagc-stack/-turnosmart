@@ -1,17 +1,27 @@
-# TurnoSmart V14 — Diagnóstico SGMan
+# TurnoSmart V15 — Executante automático
 
-A versão anterior dizia “9 OS enviadas” quando apenas confirmava que a requisição HTTP havia retornado.
+Não é necessário trocar o executante a cada turno.
 
-## Correção
+Na tela **Escala**, cadastre uma vez para cada equipe:
 
-- envia cada OS separadamente;
-- primeiro libera apenas uma OS de teste;
-- classifica cada resposta como:
-  - **ABERTA**: SGMan confirmou ou retornou número/ID;
-  - **RECUSADA**: SGMan informou erro;
-  - **NÃO CONFIRMADA**: resposta chegou, mas não confirmou criação;
-- mostra a resposta bruta do SGMan por máquina;
-- só libera o envio das restantes após um teste confirmado;
-- salva os `id_ext` confirmados para evitar reenvio na mesma instalação.
+- líder da manutenção;
+- usuário exato do líder no SGMan;
+- líder da produção;
+- equipe/observação.
 
-Não envie todas novamente até testar uma e verificar o resultado.
+Exemplo:
+
+```text
+A1 — Líder: Emerson — Usuário SGMan: emerson
+A2 — Líder: Ricardo — Usuário SGMan: ricardo
+B1 — Líder: Danilo — Usuário SGMan: danilo
+B2 — Líder: Fider — Usuário SGMan: fider
+```
+
+Quando o relatório for entregue:
+
+- relatório do turno 1: a responsabilidade passa para a equipe 2;
+- relatório do turno 2: a responsabilidade passa para a próxima equipe 1;
+- a OS recebe automaticamente o usuário SGMan do líder da equipe responsável.
+
+Se o campo “Usuário do líder no SGMan” ficar vazio, o aplicativo tenta usar o nome do líder. O campo de executante na Config é apenas uma opção de emergência.

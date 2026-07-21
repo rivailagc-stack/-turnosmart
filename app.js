@@ -1431,6 +1431,7 @@ function getScaleRecord(crew) {
     ...saved,
     crew,
     maintenanceLeader: saved.maintenanceLeader || saved.leader || '',
+    sgmanExecutante: saved.sgmanExecutante || saved.sgmanUser || '',
     productionLeader: saved.productionLeader || DEFAULT_PRODUCTION_LEADERS[crew] || '',
     team: saved.team || ''
   };
@@ -1441,6 +1442,18 @@ function findMaintenanceResponsible(date, shift, crew = '') {
   if (record?.maintenanceLeader) return record.maintenanceLeader;
   const legacy = getScale().find(row => row.date === date && String(row.shift) === String(shift));
   return legacy?.maintenanceLeader || legacy?.leader || `Líder da manutenção ${crew || '-'} não definido`;
+}
+
+function findSgmanExecutante(crew = '') {
+  const record = crew ? getScaleRecord(crew) : null;
+  if (record?.sgmanExecutante) return record.sgmanExecutante;
+
+  // Quando o usuário do SGMan for igual ao nome do líder, usa o nome do líder.
+  if (record?.maintenanceLeader) return record.maintenanceLeader;
+
+  // Compatibilidade com a configuração antiga: executante padrão.
+  const config = getConfig();
+  return config.sgmanExecutante || '';
 }
 
 function findProductionResponsible(crew = '') {
@@ -1712,6 +1725,7 @@ function fillScaleForm(crew) {
   const item = getScaleRecord(crew);
   $('scaleCrew').value = crew;
   $('scaleMaintenanceLeader').value = item.maintenanceLeader || '';
+  $('scaleSgmanExecutante').value = item.sgmanExecutante || '';
   $('scaleProductionLeader').value = item.productionLeader || DEFAULT_PRODUCTION_LEADERS[crew] || '';
   $('scaleTeam').value = item.team || '';
 }
@@ -1725,6 +1739,7 @@ function renderScale() {
       <div>
         <h3>Equipe ${escapeHtml(item.crew)}</h3>
         <p><strong>Manutenção:</strong> ${escapeHtml(item.maintenanceLeader || 'não definido')}${item.team ? ` — ${escapeHtml(item.team)}` : ''}</p>
+        <p><strong>Usuário SGMan:</strong> ${escapeHtml(item.sgmanExecutante || item.maintenanceLeader || 'não definido')}</p>
         <p><strong>Produção:</strong> ${escapeHtml(item.productionLeader || 'não definido')}</p>
       </div>
       <div class="list-actions">
@@ -1849,9 +1864,12 @@ function sgmanComment(action) {
 }
 
 function buildSgmanOrders() {
-  if (!state.analysis) return { orders: [], missingTags: [] };
+  if (!state.analysis) {
+    return { orders: [], missingTags: [], missingExecutante: true, executante: '' };
+  }
 
   const config = getConfig();
+  const executante = findSgmanExecutante(state.analysis.responsibleCrew);
   const sourceActions = state.actions.filter(action =>
     action.approved &&
     action.department === 'maintenance' &&
@@ -1884,13 +1902,15 @@ function buildSgmanOrders() {
       maquina_parada: isMachineStopped(action)
     };
 
-    if (config.sgmanExecutante) order.executante = String(config.sgmanExecutante);
+    if (executante) order.executante = String(executante);
     orders.push(order);
   }
 
   return {
     orders,
-    missingTags: [...new Set(missingTags)]
+    missingTags: [...new Set(missingTags)],
+    missingExecutante: !executante,
+    executante
   };
 }
 
@@ -1980,7 +2000,15 @@ function renderSgmanResults(data) {
 }
 
 async function sendOrdersToSgman(mode = 'test') {
-  const { orders, missingTags } = buildSgmanOrders();
+  const { orders, missingTags, missingExecutante, executante } = buildSgmanOrders();
+
+  if (missingExecutante) {
+    showToast(`Cadastre o usuário SGMan do líder da equipe ${state.analysis?.responsibleCrew || '-'}.`);
+    $('sgmanSendResult').textContent =
+      `Executante não definido para a equipe ${state.analysis?.responsibleCrew || '-'}. ` +
+      'Abra Escala e cadastre o usuário SGMan do líder.';
+    return;
+  }
 
   if (missingTags.length) {
     showToast(`Cadastre a TAG SGMan: ${missingTags.join(', ')}.`);
@@ -2430,16 +2458,35 @@ function init() {
   });
 
   $('sgmanPreviewBtn').addEventListener('click', () => {
-    const { orders, missingTags } = buildSgmanOrders();
-    $('sgmanJson').textContent = JSON.stringify({ orders, missingTags }, null, 2);
+    const { orders, missingTags, missingExecutante, executante } = buildSgmanOrders();
+
+    $('sgmanJson').textContent = JSON.stringify({
+      equipe_responsavel: state.analysis?.responsibleCrew || '',
+      executante_automatico: executante || '',
+      orders,
+      missingTags,
+      missingExecutante
+    }, null, 2);
+
     $('sgmanPreview').classList.remove('hidden');
     $('sgmanPreview').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    $('testOneSgmanBtn').disabled = !orders.length || !!missingTags.length;
+
+    const blocked = !orders.length || !!missingTags.length || missingExecutante;
+    $('testOneSgmanBtn').disabled = blocked;
     $('sendSgmanBtn').disabled = true;
-    $('sgmanSendResult').textContent = missingTags.length
-      ? `Cadastre as TAGs antes de enviar: ${missingTags.join(', ')}`
-      : `${orders.length} OS pronta(s). Primeiro envie apenas 1 OS de teste.`;
-    showToast(`${orders.length} OS preparada(s).`);
+
+    if (missingExecutante) {
+      $('sgmanSendResult').textContent =
+        `Cadastre na Escala o usuário SGMan do líder da equipe ${state.analysis?.responsibleCrew || '-'}.`;
+    } else if (missingTags.length) {
+      $('sgmanSendResult').textContent =
+        `Cadastre as TAGs antes de enviar: ${missingTags.join(', ')}`;
+    } else {
+      $('sgmanSendResult').textContent =
+        `${orders.length} OS pronta(s). Executante automático: ${executante}. Primeiro envie apenas 1 OS de teste.`;
+    }
+
+    showToast(`${orders.length} OS preparada(s) para ${executante || 'executante não definido'}.`);
   });
   $('testOneSgmanBtn').addEventListener('click', () => sendOrdersToSgman('test'));
   $('sendSgmanBtn').addEventListener('click', () => sendOrdersToSgman('all'));
@@ -2449,24 +2496,51 @@ function init() {
   $('saveScaleBtn').addEventListener('click', () => {
     const crew = $('scaleCrew').value;
     const maintenanceLeader = $('scaleMaintenanceLeader').value.trim();
+    const sgmanExecutante = $('scaleSgmanExecutante').value.trim();
     const productionLeader = $('scaleProductionLeader').value.trim();
     const team = $('scaleTeam').value.trim();
-    if (!crew || (!maintenanceLeader && !productionLeader)) return showToast('Informe pelo menos um líder.');
+
+    if (!crew || (!maintenanceLeader && !productionLeader)) {
+      return showToast('Informe pelo menos um líder.');
+    }
+
     const items = getScale();
     const existing = items.find(item => item.crew === crew);
-    const record = { id: existing?.id || uid(), crew, maintenanceLeader, productionLeader: productionLeader || DEFAULT_PRODUCTION_LEADERS[crew] || '', team };
-    const updated = existing ? items.map(item => item.crew === crew ? record : item) : [record, ...items];
+    const record = {
+      id: existing?.id || uid(),
+      crew,
+      maintenanceLeader,
+      sgmanExecutante,
+      productionLeader: productionLeader || DEFAULT_PRODUCTION_LEADERS[crew] || '',
+      team
+    };
+
+    const updated = existing
+      ? items.map(item => item.crew === crew ? record : item)
+      : [record, ...items];
+
     saveScale(updated);
     renderScale();
+
     if (state.analysis && state.analysis.responsibleCrew === crew) {
-      const maintenanceResponsible = findMaintenanceResponsible(state.analysis.responsibleDate, state.analysis.responsibleShift, crew);
+      const maintenanceResponsible = findMaintenanceResponsible(
+        state.analysis.responsibleDate,
+        state.analysis.responsibleShift,
+        crew
+      );
       const productionResponsible = findProductionResponsible(crew);
+
       state.actions.forEach(action => {
-        action.responsible = action.department === 'maintenance' ? maintenanceResponsible : productionResponsible;
+        action.responsible = action.department === 'maintenance'
+          ? maintenanceResponsible
+          : productionResponsible;
       });
+
       renderActions();
     }
-    showToast('Líderes da equipe salvos.');
+
+    const sgmanUser = sgmanExecutante || maintenanceLeader;
+    showToast(`Equipe ${crew} salva. Executante SGMan: ${sgmanUser || 'não definido'}.`);
   });
 
   $('saveSgmanConfigBtn').addEventListener('click', () => {
@@ -2532,7 +2606,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=14.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=15.0.0');
         registration.update();
       } catch {}
     });

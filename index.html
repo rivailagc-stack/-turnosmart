@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=14.0.0" />
+  <link rel="stylesheet" href="style.css?v=15.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -26,9 +26,9 @@
     <section id="view-novo" class="view active">
       <div class="hero card">
         <div>
-          <span class="badge">V14 • Confirmação real</span>
-          <h2>Confirmação real das OS do SGMan</h2>
-          <p>O aplicativo não considera mais HTTP 200 como OS aberta. Ele testa uma ordem e mostra a resposta real do SGMan.</p>
+          <span class="badge">V15 • Líder automático</span>
+          <h2>Executante automático por equipe</h2>
+          <p>O executante da OS é escolhido automaticamente pela equipe que está entrando. Você cadastra cada líder apenas uma vez.</p>
         </div>
       </div>
 
@@ -242,7 +242,7 @@
             <h2>Escala dos líderes</h2>
           </div>
         </div>
-        <p class="muted">Cadastre os responsáveis das quatro equipes. O aplicativo envia o relatório técnico ao líder da manutenção e o relatório operacional ao líder da produção da equipe que está entrando.</p>
+        <p class="muted">Cadastre uma vez o líder e o usuário dele no SGMan para A1, A2, B1 e B2. Depois o aplicativo escolhe automaticamente a equipe que está entrando.</p>
         <div class="reference-box">
           <strong>Referência da escala</strong>
           <div class="grid two">
@@ -269,6 +269,9 @@
           </label>
           <label>Líder da manutenção
             <input id="scaleMaintenanceLeader" type="text" placeholder="Ex.: Emerson" />
+          </label>
+          <label>Usuário do líder no SGMan
+            <input id="scaleSgmanExecutante" type="text" placeholder="Ex.: emerson ou nome exato do SGMan" />
           </label>
           <label>Líder da produção
             <input id="scaleProductionLeader" type="text" placeholder="Ex.: Maria" />
@@ -302,7 +305,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 14</h2>
+        <h2>Configuração da versão 15</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -322,7 +325,7 @@
           <div class="integration-item done">
             <strong>SGMan</strong>
             <span>Integração preparada</span>
-            <p>Cria ordens pela API oficial após confirmação. O token fica protegido na Vercel.</p>
+            <p>Cria ordens pela API oficial e escolhe o executante pela equipe que está entrando.</p>
           </div>
         </div>
       </div>
@@ -340,8 +343,8 @@
         <p id="sgmanConnectorStatus" class="integration-status">Verificando conector...</p>
 
         <div class="grid two">
-          <label>Executante padrão no SGMan
-            <input id="sgmanExecutante" type="text" placeholder="Ex.: admin ou usuário do líder" />
+          <label>Executante de emergência
+            <input id="sgmanExecutante" type="text" placeholder="Usado apenas se a equipe não estiver cadastrada" />
           </label>
 
           <label>Tipo de serviço
@@ -393,6 +396,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=14.0.0" defer></script>
+  <script src="app.js?v=15.0.0" defer></script>
 </body>
 </html>
