@@ -443,10 +443,16 @@ async function requestList(token, filters) {
   throw new Error('Limite de requisições do SGMan não liberado.');
 }
 
-async function fetchAndInterpret(token, filters, queryMode) {
+async function fetchAndInterpret(
+  token,
+  filters,
+  queryMode,
+  limit = null
+) {
   const raw = await requestList(token, filters);
   const candidates = collectOrderObjects(raw);
-  const orders = candidates
+
+  const interpretedOrders = candidates
     .map(normalizeOrder)
     .filter(order =>
       order.id ||
@@ -461,10 +467,18 @@ async function fetchAndInterpret(token, filters, queryMode) {
         .localeCompare(String(a.endDate || a.startDate))
     );
 
+  const orders = Number.isFinite(limit)
+    ? interpretedOrders.slice(0, limit)
+    : interpretedOrders;
+
   return {
     raw,
     orders,
-    diagnostic: diagnosticOf(raw, candidates, orders, queryMode)
+    diagnostic: {
+      ...diagnosticOf(raw, candidates, interpretedOrders, queryMode),
+      returnedCount: orders.length,
+      requestedLimit: Number.isFinite(limit) ? limit : null
+    }
   };
 }
 
@@ -495,6 +509,10 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    const requestedLimit = body.limit === undefined
+      ? null
+      : Math.max(1, Math.min(500, Number(body.limit) || 100));
+
     // Primeira consulta: sem filtro de status, para não esconder registros
     // caso os nomes dos status sejam diferentes no cadastro da empresa.
     const primaryFilters = {
@@ -511,7 +529,8 @@ module.exports = async function handler(req, res) {
     let result = await fetchAndInterpret(
       token,
       primaryFilters,
-      'periodo-sem-filtro-status'
+      'periodo-sem-filtro-status',
+      requestedLimit
     );
 
     // Segunda tentativa: formato simples, somente data de início.
@@ -520,10 +539,22 @@ module.exports = async function handler(req, res) {
       await sleep(900);
 
       const dateOnly = String(body.data_inicio).slice(0, 10);
+      const fallbackFilters = {
+        data_inicio: dateOnly
+      };
+
+      if (body.tag) fallbackFilters.tag = body.tag;
+      if (body.executante) fallbackFilters.executante = body.executante;
+      if (body.tipo_servico) fallbackFilters.tipo_servico = body.tipo_servico;
+      if (body.tipo_manutencao) fallbackFilters.tipo_manutencao = body.tipo_manutencao;
+
       result = await fetchAndInterpret(
         token,
-        { data_inicio: dateOnly },
-        'somente-data-inicio'
+        fallbackFilters,
+        body.tag
+          ? 'somente-data-inicio-com-tag'
+          : 'somente-data-inicio',
+        requestedLimit
       );
     }
 
