@@ -1,5 +1,5 @@
-TurnoSmart V24.0.0
-Corrige a leitura das ordens retornadas por /os/listar.
-Consulta 90 dias sem filtro de status.
-Faz uma segunda consulta simplificada quando a primeira vier vazia.
-Mostra diagnóstico de itens recebidos e interpretados.
+TurnoSmart V25.0.0
+Corrige a visualização da foto do quadro de OEE.
+A prévia principal permanece colorida.
+O tratamento preto e branco fica apenas dentro da leitura automática.
+Cada máquina mostra uma miniatura da própria linha para confirmação manual.

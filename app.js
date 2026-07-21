@@ -45,6 +45,7 @@ const state = {
   oeeOcrText: '',
   oeeMachineEditorData: [],
   oeeCropDataUrl: '',
+  oeeRowPreviews: [],
   sgmanSending: false,
   sgmanHistoryLoading: false,
   sgmanHistory: {
@@ -695,71 +696,136 @@ function getOeeCropSettings(image, operationalDate, shift) {
   };
 }
 
+function clampByte(value) {
+  return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+function createOeeRowPreviews(previewCanvas) {
+  const rowCount = OEE_BOARD_MACHINES.length;
+  const rowHeight = previewCanvas.height / rowCount;
+  const previews = [];
+
+  for (let index = 0; index < rowCount; index++) {
+    const sourceY = Math.max(0, index * rowHeight - rowHeight * 0.08);
+    const sourceHeight = Math.min(
+      previewCanvas.height - sourceY,
+      rowHeight * 1.16
+    );
+
+    const canvas = document.createElement('canvas');
+    const width = 520;
+    const height = 96;
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    ctx.drawImage(
+      previewCanvas,
+      0,
+      sourceY,
+      previewCanvas.width,
+      sourceHeight,
+      0,
+      0,
+      width,
+      height
+    );
+
+    previews.push(canvas.toDataURL('image/jpeg', 0.9));
+  }
+
+  return previews;
+}
+
 function preprocessOeeColumn(image, operationalDate, shift) {
   const crop = getOeeCropSettings(image, operationalDate, shift);
-  const sourceCanvas = document.createElement('canvas');
-  const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
 
-  // Upscale para melhorar números pequenos.
-  const targetWidth = Math.max(900, crop.sw * 5);
-  const targetHeight = Math.round(targetWidth * (crop.sh / crop.sw));
-  sourceCanvas.width = targetWidth;
-  sourceCanvas.height = targetHeight;
+  // Prévia colorida e legível para o usuário.
+  const previewCanvas = document.createElement('canvas');
+  const previewCtx = previewCanvas.getContext('2d');
+  const previewWidth = Math.max(520, Math.min(900, crop.sw * 3.5));
+  const previewHeight = Math.round(previewWidth * (crop.sh / crop.sw));
 
-  sourceCtx.imageSmoothingEnabled = true;
-  sourceCtx.imageSmoothingQuality = 'high';
-  sourceCtx.drawImage(
+  previewCanvas.width = previewWidth;
+  previewCanvas.height = previewHeight;
+  previewCtx.fillStyle = '#ffffff';
+  previewCtx.fillRect(0, 0, previewWidth, previewHeight);
+  previewCtx.imageSmoothingEnabled = true;
+  previewCtx.imageSmoothingQuality = 'high';
+  previewCtx.drawImage(
     image,
     crop.sx, crop.sy, crop.sw, crop.sh,
-    0, 0, targetWidth, targetHeight
+    0, 0, previewWidth, previewHeight
   );
 
-  const imageData = sourceCtx.getImageData(0, 0, targetWidth, targetHeight);
-  const pixels = imageData.data;
-  const mask = new Uint8ClampedArray(targetWidth * targetHeight);
+  // Imagem separada para o OCR. Ela não é mais usada como prévia principal.
+  const ocrCanvas = document.createElement('canvas');
+  const ocrCtx = ocrCanvas.getContext('2d', { willReadFrequently: true });
+  const ocrWidth = Math.max(1200, Math.min(1800, crop.sw * 6));
+  const ocrHeight = Math.round(ocrWidth * (crop.sh / crop.sw));
 
-  // Prioriza tinta colorida e reduz linhas pretas/cinzas da grade.
-  for (let i = 0, p = 0; i < pixels.length; i += 4, p++) {
+  ocrCanvas.width = ocrWidth;
+  ocrCanvas.height = ocrHeight;
+  ocrCtx.fillStyle = '#ffffff';
+  ocrCtx.fillRect(0, 0, ocrWidth, ocrHeight);
+  ocrCtx.imageSmoothingEnabled = true;
+  ocrCtx.imageSmoothingQuality = 'high';
+  ocrCtx.drawImage(
+    image,
+    crop.sx, crop.sy, crop.sw, crop.sh,
+    0, 0, ocrWidth, ocrHeight
+  );
+
+  const imageData = ocrCtx.getImageData(0, 0, ocrWidth, ocrHeight);
+  const pixels = imageData.data;
+
+  // Tratamento suave:
+  // - mantém os traços da caneta;
+  // - clareia grade e fundo;
+  // - não dilata nem transforma a escrita em blocos pretos.
+  for (let i = 0; i < pixels.length; i += 4) {
     const r = pixels[i];
     const g = pixels[i + 1];
     const b = pixels[i + 2];
+
     const max = Math.max(r, g, b);
     const min = Math.min(r, g, b);
     const saturation = max - min;
-    const brightness = (r + g + b) / 3;
+    const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
 
-    const coloredInk = saturation > 22 && min < 235 && brightness < 245;
-    const veryDarkInk = brightness < 78 && saturation > 9;
-    mask[p] = coloredInk || veryDarkInk ? 0 : 255;
-  }
+    let value;
 
-  // Dilatação simples para engrossar traços finos da caneta.
-  const dilated = new Uint8ClampedArray(mask);
-  for (let y = 1; y < targetHeight - 1; y++) {
-    for (let x = 1; x < targetWidth - 1; x++) {
-      const index = y * targetWidth + x;
-      if (mask[index] !== 0) continue;
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          dilated[(y + dy) * targetWidth + (x + dx)] = 0;
-        }
-      }
+    if (saturation < 15 && luminance > 118) {
+      // Fundo branco e linhas claras da grade.
+      value = 255;
+    } else if (saturation >= 18) {
+      // Caneta colorida: aumenta contraste sem engrossar o traço.
+      value = clampByte(luminance * 0.58 - saturation * 0.55 + 42);
+    } else {
+      // Escrita escura ou partes mais fortes da grade.
+      value = clampByte((luminance - 105) * 1.65 + 105);
     }
-  }
 
-  for (let p = 0, i = 0; p < dilated.length; p++, i += 4) {
-    const value = dilated[p];
     pixels[i] = value;
     pixels[i + 1] = value;
     pixels[i + 2] = value;
     pixels[i + 3] = 255;
   }
 
-  sourceCtx.putImageData(imageData, 0, 0);
+  ocrCtx.putImageData(imageData, 0, 0);
+
   return {
-    canvas: sourceCanvas,
     crop,
-    dataUrl: sourceCanvas.toDataURL('image/png')
+    canvas: ocrCanvas,
+    previewCanvas,
+    previewDataUrl: previewCanvas.toDataURL('image/jpeg', 0.94),
+    ocrDataUrl: ocrCanvas.toDataURL('image/png'),
+    rowPreviews: createOeeRowPreviews(previewCanvas)
   };
 }
 
@@ -848,7 +914,10 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
 
         return `
           <label class="oee-editor-row ${confidenceClass}">
-            <span>${escapeHtml(row.machine)}</span>
+            <span class="oee-machine-name">${escapeHtml(row.machine)}</span>
+            ${state.oeeRowPreviews[index]
+              ? `<img class="oee-row-preview" src="${state.oeeRowPreviews[index]}" alt="Linha de ${escapeHtml(row.machine)} no quadro" />`
+              : '<span class="oee-row-placeholder">Sem recorte</span>'}
             <input
               class="oee-editor-input"
               data-index="${index}"
@@ -860,7 +929,7 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
               value="${row.oee === '' ? '' : escapeHtml(String(row.oee))}"
               placeholder="-"
             />
-            <small>${row.oee === '' ? 'Revisar' : `${Math.round(row.confidence || 0)}% confiança`}</small>
+            <small>${row.oee === '' ? 'Confira a linha e digite o OEE' : `${Math.round(row.confidence || 0)}% confiança — confirme`}</small>
           </label>`;
       }).join('')}
     </div>
@@ -918,16 +987,18 @@ async function processOeeColumnPhoto() {
 
     const image = await loadImageElement(fullDataUrl);
     const processed = preprocessOeeColumn(image, operationalDate, shift);
-    state.oeeCropDataUrl = processed.dataUrl;
+    state.oeeCropDataUrl = processed.previewDataUrl;
+    state.oeeRowPreviews = processed.rowPreviews || [];
 
-    $('oeeCropPreview').src = processed.dataUrl;
+    $('oeeCropPreview').src = processed.previewDataUrl;
+    $('oeeOcrPreview').src = processed.ocrDataUrl;
     $('oeeCropPreviewWrap').classList.remove('hidden');
 
     if (!window.Tesseract) throw new Error('OCR não carregado.');
     statusEl.textContent = `Lendo somente ${scope.label}...`;
 
     const result = await window.Tesseract.recognize(
-      processed.dataUrl,
+      processed.ocrDataUrl,
       'eng',
       {
         logger: info => {
@@ -949,7 +1020,7 @@ async function processOeeColumnPhoto() {
     renderOeeMachineEditor(rows);
 
     const detected = rows.filter(row => row.oee !== '').length;
-    statusEl.textContent = `${detected} valor(es) sugerido(s) em ${scope.label}. Confira a tabela antes de analisar.`;
+    statusEl.textContent = `${detected} valor(es) sugerido(s) em ${scope.label}. Como o quadro é escrito à mão, confirme cada linha antes de analisar.`;
 
     // Mantém compatibilidade com histórico e painel.
     $('oeeOcrText').value = editorOeeText();
@@ -2969,10 +3040,12 @@ function init() {
     $('oeePreview').src = '';
     $('oeePreviewWrap').classList.add('hidden');
     $('oeeCropPreview').src = '';
+    $('oeeOcrPreview').src = '';
     $('oeeCropPreviewWrap').classList.add('hidden');
     $('oeeMachineEditor').innerHTML = '';
     $('oeeMachineEditor').classList.add('hidden');
     state.oeeMachineEditorData = [];
+    state.oeeRowPreviews = [];
     state.oeeImageDataUrl = '';
     state.oeeCropDataUrl = '';
     localStorage.removeItem(STORAGE.draft);
@@ -2985,6 +3058,7 @@ function init() {
     const dataUrl = await dataUrlFromFile(file);
     state.oeeImageDataUrl = dataUrl;
     state.oeeMachineEditorData = [];
+    state.oeeRowPreviews = [];
     $('oeePreview').src = dataUrl;
     $('oeePreviewWrap').classList.remove('hidden');
     $('oeeCropPreviewWrap').classList.add('hidden');
@@ -3154,10 +3228,12 @@ function init() {
     $('oeePreview').src = '';
     $('oeePreviewWrap').classList.add('hidden');
     $('oeeCropPreview').src = '';
+    $('oeeOcrPreview').src = '';
     $('oeeCropPreviewWrap').classList.add('hidden');
     $('oeeMachineEditor').innerHTML = '';
     $('oeeMachineEditor').classList.add('hidden');
     state.oeeMachineEditorData = [];
+    state.oeeRowPreviews = [];
     renderAnalysis();
     renderActions();
     renderScale();
@@ -3182,7 +3258,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=24.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=25.0.0');
         registration.update();
       } catch {}
     });

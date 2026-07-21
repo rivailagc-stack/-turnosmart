@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=24.0.0" />
+  <link rel="stylesheet" href="style.css?v=25.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -26,9 +26,9 @@
     <section id="view-novo" class="view active">
       <div class="hero card">
         <div>
-          <span class="badge">V24 • Leitura SGMan corrigida</span>
-          <h2>Leitura real das ordens do SGMan</h2>
-          <p>A leitura foi ajustada para o formato real da resposta do SGMan, sem filtro de status e com diagnóstico da quantidade recebida.</p>
+          <span class="badge">V25 • Foto OEE legível</span>
+          <h2>Foto do OEE legível por máquina</h2>
+          <p>A coluna do quadro permanece colorida e cada máquina recebe uma miniatura da própria linha para você confirmar o OEE.</p>
         </div>
       </div>
 
@@ -78,8 +78,15 @@
           <small id="oeeStatus" class="muted"></small>
 
           <div id="oeeCropPreviewWrap" class="hidden image-preview-wrap crop-preview-wrap">
-            <span class="preview-label">Coluna usada pelo aplicativo</span>
-            <img id="oeeCropPreview" alt="Coluna recortada e tratada" class="image-preview crop-preview" />
+            <span class="preview-label">Coluna original usada pelo aplicativo</span>
+            <p class="muted">Esta imagem permanece colorida para você conseguir conferir a escrita.</p>
+            <img id="oeeCropPreview" alt="Coluna original recortada do quadro" class="image-preview crop-preview" />
+
+            <details class="ocr-debug-preview">
+              <summary>Ver imagem interna usada pelo OCR</summary>
+              <p class="muted">Esta versão em preto e branco serve apenas para a leitura automática.</p>
+              <img id="oeeOcrPreview" alt="Imagem interna usada pelo OCR" class="image-preview ocr-preview" />
+            </details>
           </div>
 
           <div id="oeeMachineEditor" class="hidden oee-machine-editor"></div>
@@ -329,7 +336,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 24</h2>
+        <h2>Configuração da versão 25</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
