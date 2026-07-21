@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=8.0.0" />
+  <link rel="stylesheet" href="style.css?v=12.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -26,9 +26,9 @@
     <section id="view-novo" class="view active">
       <div class="hero card">
         <div>
-          <span class="badge">V8 • Relatório + foto OEE</span>
-          <h2>Análise do relatório + quadro de OEE</h2>
-          <p>Cole o relatório e, se quiser, adicione a foto do quadro de OEE. O app cruza os dois dados e prioriza máquinas abaixo de 65%.</p>
+          <span class="badge">V12 • SGMan real</span>
+          <h2>Análise, OEE e criação de OS no SGMan</h2>
+          <p>O app analisa relatório e OEE, prepara as ações e cria ordens reais no SGMan após sua confirmação.</p>
         </div>
       </div>
 
@@ -56,16 +56,40 @@
         </label>
 
         <div class="oee-upload">
-          <label>Foto do quadro de OEE (opcional)
+          <label>Foto do quadro semanal de OEE
             <input id="oeeImageInput" type="file" accept="image/*" />
           </label>
+
+          <div class="reference-box">
+            <strong>Leitura das últimas 12 horas</strong>
+            <p id="oeeScopeHint" class="muted">O aplicativo vai indicar e recortar somente a coluna correta.</p>
+          </div>
+
           <div id="oeePreviewWrap" class="hidden image-preview-wrap">
+            <span class="preview-label">Foto completa</span>
             <img id="oeePreview" alt="Prévia do quadro de OEE" class="image-preview" />
           </div>
+
+          <div class="button-row compact-row">
+            <button id="processOeePhotoBtn" class="secondary" type="button">Recortar e ler coluna</button>
+            <button id="emptyOeeTableBtn" class="ghost" type="button">Preencher manualmente</button>
+          </div>
+
           <small id="oeeStatus" class="muted"></small>
-          <label>Texto lido da foto do OEE (opcional, pode corrigir)
-            <textarea id="oeeOcrText" rows="6" placeholder="Se a leitura automática errar, corrija aqui. Ex.:&#10;170 64%&#10;172 54%&#10;149 63%"></textarea>
-          </label>
+
+          <div id="oeeCropPreviewWrap" class="hidden image-preview-wrap crop-preview-wrap">
+            <span class="preview-label">Coluna usada pelo aplicativo</span>
+            <img id="oeeCropPreview" alt="Coluna recortada e tratada" class="image-preview crop-preview" />
+          </div>
+
+          <div id="oeeMachineEditor" class="hidden oee-machine-editor"></div>
+
+          <details class="advanced-oee">
+            <summary>Texto técnico da leitura</summary>
+            <label>Texto usado no histórico
+              <textarea id="oeeOcrText" rows="6" placeholder="Os valores confirmados aparecem aqui automaticamente."></textarea>
+            </label>
+          </details>
         </div>
         <div class="button-row">
           <button id="analyzeBtn" class="primary" type="button">Analisar relatório</button>
@@ -120,12 +144,12 @@
             </div>
             <span id="responsibleBadge" class="badge neutral">Responsável não definido</span>
           </div>
-          <p class="muted">Ações técnicas + OEE abaixo de 65 + reincidência + cobrança de uso do SGMan.</p>
+          <p class="muted">Ações técnicas com foco na coluna correta do quadro, OEE abaixo de 65, reincidência e SGMan.</p>
           <div id="maintenanceActionsList" class="actions-list"></div>
           <div class="button-row sticky-actions">
             <button id="shareMaintenanceBtn" class="primary" type="button">Compartilhar manutenção</button>
             <button id="copyMaintenanceBtn" class="secondary" type="button">Copiar manutenção</button>
-            <button id="sgmanPreviewBtn" class="ghost" type="button">Gerar OS simuladas</button>
+            <button id="sgmanPreviewBtn" class="ghost" type="button">Revisar OS do SGMan</button>
           </div>
         </div>
 
@@ -149,11 +173,58 @@
           <div class="section-head">
             <div>
               <span class="eyebrow">SGMAN</span>
-              <h2>Prévia das ordens da manutenção</h2>
+              <h2>Revisão das ordens reais</h2>
             </div>
             <button id="downloadPayloadBtn" class="secondary" type="button">Baixar JSON</button>
           </div>
+          <p class="muted">O token não aparece aqui. Ele fica protegido nas variáveis da Vercel.</p>
           <pre id="sgmanJson"></pre>
+          <div class="button-row">
+            <button id="sendSgmanBtn" class="primary" type="button">Criar OS reais no SGMan</button>
+          </div>
+          <pre id="sgmanSendResult" class="integration-result"></pre>
+        </div>
+      </div>
+    </section>
+
+
+    <section id="view-oee" class="view">
+      <div id="emptyOeeDashboard" class="card empty-state">
+        <h2>Sem dados suficientes</h2>
+        <p>Analise os relatórios com o OEE das máquinas. O painel usará os últimos três dias salvos neste aparelho.</p>
+      </div>
+
+      <div id="oeeDashboardContent" class="hidden">
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">EMPRESA</span>
+              <h2>OEE geral dos últimos 3 dias</h2>
+            </div>
+          </div>
+          <div id="oeeDashboardCards" class="summary-grid"></div>
+        </div>
+
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">PRIORIDADE</span>
+              <h2>Máquinas que precisam de ação</h2>
+            </div>
+          </div>
+          <p class="muted">Prioridade quando a média fica abaixo de 65%, quando há duas ou mais leituras abaixo de 65% ou quando a tendência está caindo.</p>
+          <div id="oeePriorityList" class="priority-oee-list"></div>
+        </div>
+
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">MÁQUINA POR MÁQUINA</span>
+              <h2>OEE das últimas 72 horas</h2>
+            </div>
+          </div>
+          <p class="muted">Quando existem os turnos A e B no mesmo dia, o aplicativo mostra a média diária e os dois resultados abaixo.</p>
+          <div id="oeeMachineTable" class="table-wrap"></div>
         </div>
       </div>
     </section>
@@ -226,7 +297,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 8</h2>
+        <h2>Configuração da versão 12</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -243,11 +314,55 @@
             <span>Próxima etapa</span>
             <p>Será conectado por número oficial e webhook.</p>
           </div>
-          <div class="integration-item waiting">
+          <div class="integration-item done">
             <strong>SGMan</strong>
-            <span>Simulação</span>
-            <p>O aplicativo monta em JSON somente as ordens classificadas como manutenção.</p>
+            <span>Integração preparada</span>
+            <p>Cria ordens pela API oficial após confirmação. O token fica protegido na Vercel.</p>
           </div>
+        </div>
+      </div>
+
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">API SGMAN</span>
+            <h2>Configuração das ordens</h2>
+          </div>
+          <button id="testSgmanBtn" class="secondary" type="button">Testar conector</button>
+        </div>
+
+        <p id="sgmanConnectorStatus" class="integration-status">Verificando conector...</p>
+
+        <div class="grid two">
+          <label>Executante padrão no SGMan
+            <input id="sgmanExecutante" type="text" placeholder="Ex.: admin ou usuário do líder" />
+          </label>
+
+          <label>Tipo de serviço
+            <input id="sgmanTipoServico" type="text" value="Mecânica" />
+          </label>
+
+          <label>Tipo de manutenção
+            <input id="sgmanTipoManutencao" type="text" value="Corretiva" />
+          </label>
+
+          <label>Quantidade de executantes
+            <input id="sgmanQtdExecutantes" type="number" min="1" max="20" value="1" />
+          </label>
+
+          <label>Duração estimada
+            <input id="sgmanDuracaoEstimada" type="text" value="01:00" placeholder="hh:mm" />
+          </label>
+        </div>
+
+        <label>TAGs das máquinas no SGMan
+          <textarea id="sgmanTagMap" rows="14" placeholder="Uma por linha:&#10;MK-149=BC-018&#10;MK-172=TAG-DA-MK172&#10;MK-170=TAG-DA-MK170"></textarea>
+        </label>
+        <p class="muted">A máquina só será enviada quando a TAG estiver cadastrada. Não coloque o token neste campo.</p>
+
+        <div class="button-row">
+          <button id="saveSgmanConfigBtn" class="primary" type="button">Salvar configuração SGMan</button>
         </div>
       </div>
 
@@ -263,6 +378,7 @@
     <button class="nav-btn active" data-view="novo"><span>＋</span>Novo</button>
     <button class="nav-btn" data-view="analise"><span>▦</span>Análise</button>
     <button class="nav-btn" data-view="acoes"><span>✓</span>Ações</button>
+    <button class="nav-btn" data-view="oee"><span>%</span>OEE 3 dias</button>
     <button class="nav-btn" data-view="escala"><span>◷</span>Escala</button>
     <button class="nav-btn" data-view="historico"><span>≡</span>Histórico</button>
     <button class="nav-btn" data-view="config"><span>⚙</span>Config</button>
@@ -271,6 +387,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=8.0.0" defer></script>
+  <script src="app.js?v=12.0.0" defer></script>
 </body>
 </html>

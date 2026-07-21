@@ -1,3 +1,4 @@
-TurnoSmart V8.0.0
-Cruza relatório com foto do quadro de OEE.
-Mostra OEE abaixo de 65, reincidência e reforço do SGMan.
+TurnoSmart V12.0.0
+Integração real com POST https://api.sgman.com.br/os/criar.
+Token protegido em SGMAN_TOKEN na Vercel.
+Confirmação obrigatória antes de criar as OS.
