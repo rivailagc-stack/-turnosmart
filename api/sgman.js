@@ -168,6 +168,7 @@ async function sendSingleOrder(endpoint, token, order) {
         id_ext: order.id_ext || '',
         machine: String(order.descricao || '').split(' - ')[0] || '',
         tag: order.tag || order.local || '',
+        executante: order.executante || '',
         http_status: upstream.status,
         status: rateLimited ? 'failed' : inspection.status,
         reason: rateLimited
@@ -187,6 +188,7 @@ async function sendSingleOrder(endpoint, token, order) {
         id_ext: order.id_ext || '',
         machine: String(order.descricao || '').split(' - ')[0] || '',
         tag: order.tag || order.local || '',
+        executante: order.executante || '',
         http_status: 0,
         status: 'failed',
         reason: error?.name === 'AbortError'
