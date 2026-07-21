@@ -325,3 +325,108 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
     justify-self: start;
   }
 }
+
+
+.preview-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: .78rem;
+  font-weight: 800;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.crop-preview-wrap {
+  background: #0f172a;
+}
+
+.crop-preview {
+  max-height: 520px;
+  background: #fff;
+}
+
+.oee-machine-editor {
+  border: 1px solid #cbd5e1;
+  border-radius: 16px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.oee-editor-head {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.oee-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.oee-editor-row {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.oee-editor-row > span {
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.oee-editor-row input {
+  min-width: 0;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.oee-editor-row small {
+  grid-column: 1 / -1;
+  font-size: .7rem;
+  color: #64748b;
+}
+
+.confidence-good {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.confidence-warning {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.confidence-low,
+.confidence-empty {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.advanced-oee {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 10px;
+}
+
+.advanced-oee summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: #475569;
+}
+
+@media (max-width: 620px) {
+  .oee-editor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .crop-preview {
+    max-height: 620px;
+  }
+}

@@ -20,7 +20,9 @@ const state = {
   deferredPrompt: null,
   manualSchedule: false,
   oeeImageDataUrl: '',
-  oeeOcrText: ''
+  oeeOcrText: '',
+  oeeMachineEditorData: [],
+  oeeCropDataUrl: ''
 };
 
 const $ = id => document.getElementById(id);
@@ -564,20 +566,328 @@ function dataUrlFromFile(file) {
   });
 }
 
-async function recognizeOeeImage(dataUrl) {
-  if (!dataUrl) return '';
-  if (!window.Tesseract) throw new Error('OCR indisponível no aparelho.');
-  const statusEl = $('oeeStatus');
-  if (statusEl) statusEl.textContent = 'Lendo foto do OEE...';
-  const result = await window.Tesseract.recognize(dataUrl, 'eng', {
-    logger: info => {
-      if (statusEl && info.status === 'recognizing text' && typeof info.progress === 'number') {
-        statusEl.textContent = `Lendo foto do OEE... ${Math.round(info.progress * 100)}%`;
+
+const OEE_BOARD_MACHINES = [
+  'MK-02', 'MK-08', 'MK-138', 'MK-105', 'MK-108', 'MK-223',
+  'MK-192', 'MK-69', 'MK-172', 'MK-173', 'MK-178', 'MK-179',
+  'MK-212', 'MK-214', 'MK-217', 'MK-220', 'MK-159', 'MK-222',
+  'MK-170', 'MK-176', 'MK-188', 'MK-149'
+];
+
+function loadImageElement(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = dataUrl;
+  });
+}
+
+function boardColumnIndex(operationalDate, shift) {
+  const date = parseISODateAtNoon(operationalDate || todayISO());
+  const jsDay = date.getDay(); // domingo = 0
+  const mondayIndex = jsDay === 0 ? 6 : jsDay - 1;
+  const shiftOffset = String(shift || '1') === '2' ? 1 : 0;
+  return mondayIndex * 2 + shiftOffset;
+}
+
+function getOeeCropSettings(image, operationalDate, shift) {
+  // O quadro tem uma coluna fixa das máquinas à esquerda e 14 colunas de turno.
+  const boardStart = 0.085;
+  const boardEnd = 0.995;
+  const totalColumns = 14;
+  const columnWidth = (boardEnd - boardStart) / totalColumns;
+  const index = boardColumnIndex(operationalDate, shift);
+
+  // Leve folga lateral para compensar perspectiva da foto.
+  const xRatio = Math.max(0, boardStart + index * columnWidth - columnWidth * 0.13);
+  const widthRatio = Math.min(1 - xRatio, columnWidth * 1.26);
+
+  // Começa onde iniciam as linhas das máquinas, removendo cabeçalho/produção total.
+  const yRatio = 0.175;
+  const heightRatio = 0.79;
+
+  return {
+    sx: Math.round(image.naturalWidth * xRatio),
+    sy: Math.round(image.naturalHeight * yRatio),
+    sw: Math.round(image.naturalWidth * widthRatio),
+    sh: Math.round(image.naturalHeight * heightRatio)
+  };
+}
+
+function preprocessOeeColumn(image, operationalDate, shift) {
+  const crop = getOeeCropSettings(image, operationalDate, shift);
+  const sourceCanvas = document.createElement('canvas');
+  const sourceCtx = sourceCanvas.getContext('2d', { willReadFrequently: true });
+
+  // Upscale para melhorar números pequenos.
+  const targetWidth = Math.max(900, crop.sw * 5);
+  const targetHeight = Math.round(targetWidth * (crop.sh / crop.sw));
+  sourceCanvas.width = targetWidth;
+  sourceCanvas.height = targetHeight;
+
+  sourceCtx.imageSmoothingEnabled = true;
+  sourceCtx.imageSmoothingQuality = 'high';
+  sourceCtx.drawImage(
+    image,
+    crop.sx, crop.sy, crop.sw, crop.sh,
+    0, 0, targetWidth, targetHeight
+  );
+
+  const imageData = sourceCtx.getImageData(0, 0, targetWidth, targetHeight);
+  const pixels = imageData.data;
+  const mask = new Uint8ClampedArray(targetWidth * targetHeight);
+
+  // Prioriza tinta colorida e reduz linhas pretas/cinzas da grade.
+  for (let i = 0, p = 0; i < pixels.length; i += 4, p++) {
+    const r = pixels[i];
+    const g = pixels[i + 1];
+    const b = pixels[i + 2];
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const saturation = max - min;
+    const brightness = (r + g + b) / 3;
+
+    const coloredInk = saturation > 22 && min < 235 && brightness < 245;
+    const veryDarkInk = brightness < 78 && saturation > 9;
+    mask[p] = coloredInk || veryDarkInk ? 0 : 255;
+  }
+
+  // Dilatação simples para engrossar traços finos da caneta.
+  const dilated = new Uint8ClampedArray(mask);
+  for (let y = 1; y < targetHeight - 1; y++) {
+    for (let x = 1; x < targetWidth - 1; x++) {
+      const index = y * targetWidth + x;
+      if (mask[index] !== 0) continue;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          dilated[(y + dy) * targetWidth + (x + dx)] = 0;
+        }
       }
     }
+  }
+
+  for (let p = 0, i = 0; p < dilated.length; p++, i += 4) {
+    const value = dilated[p];
+    pixels[i] = value;
+    pixels[i + 1] = value;
+    pixels[i + 2] = value;
+    pixels[i + 3] = 255;
+  }
+
+  sourceCtx.putImageData(imageData, 0, 0);
+  return {
+    canvas: sourceCanvas,
+    crop,
+    dataUrl: sourceCanvas.toDataURL('image/png')
+  };
+}
+
+function numericOeeFromWord(text = '') {
+  const cleaned = String(text).replace(/[Oo]/g, '0').replace(/[^0-9.,%]/g, '');
+  const match = cleaned.match(/(\d{1,3})(?:[.,](\d))?/);
+  if (!match) return null;
+  const integer = Number(match[1]);
+  const value = Number(match[2] ? `${integer}.${match[2]}` : integer);
+  if (!Number.isFinite(value) || value < 10 || value > 100) return null;
+  return {
+    value,
+    hasPercent: cleaned.includes('%')
+  };
+}
+
+function mapOcrWordsToMachineRows(words = [], canvasHeight = 1) {
+  const rowCount = OEE_BOARD_MACHINES.length;
+  const rowBuckets = Array.from({ length: rowCount }, () => []);
+
+  for (const word of words) {
+    const parsed = numericOeeFromWord(word.text);
+    if (!parsed) continue;
+    const bbox = word.bbox || {};
+    const y0 = Number(bbox.y0 ?? bbox.top ?? 0);
+    const y1 = Number(bbox.y1 ?? bbox.bottom ?? y0);
+    const centerY = (y0 + y1) / 2;
+    const normalizedY = Math.min(0.999, Math.max(0, centerY / Math.max(1, canvasHeight)));
+    const rowIndex = Math.min(rowCount - 1, Math.floor(normalizedY * rowCount));
+
+    rowBuckets[rowIndex].push({
+      value: parsed.value,
+      hasPercent: parsed.hasPercent,
+      confidence: Number(word.confidence || 0),
+      x: Number(bbox.x0 ?? bbox.left ?? 0),
+      y: centerY,
+      raw: word.text
+    });
+  }
+
+  return OEE_BOARD_MACHINES.map((machine, index) => {
+    const candidates = rowBuckets[index];
+    if (!candidates.length) {
+      return { machine, oee: '', confidence: 0, source: 'Não identificado' };
+    }
+
+    // Percentual explícito ganha prioridade; caso contrário usa o último número da linha.
+    candidates.sort((a, b) => {
+      if (a.hasPercent !== b.hasPercent) return a.hasPercent ? -1 : 1;
+      if (a.y !== b.y) return b.y - a.y;
+      return b.x - a.x;
+    });
+
+    const chosen = candidates[0];
+    return {
+      machine,
+      oee: chosen.value,
+      confidence: chosen.confidence,
+      source: chosen.raw
+    };
   });
-  if (statusEl) statusEl.textContent = 'Foto do OEE lida.';
-  return String(result?.data?.text || '').trim();
+}
+
+function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
+  const wrap = $('oeeMachineEditor');
+  if (!wrap) return;
+
+  state.oeeMachineEditorData = rows.length
+    ? rows
+    : OEE_BOARD_MACHINES.map(machine => ({ machine, oee: '', confidence: 0, source: '' }));
+
+  wrap.innerHTML = `
+    <div class="oee-editor-head">
+      <strong>Confirme os valores antes de analisar</strong>
+      <span class="muted">Deixe vazio quando a máquina não trabalhou.</span>
+    </div>
+    <div class="oee-editor-grid">
+      ${state.oeeMachineEditorData.map((row, index) => {
+        const confidenceClass = row.oee === ''
+          ? 'confidence-empty'
+          : row.confidence >= 70
+            ? 'confidence-good'
+            : row.confidence >= 40
+              ? 'confidence-warning'
+              : 'confidence-low';
+
+        return `
+          <label class="oee-editor-row ${confidenceClass}">
+            <span>${escapeHtml(row.machine)}</span>
+            <input
+              class="oee-editor-input"
+              data-index="${index}"
+              type="number"
+              min="0"
+              max="100"
+              step="0.1"
+              inputmode="decimal"
+              value="${row.oee === '' ? '' : escapeHtml(String(row.oee))}"
+              placeholder="-"
+            />
+            <small>${row.oee === '' ? 'Revisar' : `${Math.round(row.confidence || 0)}% confiança`}</small>
+          </label>`;
+      }).join('')}
+    </div>
+  `;
+
+  $$('.oee-editor-input').forEach(input => {
+    input.addEventListener('input', event => {
+      const index = Number(event.target.dataset.index);
+      const raw = event.target.value.trim();
+      const value = raw === '' ? '' : Number(raw.replace(',', '.'));
+      state.oeeMachineEditorData[index].oee = Number.isFinite(value) ? value : '';
+      state.oeeMachineEditorData[index].confidence = 100;
+      event.target.closest('.oee-editor-row')?.classList.remove('confidence-low', 'confidence-warning', 'confidence-empty');
+      event.target.closest('.oee-editor-row')?.classList.add('confidence-good');
+      const small = event.target.closest('.oee-editor-row')?.querySelector('small');
+      if (small) small.textContent = raw === '' ? 'Revisar' : 'Confirmado';
+    });
+  });
+
+  wrap.classList.remove('hidden');
+}
+
+function machineOeeFromEditor() {
+  return state.oeeMachineEditorData
+    .map(row => ({
+      machine: row.machine,
+      oee: row.oee === '' ? null : Number(row.oee),
+      line: `${row.machine} ${row.oee}%`
+    }))
+    .filter(row => Number.isFinite(row.oee) && row.oee >= 0 && row.oee <= 100);
+}
+
+function editorOeeText() {
+  return machineOeeFromEditor()
+    .map(row => `${row.machine.replace('MK-', '')} ${String(row.oee).replace('.', ',')}%`)
+    .join('\n');
+}
+
+async function processOeeColumnPhoto() {
+  const file = $('oeeImageInput')?.files?.[0];
+  if (!file) {
+    showToast('Escolha a foto do quadro primeiro.');
+    return [];
+  }
+
+  const statusEl = $('oeeStatus');
+  const operationalDate = $('reportDate').value || todayISO();
+  const shift = $('reportShift').value || '1';
+  const scope = boardScopeForReport(operationalDate, shift);
+
+  try {
+    statusEl.textContent = `Recortando somente ${scope.label}...`;
+    const fullDataUrl = state.oeeImageDataUrl || await dataUrlFromFile(file);
+    state.oeeImageDataUrl = fullDataUrl;
+
+    const image = await loadImageElement(fullDataUrl);
+    const processed = preprocessOeeColumn(image, operationalDate, shift);
+    state.oeeCropDataUrl = processed.dataUrl;
+
+    $('oeeCropPreview').src = processed.dataUrl;
+    $('oeeCropPreviewWrap').classList.remove('hidden');
+
+    if (!window.Tesseract) throw new Error('OCR não carregado.');
+    statusEl.textContent = `Lendo somente ${scope.label}...`;
+
+    const result = await window.Tesseract.recognize(
+      processed.dataUrl,
+      'eng',
+      {
+        logger: info => {
+          if (info.status === 'recognizing text' && typeof info.progress === 'number') {
+            statusEl.textContent = `Lendo ${scope.label}... ${Math.round(info.progress * 100)}%`;
+          }
+        }
+      },
+      {
+        tessedit_char_whitelist: '0123456789%.,',
+        tessedit_pageseg_mode: '6',
+        preserve_interword_spaces: '1'
+      }
+    );
+
+    const words = result?.data?.words || [];
+    const rows = mapOcrWordsToMachineRows(words, processed.canvas.height);
+    state.oeeMachineEditorData = rows;
+    renderOeeMachineEditor(rows);
+
+    const detected = rows.filter(row => row.oee !== '').length;
+    statusEl.textContent = `${detected} valor(es) sugerido(s) em ${scope.label}. Confira a tabela antes de analisar.`;
+
+    // Mantém compatibilidade com histórico e painel.
+    $('oeeOcrText').value = editorOeeText();
+    state.oeeOcrText = $('oeeOcrText').value;
+    return rows;
+  } catch (error) {
+    console.error(error);
+    statusEl.textContent = 'Não consegui ler automaticamente. Preencha a tabela manualmente usando a foto recortada.';
+    renderOeeMachineEditor([]);
+    showToast('Leitura automática incompleta. Confirme os valores manualmente.');
+    return [];
+  }
+}
+
+async function recognizeOeeImage(dataUrl) {
+  if (!dataUrl) return '';
+  // Mantido apenas como compatibilidade. A V11 usa processOeeColumnPhoto().
+  return '';
 }
 
 function parseOeeCandidates(segment = '') {
@@ -1513,29 +1823,30 @@ async function analyzeCurrentReport() {
     return;
   }
 
-  let oeeText = $('oeeOcrText')?.value.trim() || '';
+  let editorValues = machineOeeFromEditor();
   const file = $('oeeImageInput')?.files?.[0];
-  if (!oeeText && file) {
-    try {
-      const dataUrl = await dataUrlFromFile(file);
-      state.oeeImageDataUrl = dataUrl;
-      if ($('oeePreview')) $('oeePreview').src = dataUrl;
-      if ($('oeePreviewWrap')) $('oeePreviewWrap').classList.remove('hidden');
-      oeeText = await recognizeOeeImage(dataUrl);
-      if ($('oeeOcrText')) $('oeeOcrText').value = oeeText;
-      state.oeeOcrText = oeeText;
-      $('oeeStatus').textContent = `Confira somente a coluna ${boardScopeForReport($('reportDate').value || todayISO(), $('reportShift').value || '1').label}. Se necessário, corrija o texto abaixo.`;
-    } catch (error) {
-      console.error(error);
-      showToast('Não foi possível ler a foto do OEE. Você pode corrigir o texto manualmente.');
-    }
+
+  if (!editorValues.length && file) {
+    await processOeeColumnPhoto();
+    editorValues = machineOeeFromEditor();
   }
+
+  let oeeText = editorValues.length
+    ? editorOeeText()
+    : ($('oeeOcrText')?.value.trim() || '');
+
+  $('oeeOcrText').value = oeeText;
+  state.oeeOcrText = oeeText;
 
   const scheduleInfo = detectOperationalShift($('reportReceivedAt').value, $('reportDate').value, $('reportShift').value, state.manualSchedule);
   const analysis = parseReport(text, scheduleInfo);
   analysis.oeeOcrText = oeeText;
-  analysis.machineOee = extractAllMachineOeeFromText(oeeText);
-  analysis.lowOeeMachines = analysis.machineOee.filter(item => item.oee < 65).sort((a, b) => a.oee - b.oee);
+  analysis.machineOee = editorValues.length
+    ? editorValues
+    : extractAllMachineOeeFromText(oeeText);
+  analysis.lowOeeMachines = analysis.machineOee
+    .filter(item => item.oee < 65)
+    .sort((a, b) => a.oee - b.oee);
   state.analysis = analysis;
   state.actions = generateActions(analysis);
 
@@ -1759,12 +2070,40 @@ function init() {
     showToast('Referência da escala salva.');
   });
   $('analyzeBtn').addEventListener('click', analyzeCurrentReport);
-  $('sampleBtn').addEventListener('click', () => { $('reportText').value = SAMPLE_REPORT; localStorage.setItem(STORAGE.draft, SAMPLE_REPORT); $('oeeOcrText').value = `223 56%
-172 54%
-170 64%
-149 63%
-176 33%`; showToast('Exemplo carregado.'); });
-  $('clearBtn').addEventListener('click', () => { $('reportText').value = ''; $('oeeOcrText').value = ''; $('oeeStatus').textContent = ''; $('oeeImageInput').value = ''; $('oeePreview').src = ''; $('oeePreviewWrap').classList.add('hidden'); localStorage.removeItem(STORAGE.draft); });
+  $('sampleBtn').addEventListener('click', () => {
+    $('reportText').value = SAMPLE_REPORT;
+    localStorage.setItem(STORAGE.draft, SAMPLE_REPORT);
+    const sampleValues = new Map([
+      ['MK-223', 56], ['MK-172', 54], ['MK-170', 64],
+      ['MK-149', 63], ['MK-176', 33]
+    ]);
+    renderOeeMachineEditor(
+      OEE_BOARD_MACHINES.map(machine => ({
+        machine,
+        oee: sampleValues.has(machine) ? sampleValues.get(machine) : '',
+        confidence: sampleValues.has(machine) ? 100 : 0,
+        source: 'Exemplo'
+      }))
+    );
+    $('oeeOcrText').value = editorOeeText();
+    showToast('Exemplo carregado.');
+  });
+  $('clearBtn').addEventListener('click', () => {
+    $('reportText').value = '';
+    $('oeeOcrText').value = '';
+    $('oeeStatus').textContent = '';
+    $('oeeImageInput').value = '';
+    $('oeePreview').src = '';
+    $('oeePreviewWrap').classList.add('hidden');
+    $('oeeCropPreview').src = '';
+    $('oeeCropPreviewWrap').classList.add('hidden');
+    $('oeeMachineEditor').innerHTML = '';
+    $('oeeMachineEditor').classList.add('hidden');
+    state.oeeMachineEditorData = [];
+    state.oeeImageDataUrl = '';
+    state.oeeCropDataUrl = '';
+    localStorage.removeItem(STORAGE.draft);
+  });
   $('reportText').addEventListener('input', e => localStorage.setItem(STORAGE.draft, e.target.value));
   $('oeeOcrText').addEventListener('input', e => { state.oeeOcrText = e.target.value; });
   $('oeeImageInput').addEventListener('change', async e => {
@@ -1772,9 +2111,17 @@ function init() {
     if (!file) return;
     const dataUrl = await dataUrlFromFile(file);
     state.oeeImageDataUrl = dataUrl;
+    state.oeeMachineEditorData = [];
     $('oeePreview').src = dataUrl;
     $('oeePreviewWrap').classList.remove('hidden');
-    $('oeeStatus').textContent = 'Foto pronta para análise.';
+    $('oeeCropPreviewWrap').classList.add('hidden');
+    $('oeeMachineEditor').classList.add('hidden');
+    $('oeeStatus').textContent = 'Foto carregada. Toque em “Recortar e ler coluna”.';
+  });
+  $('processOeePhotoBtn').addEventListener('click', processOeeColumnPhoto);
+  $('emptyOeeTableBtn').addEventListener('click', () => {
+    renderOeeMachineEditor([]);
+    $('oeeStatus').textContent = 'Tabela vazia aberta para preenchimento manual.';
   });
 
   $('copySummaryBtn').addEventListener('click', () => copyText(managementSummaryText(state.analysis), 'Resumo copiado.'));
@@ -1841,6 +2188,11 @@ function init() {
     $('oeeImageInput').value = '';
     $('oeePreview').src = '';
     $('oeePreviewWrap').classList.add('hidden');
+    $('oeeCropPreview').src = '';
+    $('oeeCropPreviewWrap').classList.add('hidden');
+    $('oeeMachineEditor').innerHTML = '';
+    $('oeeMachineEditor').classList.add('hidden');
+    state.oeeMachineEditorData = [];
     renderAnalysis();
     renderActions();
     renderScale();
@@ -1865,7 +2217,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=10.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=11.0.0');
         registration.update();
       } catch {}
     });

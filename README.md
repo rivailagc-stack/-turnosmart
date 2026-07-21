@@ -1,20 +1,16 @@
-# TurnoSmart V10
+# TurnoSmart V11
 
-## Novo painel OEE 3 dias
+## Correção da leitura da foto
 
-O aplicativo usa os relatórios e colunas de OEE salvos no aparelho para mostrar:
+A leitura do quadro inteiro foi substituída por um fluxo mais confiável:
 
-- OEE geral da empresa dos últimos três dias;
-- OEE diário de cada máquina;
-- detalhes dos turnos A e B;
-- média das últimas 72 horas;
-- tendência: melhorando, estável ou piorando;
-- máquinas prioritárias.
+1. O aplicativo identifica a coluna correta das últimas 12 horas.
+2. Recorta automaticamente somente essa coluna.
+3. Amplia a imagem e tenta remover linhas da grade.
+4. Faz a leitura dos percentuais.
+5. Mostra todos os valores numa tabela por máquina.
+6. O usuário confirma ou corrige antes da análise.
 
-Uma máquina vira prioridade quando:
+A tabela contém as máquinas nas mesmas linhas do quadro semanal. Valores vazios são ignorados.
 
-- média dos três dias abaixo de 65%;
-- duas ou mais leituras abaixo de 65%;
-- tendência de queda.
-
-Os relatórios da manutenção e produção também recebem uma linha curta com o OEE geral de três dias e as principais máquinas críticas.
+O painel de OEE dos últimos três dias permanece ativo.

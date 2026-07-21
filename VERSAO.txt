@@ -1,3 +1,3 @@
-TurnoSmart V10.0.0
-Novo painel de OEE dos últimos 3 dias / 72 horas.
-Mostra OEE geral da empresa, OEE por máquina, média, tendência e prioridades.
+TurnoSmart V11.0.0
+Leitura guiada do quadro de OEE.
+Recorta somente a coluna correta, remove a grade, aumenta os números e exige confirmação em tabela.
