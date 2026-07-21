@@ -56,7 +56,9 @@ const state = {
       overdue: 0,
       open: 0,
       hasCompletionDates: false
-    }
+    },
+    diagnostic: {},
+    queryStart: ''
   }
 };
 
@@ -2028,14 +2030,34 @@ function renderSgmanDailyStatus() {
       ? `<strong>Últimas OS concluídas usadas como referência:</strong><ul>${
           completed.map(order => `<li>${escapeHtml(order.machine || order.tag || 'Máquina não identificada')} — ${escapeHtml(order.solution || order.description || 'Serviço concluído')}</li>`).join('')
         }</ul>`
-      : '<span class="muted">Nenhuma OS concluída disponível para sugerir soluções.</span>';
+      : (() => {
+          const diagnostic = state.sgmanHistory?.diagnostic || {};
+          const largestArray = Number(diagnostic.largestArrayLength || 0);
+
+          if (largestArray > 0) {
+            return `<span class="muted">A API devolveu ${largestArray} item(ns), mas nenhum foi classificado como OS concluída. A V24 mostra o diagnóstico acima para ajuste.</span>`;
+          }
+
+          return '<span class="muted">O SGMan não devolveu ordens no período consultado.</span>';
+        })();
   }
 
   if (status) {
     const loaded = state.sgmanHistory?.loadedAt
       ? new Date(state.sgmanHistory.loadedAt).toLocaleString('pt-BR')
       : 'ainda não atualizado';
-    status.textContent = `Última consulta: ${loaded}`;
+
+    const diagnostic = state.sgmanHistory?.diagnostic || {};
+    const interpreted = Number(diagnostic.interpretedCount || 0);
+    const candidates = Number(diagnostic.candidateCount || 0);
+    const largestArray = Number(diagnostic.largestArrayLength || 0);
+    const mode = diagnostic.queryMode || '';
+
+    const detailText = diagnostic.queryMode
+      ? ` • API: ${largestArray} item(ns) em lista • reconhecidos: ${interpreted} • modo: ${mode}`
+      : '';
+
+    status.textContent = `Última consulta: ${loaded}${detailText}`;
   }
 }
 
@@ -2052,7 +2074,7 @@ async function refreshSgmanHistory(showMessage = true) {
   try {
     const end = new Date();
     const start = new Date();
-    start.setDate(start.getDate() - 30);
+    start.setDate(start.getDate() - 90);
 
     const response = await fetch('/api/sgman-list', {
       method: 'POST',
@@ -2060,8 +2082,7 @@ async function refreshSgmanHistory(showMessage = true) {
       body: JSON.stringify({
         data_inicio: formatSgmanDateTime(start),
         data_fim: formatSgmanDateTime(end),
-        status: ['Aberta', 'Atrasada', 'Concluída'],
-        calc_custos: 0
+        calc_custos: 1
       })
     });
 
@@ -2073,7 +2094,9 @@ async function refreshSgmanHistory(showMessage = true) {
     saveSgmanHistory({
       loadedAt: new Date().toISOString(),
       orders: Array.isArray(data.orders) ? data.orders : [],
-      summary: data.summary || {}
+      summary: data.summary || {},
+      diagnostic: data.diagnostic || {},
+      queryStart: data.queryStart || ''
     });
     renderSgmanDailyStatus();
 
@@ -3159,7 +3182,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=23.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=24.0.0');
         registration.update();
       } catch {}
     });

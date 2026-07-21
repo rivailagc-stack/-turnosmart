@@ -1,4 +1,5 @@
-TurnoSmart V23.0.0
-Consulta POST https://api.sgman.com.br/os/listar.
-Usa OS concluídas da mesma máquina para sugerir possíveis resoluções.
-Mostra OS concluídas, abertas e em atraso no relatório diário.
+TurnoSmart V24.0.0
+Corrige a leitura das ordens retornadas por /os/listar.
+Consulta 90 dias sem filtro de status.
+Faz uma segunda consulta simplificada quando a primeira vier vazia.
+Mostra diagnóstico de itens recebidos e interpretados.
