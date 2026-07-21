@@ -4,7 +4,9 @@ const STORAGE = {
   history: 'turnosmart_history_v1',
   scale: 'turnosmart_scale_v1',
   draft: 'turnosmart_draft_v1',
-  config: 'turnosmart_config_v3'
+  config: 'turnosmart_config_v3',
+  sgmanConfirmed: 'turnosmart_sgman_confirmed_v1',
+  sgmanLastResult: 'turnosmart_sgman_last_result_v1'
 };
 
 const DEFAULT_PRODUCTION_LEADERS = {
@@ -1916,7 +1918,68 @@ async function getSgmanConnectorStatus() {
   }
 }
 
-async function sendOrdersToSgman() {
+function getConfirmedSgmanIds() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(STORAGE.sgmanConfirmed)) || []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveConfirmedSgmanIds(ids) {
+  localStorage.setItem(STORAGE.sgmanConfirmed, JSON.stringify([...new Set(ids)]));
+}
+
+function storeSgmanResult(data) {
+  localStorage.setItem(STORAGE.sgmanLastResult, JSON.stringify({
+    savedAt: new Date().toISOString(),
+    data
+  }));
+}
+
+function resultStatusLabel(status) {
+  if (status === 'confirmed') return '✅ ABERTA';
+  if (status === 'failed') return '❌ RECUSADA';
+  return '⚠️ NÃO CONFIRMADA';
+}
+
+function renderSgmanResults(data) {
+  const resultEl = $('sgmanSendResult');
+  const results = Array.isArray(data?.results) ? data.results : [];
+
+  if (!results.length) {
+    resultEl.textContent = JSON.stringify(data, null, 2);
+    return;
+  }
+
+  resultEl.innerHTML = results.map(result => {
+    const orderNumber = result.order_number || result.order_id || '';
+    const extra = orderNumber ? ` • OS ${escapeHtml(String(orderNumber))}` : '';
+    const responseText = typeof result.response === 'string'
+      ? result.response
+      : JSON.stringify(result.response, null, 2);
+
+    return `
+      <div class="sgman-result-row ${escapeHtml(result.status)}">
+        <strong>${resultStatusLabel(result.status)} — ${escapeHtml(result.machine || result.tag || '-')}</strong>${extra}
+        <span>${escapeHtml(result.reason || '')}</span>
+        <details>
+          <summary>Ver resposta do SGMan</summary>
+          <pre>${escapeHtml(responseText || 'Resposta vazia')}</pre>
+        </details>
+      </div>`;
+  }).join('');
+
+  const summary = document.createElement('div');
+  summary.className = 'sgman-result-summary';
+  summary.innerHTML = `
+    <strong>Confirmadas: ${Number(data.confirmed || 0)}</strong>
+    <span>Recusadas: ${Number(data.failed || 0)}</span>
+    <span>Não confirmadas: ${Number(data.unknown || 0)}</span>`;
+  resultEl.prepend(summary);
+}
+
+async function sendOrdersToSgman(mode = 'test') {
   const { orders, missingTags } = buildSgmanOrders();
 
   if (missingTags.length) {
@@ -1930,49 +1993,87 @@ async function sendOrdersToSgman() {
     return;
   }
 
+  const confirmedIds = getConfirmedSgmanIds();
+  const pendingOrders = orders.filter(order => !confirmedIds.has(order.id_ext));
+
+  if (!pendingOrders.length) {
+    showToast('Todas as ordens deste relatório já foram confirmadas.');
+    return;
+  }
+
+  const selected = mode === 'test' ? pendingOrders.slice(0, 1) : pendingOrders;
+  const title = mode === 'test'
+    ? 'Enviar somente 1 OS de teste?'
+    : `Enviar as ${selected.length} OS restantes?`;
+
   const confirmed = window.confirm(
-    `Criar ${orders.length} ordem(ns) de serviço real(is) no SGMan?\n\n` +
-    orders.map(order => `${order.tag} — ${order.descricao}`).join('\n')
+    `${title}\n\n` +
+    selected.map(order => `${order.tag} — ${order.descricao}`).join('\n') +
+    '\n\nO aplicativo só marcará como aberta se o SGMan confirmar.'
   );
   if (!confirmed) return;
 
-  const button = $('sendSgmanBtn');
+  const testButton = $('testOneSgmanBtn');
+  const allButton = $('sendSgmanBtn');
   const resultEl = $('sgmanSendResult');
 
   try {
-    button.disabled = true;
-    button.textContent = 'Enviando...';
-    resultEl.textContent = 'Enviando ordens ao SGMan...';
+    testButton.disabled = true;
+    allButton.disabled = true;
+    resultEl.textContent = mode === 'test'
+      ? 'Enviando uma OS para teste...'
+      : 'Enviando as OS uma por vez...';
 
     const response = await fetch('/api/sgman', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orders })
+      body: JSON.stringify({ orders: selected })
     });
 
     const data = await response.json().catch(async () => ({
+      ok: false,
+      error: 'Resposta inválida do conector.',
       raw: await response.text().catch(() => '')
     }));
 
-    if (!response.ok || data.ok === false) {
-      throw new Error(data.error || data.message || `Erro HTTP ${response.status}`);
+    if (!response.ok) {
+      throw new Error(data.error || `Erro HTTP ${response.status}`);
     }
 
-    resultEl.textContent = JSON.stringify(data, null, 2);
-    showToast(`${orders.length} OS enviada(s) ao SGMan.`);
+    storeSgmanResult(data);
+    renderSgmanResults(data);
+
+    const newlyConfirmed = (data.results || [])
+      .filter(result => result.status === 'confirmed')
+      .map(result => result.id_ext)
+      .filter(Boolean);
+
+    const updatedIds = new Set([...confirmedIds, ...newlyConfirmed]);
+    saveConfirmedSgmanIds([...updatedIds]);
 
     state.actions.forEach(action => {
-      const sent = orders.some(order => order.id_ext?.endsWith(`-${action.machine}`));
-      if (sent) action.status = 'Em andamento';
+      const id = selected.find(order => order.id_ext?.endsWith(`-${action.machine}`))?.id_ext;
+      if (id && updatedIds.has(id)) action.status = 'Em andamento';
     });
 
     renderActions();
+
+    if (data.confirmed > 0 && data.failed === 0 && data.unknown === 0) {
+      showToast(`${data.confirmed} OS confirmada(s) pelo SGMan.`);
+      allButton.disabled = false;
+    } else if (data.failed > 0) {
+      showToast('O SGMan recusou a OS. Veja o motivo.');
+    } else {
+      showToast('O envio não foi confirmado. Veja a resposta do SGMan.');
+    }
   } catch (error) {
     resultEl.textContent = `Falha no envio: ${error.message}`;
     showToast('Falha ao criar OS no SGMan.');
   } finally {
-    button.disabled = false;
-    button.textContent = 'Criar OS reais no SGMan';
+    testButton.disabled = false;
+    const last = JSON.parse(localStorage.getItem(STORAGE.sgmanLastResult) || 'null');
+    const lastData = last?.data;
+    allButton.disabled = !(lastData?.confirmed > 0 && lastData?.failed === 0 && lastData?.unknown === 0);
   }
 }
 
@@ -2333,13 +2434,15 @@ function init() {
     $('sgmanJson').textContent = JSON.stringify({ orders, missingTags }, null, 2);
     $('sgmanPreview').classList.remove('hidden');
     $('sgmanPreview').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    $('sendSgmanBtn').disabled = !orders.length || !!missingTags.length;
+    $('testOneSgmanBtn').disabled = !orders.length || !!missingTags.length;
+    $('sendSgmanBtn').disabled = true;
     $('sgmanSendResult').textContent = missingTags.length
       ? `Cadastre as TAGs antes de enviar: ${missingTags.join(', ')}`
-      : `${orders.length} OS pronta(s) para confirmação.`;
+      : `${orders.length} OS pronta(s). Primeiro envie apenas 1 OS de teste.`;
     showToast(`${orders.length} OS preparada(s).`);
   });
-  $('sendSgmanBtn').addEventListener('click', sendOrdersToSgman);
+  $('testOneSgmanBtn').addEventListener('click', () => sendOrdersToSgman('test'));
+  $('sendSgmanBtn').addEventListener('click', () => sendOrdersToSgman('all'));
   $('downloadPayloadBtn').addEventListener('click', () => downloadJson(`sgman-${state.analysis?.date || todayISO()}.json`, buildSgmanOrders()));
 
   $('scaleCrew').addEventListener('change', e => fillScaleForm(e.target.value));
@@ -2429,7 +2532,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=13.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=14.0.0');
         registration.update();
       } catch {}
     });

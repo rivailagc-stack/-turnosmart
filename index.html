@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=13.0.0" />
+  <link rel="stylesheet" href="style.css?v=14.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -26,9 +26,9 @@
     <section id="view-novo" class="view active">
       <div class="hero card">
         <div>
-          <span class="badge">V13 • TAGs simplificadas</span>
-          <h2>Criação de OS com TAGs simplificadas</h2>
-          <p>Cadastre a TAG com apenas o nome, como Mk173, quando a TAG do SGMan for igual ao código da máquina.</p>
+          <span class="badge">V14 • Confirmação real</span>
+          <h2>Confirmação real das OS do SGMan</h2>
+          <p>O aplicativo não considera mais HTTP 200 como OS aberta. Ele testa uma ordem e mostra a resposta real do SGMan.</p>
         </div>
       </div>
 
@@ -177,10 +177,15 @@
             </div>
             <button id="downloadPayloadBtn" class="secondary" type="button">Baixar JSON</button>
           </div>
-          <p class="muted">O token não aparece aqui. Ele fica protegido nas variáveis da Vercel.</p>
+          <div class="reference-box">
+            <strong>Importante</strong>
+            <p>Primeiro envie somente uma OS. O botão para as demais só será liberado quando o SGMan confirmar a criação.</p>
+          </div>
+          <p class="muted">“Requisição enviada” não significa mais “OS aberta”. A confirmação depende da resposta real do SGMan.</p>
           <pre id="sgmanJson"></pre>
           <div class="button-row">
-            <button id="sendSgmanBtn" class="primary" type="button">Criar OS reais no SGMan</button>
+            <button id="testOneSgmanBtn" class="secondary" type="button">Enviar 1 OS de teste</button>
+            <button id="sendSgmanBtn" class="primary" type="button" disabled>Enviar as OS restantes</button>
           </div>
           <pre id="sgmanSendResult" class="integration-result"></pre>
         </div>
@@ -297,7 +302,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 13</h2>
+        <h2>Configuração da versão 14</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -388,6 +393,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=13.0.0" defer></script>
+  <script src="app.js?v=14.0.0" defer></script>
 </body>
 </html>

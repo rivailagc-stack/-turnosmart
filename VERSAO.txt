@@ -1,3 +1,3 @@
-TurnoSmart V13.0.0
-O campo de TAGs aceita diretamente Mk173, Mk170, Mk138 etc.
-Também continua aceitando MK-149=BC-018 quando a TAG for diferente.
+TurnoSmart V14.0.0
+Corrige falso positivo do SGMan.
+Envia uma OS por vez e só marca aberta quando a resposta confirma.

@@ -1,27 +1,17 @@
-# TurnoSmart V13
+# TurnoSmart V14 — Diagnóstico SGMan
 
-## Cadastro simplificado das TAGs
+A versão anterior dizia “9 OS enviadas” quando apenas confirmava que a requisição HTTP havia retornado.
 
-Agora são aceitos dois formatos:
+## Correção
 
-```text
-Mk173
-Mk170
-Mk138
-```
+- envia cada OS separadamente;
+- primeiro libera apenas uma OS de teste;
+- classifica cada resposta como:
+  - **ABERTA**: SGMan confirmou ou retornou número/ID;
+  - **RECUSADA**: SGMan informou erro;
+  - **NÃO CONFIRMADA**: resposta chegou, mas não confirmou criação;
+- mostra a resposta bruta do SGMan por máquina;
+- só libera o envio das restantes após um teste confirmado;
+- salva os `id_ext` confirmados para evitar reenvio na mesma instalação.
 
-Nesse caso, o aplicativo entende:
-
-```text
-MK-173=Mk173
-MK-170=Mk170
-MK-138=Mk138
-```
-
-Quando a TAG do SGMan for diferente do nome da máquina, use:
-
-```text
-MK-149=BC-018
-```
-
-Ao salvar, o aplicativo mostra quantas TAGs foram reconhecidas e normaliza a lista.
+Não envie todas novamente até testar uma e verificar o resultado.
