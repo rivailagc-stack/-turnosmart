@@ -43,7 +43,8 @@ const state = {
   oeeImageDataUrl: '',
   oeeOcrText: '',
   oeeMachineEditorData: [],
-  oeeCropDataUrl: ''
+  oeeCropDataUrl: '',
+  sgmanSending: false
 };
 
 const $ = id => document.getElementById(id);
@@ -2056,16 +2057,17 @@ function automaticSgmanMaintenanceType(action) {
 }
 
 function sgmanComment(action) {
-  const analysis = state.analysis;
-  const parts = [
-    'Origem: TurnoSmart.',
-    analysis?.crew ? `Relatório entregue pela equipe ${analysis.crew}.` : '',
-    analysis?.responsibleCrew ? `Responsabilidade da equipe ${analysis.responsibleCrew}.` : '',
-    action.description ? `Apontamento: ${action.description}.` : '',
-    analysis?.reportedOee ? `OEE do turno: ${analysis.reportedOee}%.` : '',
-    'Resolver durante o turno e registrar causa e conclusão no SGMan.'
-  ];
-  return parts.filter(Boolean).join(' ');
+  const problem = compactIssue(action.description || '') ||
+    'Falha técnica identificada na máquina';
+
+  const resolution = directMaintenanceAction(action)
+    .replace(/\.$/, '');
+
+  return [
+    `Problema: ${problem}.`,
+    `Possível resolução: ${resolution}.`,
+    'Atenção: testar a máquina, confirmar estabilidade e liberar somente após verificar que o defeito não voltou, evitando retrabalho.'
+  ].join(' ');
 }
 
 function buildSgmanOrders() {
@@ -2199,6 +2201,15 @@ function sgmanFailureGuidance(result) {
     return 'Confira a TAG da máquina na tela Config.';
   }
 
+  if (
+    /requisicoes simultaneas/.test(text) ||
+    /requisições simultâneas/.test(text) ||
+    /2 requisicoes por segundo/.test(text) ||
+    /2 requisições por segundo/.test(text)
+  ) {
+    return 'A V21 envia em fila, espera entre as OS e tenta novamente automaticamente.';
+  }
+
   return '';
 }
 
@@ -2224,6 +2235,9 @@ function renderSgmanResults(data) {
       <div class="sgman-result-row ${escapeHtml(result.status)}">
         <strong>${resultStatusLabel(result.status)} — ${escapeHtml(result.machine || result.tag || '-')}</strong>${extra}
         <span>${escapeHtml(result.reason || '')}</span>
+        ${Number(result.attempts || 1) > 1
+          ? `<small>Tentativas automáticas: ${Number(result.attempts)}</small>`
+          : ''}
         ${guidance ? `<p class="sgman-guidance">${escapeHtml(guidance)}</p>` : ''}
         <details>
           <summary>Ver resposta do SGMan</summary>
@@ -2242,6 +2256,11 @@ function renderSgmanResults(data) {
 }
 
 async function sendOrdersToSgman(mode = 'test') {
+  if (state.sgmanSending) {
+    showToast('A fila do SGMan ainda está sendo enviada.');
+    return;
+  }
+
   const { orders, missingTags, missingExecutante, executante } = buildSgmanOrders();
 
   if (missingExecutante) {
@@ -2288,11 +2307,12 @@ async function sendOrdersToSgman(mode = 'test') {
   const resultEl = $('sgmanSendResult');
 
   try {
+    state.sgmanSending = true;
     testButton.disabled = true;
     allButton.disabled = true;
     resultEl.textContent = mode === 'test'
       ? 'Enviando uma OS para teste...'
-      : 'Enviando as OS uma por vez...';
+      : `Enviando ${selected.length} OS em fila segura. Não feche esta tela...`;
 
     const response = await fetch('/api/sgman', {
       method: 'POST',
@@ -2340,6 +2360,7 @@ async function sendOrdersToSgman(mode = 'test') {
     resultEl.textContent = `Falha no envio: ${error.message}`;
     showToast('Falha ao criar OS no SGMan.');
   } finally {
+    state.sgmanSending = false;
     testButton.disabled = false;
     const last = JSON.parse(localStorage.getItem(STORAGE.sgmanLastResult) || 'null');
     const lastData = last?.data;
@@ -2871,7 +2892,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=20.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=22.0.0');
         registration.update();
       } catch {}
     });

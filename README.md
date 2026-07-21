@@ -1,15 +1,19 @@
-# TurnoSmart V20 — Executantes SGMan confirmados
+# TurnoSmart V22 — Comentário direto no SGMan
 
-Os usuários foram copiados diretamente da lista de usuários do SGMan:
+O campo `comentario` da ordem não envia mais:
 
-| Equipe | Líder | Usuário SGMan |
-|---|---|---|
-| A1 | Ricardo Serafim | `ricardo.serafim` |
-| A2 | Luiz Afonso | `luiz.afonso` |
-| B1 | Danilo Nepomuceno | `Danilo` |
-| B2 | Fiderlânio Reis | `fiderlânio.reis` |
+- origem TurnoSmart;
+- equipe que entregou;
+- equipe responsável;
+- OEE do turno;
+- texto de passagem de turno.
 
-A versão faz uma migração automática dos dados já salvos no celular.  
-Não é necessário cadastrar os quatro novamente.
+Agora o comentário contém somente:
 
-Também foi corrigido o salvamento da referência da escala para não apagar as TAGs e demais configurações do SGMan.
+```text
+Problema: [problema identificado].
+Possível resolução: [ação sugerida].
+Atenção: testar a máquina, confirmar estabilidade e liberar somente após verificar que o defeito não voltou, evitando retrabalho.
+```
+
+A descrição da OS continua com a máquina e a ação principal.

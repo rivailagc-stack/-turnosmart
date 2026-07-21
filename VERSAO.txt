@@ -1,6 +1,3 @@
-TurnoSmart V20.0.0
-Usuários exatos do SGMan cadastrados automaticamente:
-A1 ricardo.serafim
-A2 luiz.afonso
-B1 Danilo
-B2 fiderlânio.reis
+TurnoSmart V22.0.0
+Comentário do SGMan simplificado.
+Contém apenas problema, possível resolução e alerta para evitar retrabalho.
