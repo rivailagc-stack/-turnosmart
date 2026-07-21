@@ -1,5 +1,5 @@
-TurnoSmart V25.0.0
-Corrige a visualização da foto do quadro de OEE.
-A prévia principal permanece colorida.
-O tratamento preto e branco fica apenas dentro da leitura automática.
-Cada máquina mostra uma miniatura da própria linha para confirmação manual.
+TurnoSmart V26.0.0
+Calcula MTTR e MTBF estimado dos últimos 3 dias.
+Usa as OS corretivas consultadas no SGMan.
+Mostra o resultado geral e por máquina.
+Destaca máquinas reincidentes.

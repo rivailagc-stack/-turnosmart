@@ -60,6 +60,17 @@ const state = {
     },
     diagnostic: {},
     queryStart: ''
+  },
+  reliability3Days: {
+    periodHours: 72,
+    mttrMinutes: null,
+    mtbfMinutes: null,
+    failureCount: 0,
+    completedRepairs: 0,
+    downtimeMinutes: 0,
+    recurrentMachines: 0,
+    rows: [],
+    note: 'Aguardando dados do SGMan.'
   }
 };
 
@@ -1694,6 +1705,7 @@ function managementSummaryText(analysis) {
   lines.push(`Retrabalho: ${analysis.reworkCount || 0} | Presentes: ${analysis.present || 'não informado'} | Faltas: ${analysis.absenceCount} | Hora extra: ${analysis.overtimeCount}.`);
   lines.push(`Máquinas com ocorrência: ${analysis.machines.length} | Tempo somado registrado: ${formatMinutes(analysis.totalRecordedMinutes)}.`);
   if (analysis.sgmanSummary) lines.push(`SGMan: ${sgmanDailySummaryText(analysis.sgmanSummary)}.`);
+  if (analysis.reliability3Days) lines.push(`Confiabilidade: ${reliabilitySummaryText(analysis.reliability3Days)}.`);
   lines.push(`Ações separadas: ${maintenanceActions.length} para manutenção e ${productionActions.length} para produção.`);
   if (analysis.laborShortageMachines.length) lines.push(`Sem mão de obra: ${analysis.laborShortageMachines.join(', ')}.`);
   const criticalMaintenance = maintenanceActions.filter(a => a.priority === 'Alta');
@@ -1723,6 +1735,7 @@ function maintenanceMessage() {
 
   if (state.analysis.reportedOee) lines.push(`OEE do turno: ${String(state.analysis.reportedOee).replace('.', ',')}%.`);
   if (state.analysis.sgmanSummary) lines.push(`SGMan: ${sgmanDailySummaryText(state.analysis.sgmanSummary)}.`);
+  if (state.analysis.reliability3Days) lines.push(`MTTR 3 dias: ${formatReliabilityTime(state.analysis.reliability3Days.mttrMinutes)} | MTBF estimado: ${formatReliabilityTime(state.analysis.reliability3Days.mtbfMinutes)}.`);
   if (state.analysis.boardScope?.label) lines.push(`Quadro OEE: ${state.analysis.boardScope.label}.`);
   const dashboard = getRecentOeeDashboard();
   if (dashboard.companyAverage != null) lines.push(`OEE geral 3 dias: ${formatOee(dashboard.companyAverage)}.`);
@@ -1761,6 +1774,7 @@ function productionMessage() {
 
   if (analysis.reportedOee) lines.push(`OEE do turno: ${String(analysis.reportedOee).replace('.', ',')}%.`);
   if (analysis.sgmanSummary) lines.push(`SGMan: ${sgmanDailySummaryText(analysis.sgmanSummary)}.`);
+  if (analysis.reliability3Days) lines.push(`MTTR 3 dias: ${formatReliabilityTime(analysis.reliability3Days.mttrMinutes)} | MTBF estimado: ${formatReliabilityTime(analysis.reliability3Days.mtbfMinutes)}.`);
   if (analysis.boardScope?.label) lines.push(`Quadro OEE: ${analysis.boardScope.label}.`);
   const dashboard3Days = getRecentOeeDashboard();
   if (dashboard3Days.companyAverage != null) lines.push(`OEE geral 3 dias: ${formatOee(dashboard3Days.companyAverage)}.`);
@@ -1803,6 +1817,8 @@ function renderAnalysis() {
     ['Retrabalho', analysis.reworkCount || 0, 'Foco em reduzir repetição e perdas'],
     ['OS concluídas', analysis.sgmanSummary?.hasCompletionDates ? Number(analysis.sgmanSummary.completedToday || 0) : Number(analysis.sgmanSummary?.completedPeriod || 0), analysis.sgmanSummary?.hasCompletionDates ? 'Concluídas hoje no SGMan' : 'Concluídas no período consultado'],
     ['OS em atraso', Number(analysis.sgmanSummary?.overdue || 0), 'Pendências atuais no SGMan'],
+    ['MTTR 3 dias', formatReliabilityTime(analysis.reliability3Days?.mttrMinutes), `${Number(analysis.reliability3Days?.completedRepairs || 0)} corretiva(s) concluída(s)`],
+    ['MTBF 3 dias', formatReliabilityTime(analysis.reliability3Days?.mtbfMinutes), 'Estimado pelas falhas corretivas das últimas 72 horas'],
     ['Máquinas', analysis.machines.length, 'Com registros no relatório'],
     ['Tempo somado', formatMinutes(analysis.totalRecordedMinutes), 'Ocorrências podem ser simultâneas'],
     ['Manutenção', state.actions.filter(a => a.department === 'maintenance').length, `${state.actions.filter(a => a.department === 'maintenance' && a.priority === 'Alta').length} de prioridade alta`],
@@ -1818,6 +1834,7 @@ function renderAnalysis() {
   notes.push(`<li><strong>Foto do quadro:</strong> considerar somente a coluna ${escapeHtml(analysis.boardScope?.label || '-')} referente às últimas 12 horas.</li>`);
   if (analysis.lowOeeMachines?.length) notes.push(`<li><strong>OEE do quadro:</strong> ${escapeHtml(oeeLowListText(analysis.lowOeeMachines, 10))}.</li>`);
   if (analysis.sgmanSummary) notes.push(`<li><strong>SGMan:</strong> ${escapeHtml(sgmanDailySummaryText(analysis.sgmanSummary))}.</li>`);
+  if (analysis.reliability3Days) notes.push(`<li><strong>Confiabilidade 3 dias:</strong> ${escapeHtml(reliabilitySummaryText(analysis.reliability3Days))}.</li>`);
   notes.push(`<li><strong>Separação:</strong> falhas técnicas seguem para manutenção. Passagem de papel, bobinas, limpeza, mão de obra, treinamento e autocontrole seguem para a produção.</li>`);
   if (analysis.scheduleMismatch) notes.push(`<li><strong>Conferência de escala:</strong> o texto informa ${escapeHtml(analysis.expectedCrew)}, mas pelo horário e pela escala automática foi identificado ${escapeHtml(analysis.crew)}.</li>`);
   if (analysis.reportedShift && analysis.reportedShift !== analysis.shift) notes.push(`<li><strong>Turno do relatório:</strong> o texto informa ${escapeHtml(analysis.reportedShift)}º turno. Para a escala 12x36, o aplicativo classificou como equipe ${escapeHtml(analysis.crew)} (${escapeHtml(analysis.schedule)}).</li>`);
@@ -2067,6 +2084,405 @@ function sgmanDailySummaryText(summary = state.sgmanHistory?.summary || {}) {
   return `${completedLabel} | Em atraso: ${Number(summary.overdue || 0)} | Abertas: ${Number(summary.open || 0)}`;
 }
 
+
+function parseSgmanDateTime(value = '') {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const text = String(value || '').trim();
+  if (!text) return null;
+
+  const iso = text.match(
+    /(\d{4})[-/](\d{2})[-/](\d{2})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/
+  );
+
+  if (iso) {
+    const date = new Date(
+      Number(iso[1]),
+      Number(iso[2]) - 1,
+      Number(iso[3]),
+      Number(iso[4] || 0),
+      Number(iso[5] || 0),
+      Number(iso[6] || 0)
+    );
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const brazilian = text.match(
+    /(\d{2})\/(\d{2})\/(\d{4})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/
+  );
+
+  if (brazilian) {
+    const date = new Date(
+      Number(brazilian[3]),
+      Number(brazilian[2]) - 1,
+      Number(brazilian[1]),
+      Number(brazilian[4] || 0),
+      Number(brazilian[5] || 0),
+      Number(brazilian[6] || 0)
+    );
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const nativeDate = new Date(text);
+  return Number.isNaN(nativeDate.getTime()) ? null : nativeDate;
+}
+
+function parseDurationMinutes(value = '') {
+  if (value === null || value === undefined || value === '') return null;
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    // A API costuma retornar minutos em campos numéricos de duração.
+    return value >= 0 && value <= 10080 ? value : null;
+  }
+
+  const text = String(value).trim();
+  if (!text) return null;
+
+  const clock = text.match(/^(\d{1,3}):(\d{2})(?::(\d{2}))?$/);
+  if (clock) {
+    const hours = Number(clock[1]);
+    const minutes = Number(clock[2]);
+    const seconds = Number(clock[3] || 0);
+    return hours * 60 + minutes + seconds / 60;
+  }
+
+  const hoursText = text.match(/(\d+(?:[.,]\d+)?)\s*h/i);
+  const minutesText = text.match(/(\d+(?:[.,]\d+)?)\s*min/i);
+
+  if (hoursText || minutesText) {
+    const hours = hoursText
+      ? Number(hoursText[1].replace(',', '.'))
+      : 0;
+    const minutes = minutesText
+      ? Number(minutesText[1].replace(',', '.'))
+      : 0;
+    const total = hours * 60 + minutes;
+    return Number.isFinite(total) ? total : null;
+  }
+
+  const numeric = Number(text.replace(',', '.'));
+  return Number.isFinite(numeric) && numeric >= 0 && numeric <= 10080
+    ? numeric
+    : null;
+}
+
+function averageNumbers(values = []) {
+  const valid = values
+    .map(Number)
+    .filter(value => Number.isFinite(value));
+
+  if (!valid.length) return null;
+  return valid.reduce((sum, value) => sum + value, 0) / valid.length;
+}
+
+function formatReliabilityTime(minutes, emptyText = 'Dados insuficientes') {
+  const value = Number(minutes);
+  if (!Number.isFinite(value) || value < 0) return emptyText;
+
+  if (value < 60) return `${Math.round(value)} min`;
+
+  const hours = Math.floor(value / 60);
+  const remainingMinutes = Math.round(value % 60);
+
+  return remainingMinutes
+    ? `${hours}h ${String(remainingMinutes).padStart(2, '0')}min`
+    : `${hours}h`;
+}
+
+function isCorrectiveSgmanOrder(order = {}) {
+  const maintenanceType = normalizeKey(order.typeMaintenance || '');
+  const text = normalizeKey(
+    `${order.description || ''} ${order.comment || ''} ${order.solution || ''}`
+  );
+
+  if (maintenanceType) {
+    return maintenanceType.includes('corretiva');
+  }
+
+  if (
+    /preventiva|melhoria|programacao|qualidade|seguranca|teste|troca de molde|troca de altura|rotina lider/.test(text)
+  ) {
+    return false;
+  }
+
+  return Boolean(
+    machineKeyFromText(
+      `${order.machine || ''} ${order.tag || ''} ${order.description || ''}`
+    )
+  );
+}
+
+function orderMachineForReliability(order = {}) {
+  return (
+    machineKeyFromText(order.machine || '') ||
+    machineKeyFromText(order.tag || '') ||
+    machineKeyFromText(order.description || '') ||
+    ''
+  );
+}
+
+function repairDurationInsideWindow(order, cutoff, now) {
+  const start = parseSgmanDateTime(order.startDate);
+  const end = parseSgmanDateTime(order.endDate);
+
+  if (start && end && end > start) {
+    const overlapStart = new Date(Math.max(start.getTime(), cutoff.getTime()));
+    const overlapEnd = new Date(Math.min(end.getTime(), now.getTime()));
+
+    if (overlapEnd > overlapStart) {
+      const minutes = (overlapEnd - overlapStart) / 60000;
+      if (minutes > 0 && minutes <= 72 * 60) return minutes;
+    }
+  }
+
+  const fallback = parseDurationMinutes(order.duration);
+  return fallback !== null && fallback <= 72 * 60 ? fallback : null;
+}
+
+function calculateReliability3Days() {
+  const now = new Date();
+  const periodMinutes = 72 * 60;
+  const cutoff = new Date(now.getTime() - periodMinutes * 60000);
+
+  const correctiveOrders = (state.sgmanHistory?.orders || [])
+    .filter(isCorrectiveSgmanOrder)
+    .map(order => ({
+      ...order,
+      reliabilityMachine: orderMachineForReliability(order),
+      reliabilityStart: parseSgmanDateTime(order.startDate),
+      reliabilityEnd: parseSgmanDateTime(order.endDate)
+    }))
+    .filter(order => order.reliabilityMachine)
+    .filter(order => {
+      const referenceDate =
+        order.reliabilityStart ||
+        order.reliabilityEnd;
+
+      return referenceDate &&
+        referenceDate >= cutoff &&
+        referenceDate <= now;
+    });
+
+  const machineMap = new Map();
+
+  for (const order of correctiveOrders) {
+    if (!machineMap.has(order.reliabilityMachine)) {
+      machineMap.set(order.reliabilityMachine, {
+        machine: order.reliabilityMachine,
+        failures: [],
+        repairDurations: [],
+        completedRepairs: 0
+      });
+    }
+
+    const row = machineMap.get(order.reliabilityMachine);
+
+    if (order.reliabilityStart) {
+      row.failures.push(order.reliabilityStart);
+    }
+
+    if (order.statusKey === 'completed') {
+      const duration = repairDurationInsideWindow(order, cutoff, now);
+
+      if (duration !== null) {
+        row.repairDurations.push(duration);
+        row.completedRepairs += 1;
+      }
+    }
+  }
+
+  const rows = [...machineMap.values()]
+    .map(row => {
+      const failureCount = row.failures.length;
+      const downtimeMinutes = row.repairDurations.reduce(
+        (sum, value) => sum + value,
+        0
+      );
+
+      const operatingMinutes = Math.max(
+        0,
+        periodMinutes - downtimeMinutes
+      );
+
+      const mttrMinutes = averageNumbers(row.repairDurations);
+      const mtbfMinutes = failureCount > 0
+        ? operatingMinutes / failureCount
+        : null;
+
+      return {
+        machine: row.machine,
+        failureCount,
+        completedRepairs: row.completedRepairs,
+        downtimeMinutes,
+        mttrMinutes,
+        mtbfMinutes,
+        recurrent: failureCount >= 2
+      };
+    })
+    .sort((a, b) =>
+      b.failureCount - a.failureCount ||
+      (a.mtbfMinutes ?? Number.POSITIVE_INFINITY) -
+        (b.mtbfMinutes ?? Number.POSITIVE_INFINITY) ||
+      a.machine.localeCompare(b.machine, 'pt-BR', { numeric: true })
+    );
+
+  const totalFailures = rows.reduce(
+    (sum, row) => sum + row.failureCount,
+    0
+  );
+
+  const totalCompletedRepairs = rows.reduce(
+    (sum, row) => sum + row.completedRepairs,
+    0
+  );
+
+  const totalDowntimeMinutes = rows.reduce(
+    (sum, row) => sum + row.downtimeMinutes,
+    0
+  );
+
+  const totalAvailableMinutes = rows.length * periodMinutes;
+  const totalOperatingMinutes = Math.max(
+    0,
+    totalAvailableMinutes - totalDowntimeMinutes
+  );
+
+  const allRepairDurations = rows.flatMap(row =>
+    row.completedRepairs
+      ? [row.downtimeMinutes / row.completedRepairs]
+      : []
+  );
+
+  const mttrMinutes = totalCompletedRepairs > 0
+    ? totalDowntimeMinutes / totalCompletedRepairs
+    : averageNumbers(allRepairDurations);
+
+  const mtbfMinutes = totalFailures > 0
+    ? totalOperatingMinutes / totalFailures
+    : null;
+
+  const recurrentMachines = rows.filter(row => row.recurrent).length;
+  const missingDurationCount = correctiveOrders.filter(order =>
+    order.statusKey === 'completed' &&
+    repairDurationInsideWindow(order, cutoff, now) === null
+  ).length;
+
+  let note;
+
+  if (!totalFailures) {
+    note = 'Nenhuma falha corretiva com horário de início foi localizada nas últimas 72 horas.';
+  } else if (!totalCompletedRepairs) {
+    note = 'O MTBF foi estimado, mas o MTTR não pôde ser calculado porque faltam horários de início e fim das conclusões.';
+  } else {
+    note = 'MTBF estimado considerando 72 horas disponíveis para cada máquina com falha registrada, menos o tempo de parada apontado.';
+  }
+
+  if (missingDurationCount) {
+    note += ` ${missingDurationCount} OS concluída(s) ficaram fora do MTTR por falta de duração válida.`;
+  }
+
+  return {
+    periodHours: 72,
+    mttrMinutes,
+    mtbfMinutes,
+    failureCount: totalFailures,
+    completedRepairs: totalCompletedRepairs,
+    downtimeMinutes: totalDowntimeMinutes,
+    recurrentMachines,
+    rows,
+    missingDurationCount,
+    note
+  };
+}
+
+function reliabilitySummaryText(metrics = state.reliability3Days) {
+  return [
+    `MTTR 3 dias: ${formatReliabilityTime(metrics?.mttrMinutes)}`,
+    `MTBF estimado 3 dias: ${formatReliabilityTime(metrics?.mtbfMinutes)}`,
+    `Falhas: ${Number(metrics?.failureCount || 0)}`,
+    `Reincidentes: ${Number(metrics?.recurrentMachines || 0)}`
+  ].join(' | ');
+}
+
+function renderReliability3Days() {
+  const metrics = calculateReliability3Days();
+  state.reliability3Days = metrics;
+
+  const cards = $('reliabilityCards');
+  const table = $('reliabilityTable');
+  const note = $('reliabilityNote');
+
+  if (cards) {
+    cards.innerHTML = `
+      <div class="metric">
+        <span>MTTR — 3 dias</span>
+        <strong>${escapeHtml(formatReliabilityTime(metrics.mttrMinutes))}</strong>
+        <small>${metrics.completedRepairs} corretiva(s) concluída(s) com duração válida</small>
+      </div>
+      <div class="metric">
+        <span>MTBF estimado — 3 dias</span>
+        <strong>${escapeHtml(formatReliabilityTime(metrics.mtbfMinutes))}</strong>
+        <small>Tempo médio entre falhas no período observado</small>
+      </div>
+      <div class="metric">
+        <span>Falhas corretivas</span>
+        <strong>${metrics.failureCount}</strong>
+        <small>${metrics.rows.length} máquina(s) com ocorrência</small>
+      </div>
+      <div class="metric">
+        <span>Reincidência</span>
+        <strong>${metrics.recurrentMachines}</strong>
+        <small>Máquinas com duas ou mais falhas</small>
+      </div>`;
+  }
+
+  if (note) {
+    note.textContent = metrics.note;
+  }
+
+  if (table) {
+    if (!metrics.rows.length) {
+      table.innerHTML =
+        '<p class="muted">Ainda não há dados corretivos suficientes nas últimas 72 horas.</p>';
+    } else {
+      table.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Máquina</th>
+              <th>Falhas</th>
+              <th>MTTR</th>
+              <th>MTBF estimado</th>
+              <th>Parada</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${metrics.rows.map(row => `
+              <tr class="${row.recurrent ? 'reliability-recurrent' : ''}">
+                <td><strong>${escapeHtml(row.machine)}</strong>${row.recurrent ? '<small>Reincidente</small>' : ''}</td>
+                <td>${row.failureCount}</td>
+                <td>${escapeHtml(formatReliabilityTime(row.mttrMinutes, '-'))}</td>
+                <td>${escapeHtml(formatReliabilityTime(row.mtbfMinutes, '-'))}</td>
+                <td>${escapeHtml(formatReliabilityTime(row.downtimeMinutes, '0 min'))}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`;
+    }
+  }
+
+  if (state.analysis) {
+    state.analysis.reliability3Days = { ...metrics };
+  }
+
+  return metrics;
+}
+
 function renderSgmanDailyStatus() {
   const summary = state.sgmanHistory?.summary || {};
   const cards = $('sgmanDailyCards');
@@ -2130,6 +2546,8 @@ function renderSgmanDailyStatus() {
 
     status.textContent = `Última consulta: ${loaded}${detailText}`;
   }
+
+  renderReliability3Days();
 }
 
 async function refreshSgmanHistory(showMessage = true) {
@@ -2773,6 +3191,7 @@ async function analyzeCurrentReport() {
     .filter(item => item.oee < 65)
     .sort((a, b) => a.oee - b.oee);
   analysis.sgmanSummary = { ...(state.sgmanHistory?.summary || {}) };
+  analysis.reliability3Days = { ...calculateReliability3Days() };
   state.analysis = analysis;
   state.actions = generateActions(analysis);
   applySgmanHistoryToActions();
@@ -3013,6 +3432,10 @@ function init() {
     showToast('Referência da escala salva.');
   });
   $('refreshSgmanHistoryBtn').addEventListener('click', () => refreshSgmanHistory(true));
+  $('refreshReliabilityBtn').addEventListener('click', async () => {
+    await refreshSgmanHistory(true);
+    renderReliability3Days();
+  });
   $('analyzeBtn').addEventListener('click', analyzeCurrentReport);
   $('sampleBtn').addEventListener('click', () => {
     $('reportText').value = SAMPLE_REPORT;
@@ -3258,7 +3681,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=25.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=26.0.0');
         registration.update();
       } catch {}
     });

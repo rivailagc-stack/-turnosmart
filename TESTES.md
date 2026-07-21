@@ -1,13 +1,10 @@
-# Testes da V23
+# Testes da V26
 
-1. Abra o app após o deploy.
-2. Analise um relatório.
-3. Confirme que o cartão SGMan mostra concluídas, atrasadas e abertas.
-4. Toque em Atualizar SGMan.
-5. Confirme que uma máquina com OS concluída recebe sugestão baseada no histórico.
-6. Para variação de altura, confira mola, faca, posição da faca, contrafaca e calços.
-7. Revise uma OS e confirme que o comentário contém somente:
-   - problema;
-   - possível resolução;
-   - alerta contra retrabalho.
-8. Envie apenas uma OS de teste antes das restantes.
+1. Atualize o histórico do SGMan.
+2. Confira o painel MTTR e MTBF dos últimos 3 dias.
+3. Verifique se OS preventivas não entram no cálculo.
+4. Confira uma OS corretiva concluída com início e fim.
+5. Compare a duração da OS com o MTTR da máquina.
+6. Verifique máquinas com duas ou mais falhas marcadas como reincidentes.
+7. Confirme MTTR e MTBF nas mensagens dos relatórios.
+8. Quando não houver datas suficientes, confirme a mensagem “Dados insuficientes”.

@@ -624,3 +624,31 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
     padding-right: 6px;
   }
 }
+
+
+.reliability-recurrent {
+  background: #fff7ed;
+}
+
+.reliability-recurrent td:first-child strong {
+  color: #c2410c;
+}
+
+.reliability-recurrent td small {
+  display: block;
+  margin-top: 3px;
+  color: #c2410c;
+  font-weight: 800;
+}
+
+#reliabilityTable td,
+#reliabilityTable th {
+  white-space: nowrap;
+}
+
+#reliabilityTable td:first-child,
+#reliabilityTable th:first-child {
+  position: sticky;
+  left: 0;
+  background: inherit;
+}
