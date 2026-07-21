@@ -1,25 +1,10 @@
 const DEFAULT_ENDPOINT = 'https://api.sgman.com.br/os/criar';
 
 const ALLOWED_FIELDS = new Set([
-  'regiao',
-  'local',
-  'tag',
-  'data_programada',
-  'data_inicio',
-  'data_fim',
-  'duracao_estimada',
-  'qtd_executantes',
-  'tipo_servico',
-  'tipo_manutencao',
-  'executante',
-  'prioridade',
-  'id_ext',
-  'pendente',
-  'descricao',
-  'comentario',
-  'maquina_parada',
-  'parametros',
-  'fotos'
+  'regiao', 'local', 'tag', 'data_programada', 'data_inicio', 'data_fim',
+  'duracao_estimada', 'qtd_executantes', 'tipo_servico',
+  'tipo_manutencao', 'executante', 'prioridade', 'id_ext', 'pendente',
+  'descricao', 'comentario', 'maquina_parada', 'parametros', 'fotos'
 ]);
 
 function sanitizeOrder(input) {
@@ -37,6 +22,144 @@ function parseBody(body) {
   if (typeof body === 'object') return body;
   try { return JSON.parse(body); }
   catch { return {}; }
+}
+
+function flattenEntries(value, path = '', entries = []) {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => flattenEntries(item, `${path}[${index}]`, entries));
+    return entries;
+  }
+
+  if (value && typeof value === 'object') {
+    Object.entries(value).forEach(([key, item]) => {
+      const nextPath = path ? `${path}.${key}` : key;
+      entries.push({ key, path: nextPath, value: item });
+      flattenEntries(item, nextPath, entries);
+    });
+  }
+
+  return entries;
+}
+
+function textOf(value) {
+  if (typeof value === 'string') return value;
+  try { return JSON.stringify(value); }
+  catch { return String(value ?? ''); }
+}
+
+function inspectSgmanResponse(data, raw, httpOk) {
+  const entries = flattenEntries(data);
+  const allText = `${textOf(data)} ${raw || ''}`.toLowerCase();
+
+  const negativeBoolean = entries.some(entry =>
+    /^(ok|success|sucesso|status)$/i.test(entry.key) && entry.value === false
+  );
+
+  const positiveBoolean = entries.some(entry =>
+    /^(ok|success|sucesso|status)$/i.test(entry.key) && entry.value === true
+  );
+
+  const errorField = entries.find(entry =>
+    /^(erro|error|errors|erros|falha|failure)$/i.test(entry.key) &&
+    entry.value &&
+    textOf(entry.value).trim() !== ''
+  );
+
+  const failureText = /\b(erro|falha|recusad|inv[aá]lid|n[aã]o encontrado|não encontrado|token incorreto|token inv[aá]lido)\b/i.test(allText);
+  const successText = /\b(sucesso|criad[ao]|cadastrad[ao]|inserid[ao]|ordem criada|os criada)\b/i.test(allText);
+
+  const idEntry = entries.find(entry => {
+    if (/id_ext/i.test(entry.key)) return false;
+    return /^(id|id_os|os_id|numero|numero_os|n_os|codigo|cod_os)$/i.test(entry.key) &&
+      ['string', 'number'].includes(typeof entry.value) &&
+      String(entry.value).trim() !== '';
+  });
+
+  const orderNumber = idEntry ? idEntry.value : null;
+
+  if (!httpOk || negativeBoolean || errorField || failureText) {
+    return {
+      status: 'failed',
+      reason: errorField
+        ? textOf(errorField.value)
+        : (!httpOk ? 'O endpoint respondeu com erro HTTP.' : 'A resposta do SGMan indica erro.')
+    };
+  }
+
+  if (orderNumber != null) {
+    return {
+      status: 'confirmed',
+      reason: 'O SGMan retornou um identificador de ordem.',
+      orderNumber
+    };
+  }
+
+  if (positiveBoolean || successText) {
+    return {
+      status: 'confirmed',
+      reason: 'O SGMan confirmou a criação na resposta.',
+      orderNumber: null
+    };
+  }
+
+  return {
+    status: 'unknown',
+    reason: 'A requisição chegou ao SGMan, mas a resposta não confirmou que a OS foi criada.',
+    orderNumber: null
+  };
+}
+
+async function sendSingleOrder(endpoint, token, order) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 25000);
+
+  try {
+    const upstream = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({
+        token,
+        os: [order]
+      }),
+      signal: controller.signal
+    });
+
+    const raw = await upstream.text();
+    let data;
+    try { data = raw ? JSON.parse(raw) : null; }
+    catch { data = raw; }
+
+    const inspection = inspectSgmanResponse(data, raw, upstream.ok);
+
+    return {
+      id_ext: order.id_ext || '',
+      machine: String(order.descricao || '').split(' - ')[0] || '',
+      tag: order.tag || order.local || '',
+      http_status: upstream.status,
+      status: inspection.status,
+      reason: inspection.reason,
+      order_number: inspection.orderNumber || null,
+      response: data
+    };
+  } catch (error) {
+    return {
+      id_ext: order.id_ext || '',
+      machine: String(order.descricao || '').split(' - ')[0] || '',
+      tag: order.tag || order.local || '',
+      http_status: 0,
+      status: 'failed',
+      reason: error?.name === 'AbortError'
+        ? 'Tempo limite ao conectar com o SGMan.'
+        : `Falha de comunicação: ${error.message}`,
+      order_number: null,
+      response: null
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 module.exports = async function handler(req, res) {
@@ -66,82 +189,39 @@ module.exports = async function handler(req, res) {
   const incomingOrders = Array.isArray(body.orders) ? body.orders : [];
 
   if (!incomingOrders.length) {
-    return res.status(400).json({
-      ok: false,
-      error: 'Nenhuma ordem recebida.'
-    });
+    return res.status(400).json({ ok: false, error: 'Nenhuma ordem recebida.' });
   }
 
   if (incomingOrders.length > 30) {
-    return res.status(400).json({
-      ok: false,
-      error: 'Limite de 30 ordens por envio.'
-    });
+    return res.status(400).json({ ok: false, error: 'Limite de 30 ordens por envio.' });
   }
 
   const orders = incomingOrders.map(sanitizeOrder);
 
   for (const order of orders) {
     if (!order.tag && !order.local) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Cada OS precisa ter tag ou local.'
-      });
+      return res.status(400).json({ ok: false, error: 'Cada OS precisa ter tag ou local.' });
     }
     if (!order.descricao) {
-      return res.status(400).json({
-        ok: false,
-        error: 'Cada OS precisa ter descrição.'
-      });
+      return res.status(400).json({ ok: false, error: 'Cada OS precisa ter descrição.' });
     }
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 25000);
-
-  try {
-    const upstream = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify({
-        token,
-        os: orders
-      }),
-      signal: controller.signal
-    });
-
-    const raw = await upstream.text();
-    let data;
-    try { data = raw ? JSON.parse(raw) : null; }
-    catch { data = raw; }
-
-    if (!upstream.ok) {
-      return res.status(upstream.status).json({
-        ok: false,
-        error: 'O SGMan recusou a criação das ordens.',
-        sgman_status: upstream.status,
-        sgman_response: data
-      });
-    }
-
-    return res.status(200).json({
-      ok: true,
-      sent: orders.length,
-      sgman_status: upstream.status,
-      sgman_response: data
-    });
-  } catch (error) {
-    const aborted = error?.name === 'AbortError';
-    return res.status(aborted ? 504 : 502).json({
-      ok: false,
-      error: aborted
-        ? 'Tempo limite ao conectar com o SGMan.'
-        : `Falha de comunicação com o SGMan: ${error.message}`
-    });
-  } finally {
-    clearTimeout(timeout);
+  const results = [];
+  for (const order of orders) {
+    results.push(await sendSingleOrder(endpoint, token, order));
   }
+
+  const confirmed = results.filter(result => result.status === 'confirmed').length;
+  const failed = results.filter(result => result.status === 'failed').length;
+  const unknown = results.filter(result => result.status === 'unknown').length;
+
+  return res.status(200).json({
+    ok: failed === 0 && unknown === 0 && confirmed === results.length,
+    requested: orders.length,
+    confirmed,
+    failed,
+    unknown,
+    results
+  });
 };
