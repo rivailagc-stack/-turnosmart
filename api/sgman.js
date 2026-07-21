@@ -47,6 +47,22 @@ function textOf(value) {
   catch { return String(value ?? ''); }
 }
 
+function sleep(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+function isRateLimitResponse(data, raw = '', status = 0) {
+  const text = `${textOf(data)} ${raw || ''}`.toLowerCase();
+
+  return (
+    status === 429 ||
+    /requisi[cç][oõ]es simult[aâ]neas/.test(text) ||
+    /m[aá]ximo de 2 requisi[cç][oõ]es por segundo/.test(text) ||
+    /too many requests/.test(text) ||
+    /rate limit/.test(text)
+  );
+}
+
 function inspectSgmanResponse(data, raw, httpOk) {
   const entries = flattenEntries(data);
   const allText = `${textOf(data)} ${raw || ''}`.toLowerCase();
@@ -110,55 +126,79 @@ function inspectSgmanResponse(data, raw, httpOk) {
 }
 
 async function sendSingleOrder(endpoint, token, order) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 25000);
+  const maxAttempts = 4;
 
-  try {
-    const upstream = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify({
-        token,
-        os: [order]
-      }),
-      signal: controller.signal
-    });
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
 
-    const raw = await upstream.text();
-    let data;
-    try { data = raw ? JSON.parse(raw) : null; }
-    catch { data = raw; }
+    try {
+      const upstream = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          token,
+          os: [order]
+        }),
+        signal: controller.signal
+      });
 
-    const inspection = inspectSgmanResponse(data, raw, upstream.ok);
+      const raw = await upstream.text();
+      let data;
 
-    return {
-      id_ext: order.id_ext || '',
-      machine: String(order.descricao || '').split(' - ')[0] || '',
-      tag: order.tag || order.local || '',
-      http_status: upstream.status,
-      status: inspection.status,
-      reason: inspection.reason,
-      order_number: inspection.orderNumber || null,
-      response: data
-    };
-  } catch (error) {
-    return {
-      id_ext: order.id_ext || '',
-      machine: String(order.descricao || '').split(' - ')[0] || '',
-      tag: order.tag || order.local || '',
-      http_status: 0,
-      status: 'failed',
-      reason: error?.name === 'AbortError'
-        ? 'Tempo limite ao conectar com o SGMan.'
-        : `Falha de comunicação: ${error.message}`,
-      order_number: null,
-      response: null
-    };
-  } finally {
-    clearTimeout(timeout);
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch {
+        data = raw;
+      }
+
+      const rateLimited = isRateLimitResponse(data, raw, upstream.status);
+
+      if (rateLimited && attempt < maxAttempts) {
+        await sleep(500 + attempt * 1000);
+        continue;
+      }
+
+      const inspection = inspectSgmanResponse(data, raw, upstream.ok);
+
+      return {
+        id_ext: order.id_ext || '',
+        machine: String(order.descricao || '').split(' - ')[0] || '',
+        tag: order.tag || order.local || '',
+        http_status: upstream.status,
+        status: rateLimited ? 'failed' : inspection.status,
+        reason: rateLimited
+          ? 'O SGMan manteve o bloqueio por limite de requisições após novas tentativas.'
+          : inspection.reason,
+        order_number: inspection.orderNumber || null,
+        attempts: attempt,
+        response: data
+      };
+    } catch (error) {
+      if (attempt < maxAttempts && error?.name !== 'AbortError') {
+        await sleep(500 + attempt * 1000);
+        continue;
+      }
+
+      return {
+        id_ext: order.id_ext || '',
+        machine: String(order.descricao || '').split(' - ')[0] || '',
+        tag: order.tag || order.local || '',
+        http_status: 0,
+        status: 'failed',
+        reason: error?.name === 'AbortError'
+          ? 'Tempo limite ao conectar com o SGMan.'
+          : `Falha de comunicação: ${error.message}`,
+        order_number: null,
+        attempts: attempt,
+        response: null
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 }
 
@@ -208,7 +248,14 @@ module.exports = async function handler(req, res) {
   }
 
   const results = [];
-  for (const order of orders) {
+
+  for (let index = 0; index < orders.length; index++) {
+    const order = orders[index];
+
+    // A API aceita no máximo duas solicitações por segundo.
+    // O intervalo de 900 ms cria uma margem segura.
+    if (index > 0) await sleep(900);
+
     results.push(await sendSingleOrder(endpoint, token, order));
   }
 
