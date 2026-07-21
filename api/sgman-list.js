@@ -297,6 +297,14 @@ function normalizeOrder(order) {
     'data_encerramento', 'dataencerramento'
   ]);
 
+  const duration = pickValue(order, [
+    'duracao', 'duracao_real', 'duracaoreal',
+    'tempo_execucao', 'tempoexecucao',
+    'tempo_servico', 'temposervico',
+    'tempo_parada', 'tempoparada',
+    'horas_trabalhadas', 'horastrabalhadas'
+  ]);
+
   const combined = `${tag} ${local} ${description} ${comment}`;
 
   return {
@@ -312,6 +320,7 @@ function normalizeOrder(order) {
     startDate: String(startDate || ''),
     endDate: String(endDate || ''),
     endDateISO: normalizeDate(endDate),
+    duration: String(duration || ''),
     executante: String(pickValue(order, [
       'executante', 'executante_nome', 'executantenome',
       'usuario', 'usuario_nome', 'usuarionome', 'responsavel'
