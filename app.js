@@ -56,6 +56,7 @@ const SGMAN_MAINTENANCE_USERS = [
   { username: 'marcelo.souza', name: 'Marcelo Souza', role: 'Mantenedor', aliases: ['marcelo'] },
   { username: 'marcos.roberto', name: 'Marcos Roberto', role: 'Mantenedor', aliases: ['marcos'] },
   { username: 'ricardo.serafim', name: 'Ricardo Serafim', role: 'Líder Mantenedor', aliases: ['ricardo'] },
+  { username: 'Rosental.Lima', name: 'Rosental Lima', role: 'Líder Mantenedor', aliases: ['rosental', 'rosental lima'] },
   { username: 'roberto.beraldo', name: 'Roberto Beraldo', role: 'Mantenedor', aliases: ['roberto'] },
   { username: 'rogger.sampaio', name: 'Rogger Sampaio', role: 'Mantenedor', aliases: ['rogger', 'roger'] },
   { username: 'thiago.nascimento', name: 'Thiago Nascimento', role: 'Mantenedor', aliases: ['thiago'] }
@@ -4078,7 +4079,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=28.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=29.0.0');
         registration.update();
       } catch {}
     });

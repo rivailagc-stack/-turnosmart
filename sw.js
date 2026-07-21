@@ -1,9 +1,9 @@
-const CACHE = 'turnosmart-v28.0.0';
+const CACHE = 'turnosmart-v29.0.0';
 const ASSETS = [
   '/',
   '/index.html',
-  '/style.css?v=28.0.0',
-  '/app.js?v=28.0.0',
+  '/style.css?v=29.0.0',
+  '/app.js?v=29.0.0',
   '/manifest.webmanifest',
   '/icons/icon-192.png',
   '/icons/icon-512.png'

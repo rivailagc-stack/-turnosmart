@@ -1,5 +1,4 @@
-TurnoSmart V28.0.0
-Distribui as ordens do SGMan entre toda a equipe que está entrando.
-Rodízio padrão: líder, mecânico 1, mecânico 2, mecânico 3.
-Cada OS possui um único executante.
-Os usuários da manutenção encontrados no cadastro do SGMan estão disponíveis como opções.
+TurnoSmart V29.0.0
+Incluído Rosental Lima no diretório de usuários do SGMan.
+Login exato: Rosental.Lima
+Disponível para seleção como líder ou mecânico em qualquer equipe.
