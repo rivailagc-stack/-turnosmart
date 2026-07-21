@@ -1,5 +1,6 @@
-TurnoSmart V26.0.0
-Calcula MTTR e MTBF estimado dos últimos 3 dias.
-Usa as OS corretivas consultadas no SGMan.
-Mostra o resultado geral e por máquina.
-Destaca máquinas reincidentes.
+TurnoSmart V27.0.0
+MTTR, MTTF, MTBF e confiabilidade calculados exclusivamente com dados do SGMan.
+MTTR: média entre início e conclusão das OS corretivas.
+MTTF: média entre conclusão do reparo e a próxima falha da mesma máquina.
+MTBF: média entre o início de falhas consecutivas da mesma máquina.
+Confiabilidade: probabilidade estimada de operar um turno de 12 horas sem falha, baseada no MTBF do SGMan.

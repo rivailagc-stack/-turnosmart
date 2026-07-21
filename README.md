@@ -1,32 +1,42 @@
-# TurnoSmart V26 — MTTR e MTBF dos últimos 3 dias
+# TurnoSmart V27 — Indicadores exclusivos do SGMan
 
-## MTTR
+Nenhum dado do relatório de produção, quadro de OEE ou tempo digitado manualmente entra nos cálculos.
 
-```text
-Soma do tempo de reparo das OS corretivas concluídas
-÷ quantidade de reparos concluídos
-```
+## Fonte
 
-O tempo é obtido pela diferença entre `data_inicio` e `data_fim`. Quando essas datas não estiverem disponíveis, o aplicativo tenta usar o campo de duração retornado pelo SGMan.
-
-## MTBF estimado
+Somente as ordens corretivas retornadas por:
 
 ```text
-Horas disponíveis no período menos tempo de parada
-÷ quantidade de falhas corretivas
+POST https://api.sgman.com.br/os/listar
 ```
 
-O período considerado é de 72 horas para cada máquina com falha registrada.
+## Indicadores
 
-## Painel
+### MTTR
 
-O aplicativo mostra:
+Média do tempo entre `data_inicio` e `data_fim` das OS corretivas concluídas.
 
-- MTTR geral;
-- MTBF geral estimado;
-- quantidade de falhas corretivas;
-- máquinas reincidentes;
-- MTTR, MTBF e parada por máquina;
-- dados insuficientes quando faltarem horários válidos.
+### MTTF
 
-Os indicadores também aparecem no relatório gerencial, na mensagem da manutenção e na mensagem da produção.
+Média do tempo entre a conclusão de um reparo e o início da próxima falha corretiva da mesma máquina.
+
+### MTBF
+
+Média do tempo entre o início de duas falhas corretivas consecutivas da mesma máquina.
+
+### Confiabilidade
+
+Probabilidade estimada de a máquina operar durante o próximo turno de 12 horas sem falhar:
+
+```text
+R(12h) = e ^ (-12h / MTBF)
+```
+
+## Regras de segurança dos dados
+
+- apenas as últimas 72 horas;
+- apenas OS corretivas;
+- sem duas falhas na mesma máquina: MTBF indisponível;
+- sem reparo concluído antes de nova falha: MTTF indisponível;
+- sem início/fim ou duração válida: MTTR indisponível;
+- nenhum valor é inventado ou completado pelo relatório de produção.

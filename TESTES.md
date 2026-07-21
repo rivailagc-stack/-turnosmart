@@ -1,10 +1,9 @@
-# Testes da V26
+# Testes da V27
 
-1. Atualize o histórico do SGMan.
-2. Confira o painel MTTR e MTBF dos últimos 3 dias.
-3. Verifique se OS preventivas não entram no cálculo.
-4. Confira uma OS corretiva concluída com início e fim.
-5. Compare a duração da OS com o MTTR da máquina.
-6. Verifique máquinas com duas ou mais falhas marcadas como reincidentes.
-7. Confirme MTTR e MTBF nas mensagens dos relatórios.
-8. Quando não houver datas suficientes, confirme a mensagem “Dados insuficientes”.
+1. Atualize os dados do SGMan.
+2. Confirme que MTTR usa somente OS corretivas concluídas.
+3. Confirme que MTTF exige reparo concluído e falha posterior na mesma máquina.
+4. Confirme que MTBF exige duas falhas da mesma máquina.
+5. Confirme a confiabilidade para um turno de 12 horas.
+6. Verifique que relatório de produção e OEE não alteram os indicadores.
+7. Confirme “Dados insuficientes” quando faltarem horários ou eventos.
