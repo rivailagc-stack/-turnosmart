@@ -1,9 +1,13 @@
-# Testes V6
+# Testes da V23
 
-1. Cole um relatório e toque em **Analisar relatório**.
-2. Abra a aba de ações.
-3. A mensagem da manutenção deve mostrar somente as ações, sem data, sem OEE e sem horário de prazo.
-4. A mensagem da produção deve mostrar somente as ações e o nome do líder responsável.
-5. As duas mensagens devem conter **Resolver durante o turno**.
-6. A manutenção deve orientar o apontamento de todas as OS no SGMan.
-7. A prévia do SGMan deve usar `prazo_plano: "Durante o turno"`.
+1. Abra o app após o deploy.
+2. Analise um relatório.
+3. Confirme que o cartão SGMan mostra concluídas, atrasadas e abertas.
+4. Toque em Atualizar SGMan.
+5. Confirme que uma máquina com OS concluída recebe sugestão baseada no histórico.
+6. Para variação de altura, confira mola, faca, posição da faca, contrafaca e calços.
+7. Revise uma OS e confirme que o comentário contém somente:
+   - problema;
+   - possível resolução;
+   - alerta contra retrabalho.
+8. Envie apenas uma OS de teste antes das restantes.

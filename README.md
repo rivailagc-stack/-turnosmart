@@ -1,19 +1,32 @@
-# TurnoSmart V22 — Comentário direto no SGMan
+# TurnoSmart V23 — Histórico do SGMan
 
-O campo `comentario` da ordem não envia mais:
+## Consulta de ordens
 
-- origem TurnoSmart;
-- equipe que entregou;
-- equipe responsável;
-- OEE do turno;
-- texto de passagem de turno.
-
-Agora o comentário contém somente:
+O backend protegido consulta:
 
 ```text
-Problema: [problema identificado].
-Possível resolução: [ação sugerida].
-Atenção: testar a máquina, confirmar estabilidade e liberar somente após verificar que o defeito não voltou, evitando retrabalho.
+POST https://api.sgman.com.br/os/listar
 ```
 
-A descrição da OS continua com a máquina e a ação principal.
+O token continua somente na Vercel.
+
+## Novidades
+
+- consulta OS abertas, atrasadas e concluídas;
+- mostra no relatório diário:
+  - concluídas hoje, quando a API retorna data de conclusão;
+  - concluídas no período como alternativa;
+  - OS em atraso;
+  - OS abertas;
+- usa OS concluídas da mesma máquina para enriquecer a próxima possível resolução;
+- para variação de altura, considera:
+  - mola;
+  - condição e posição da faca;
+  - contrafaca;
+  - calços e fixações;
+  - acompanhamento da altura após o ajuste;
+- mantém o alerta para testar e evitar retrabalho.
+
+## Observação
+
+A resposta do endpoint de listagem pode variar conforme a versão do SGMan. A V23 faz uma leitura flexível dos nomes dos campos e mantém o relatório funcionando mesmo quando não houver histórico disponível.

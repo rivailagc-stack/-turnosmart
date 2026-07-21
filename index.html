@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=22.0.0" />
+  <link rel="stylesheet" href="style.css?v=23.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -26,9 +26,9 @@
     <section id="view-novo" class="view active">
       <div class="hero card">
         <div>
-          <span class="badge">V22 • Comentário direto</span>
-          <h2>OS com comentário técnico direto</h2>
-          <p>O comentário da OS mostra somente o problema, uma possível resolução e o alerta para testar e evitar retrabalho.</p>
+          <span class="badge">V23 • Histórico SGMan</span>
+          <h2>Histórico das OS no relatório diário</h2>
+          <p>O app consulta as OS concluídas para sugerir soluções e mostra quantas foram concluídas, abertas e estão em atraso.</p>
         </div>
       </div>
 
@@ -105,6 +105,20 @@
         <p>Cole um relatório e toque em “Analisar relatório”.</p>
       </div>
       <div id="analysisContent" class="hidden">
+
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">SGMAN DIÁRIO</span>
+              <h2>Ordens de serviço</h2>
+            </div>
+            <button id="refreshSgmanHistoryBtn" class="secondary" type="button">Atualizar SGMan</button>
+          </div>
+          <p id="sgmanHistoryStatus" class="muted">Aguardando consulta...</p>
+          <div id="sgmanDailyCards" class="summary-grid"></div>
+          <div id="sgmanHistoryDetail" class="prose"></div>
+        </div>
+
         <div class="summary-grid" id="summaryCards"></div>
 
         <div class="card">
@@ -315,7 +329,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 22</h2>
+        <h2>Configuração da versão 23</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -335,7 +349,7 @@
           <div class="integration-item done">
             <strong>SGMan</strong>
             <span>Integração preparada</span>
-            <p>Cria ordens pela API oficial e escolhe o executante pela equipe que está entrando.</p>
+            <p>Cria ordens e consulta OS abertas, atrasadas e concluídas pela API oficial.</p>
           </div>
         </div>
       </div>
@@ -432,6 +446,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=22.0.0" defer></script>
+  <script src="app.js?v=23.0.0"></script>
 </body>
 </html>

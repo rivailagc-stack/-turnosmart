@@ -526,3 +526,16 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
   font-weight: 700;
   color: #7f1d1d;
 }
+
+
+#sgmanHistoryDetail {
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+}
+
+#sgmanHistoryDetail ul {
+  margin-bottom: 0;
+}

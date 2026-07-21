@@ -6,7 +6,8 @@ const STORAGE = {
   draft: 'turnosmart_draft_v1',
   config: 'turnosmart_config_v3',
   sgmanConfirmed: 'turnosmart_sgman_confirmed_v1',
-  sgmanLastResult: 'turnosmart_sgman_last_result_v1'
+  sgmanLastResult: 'turnosmart_sgman_last_result_v1',
+  sgmanHistory: 'turnosmart_sgman_history_v1'
 };
 
 const DEFAULT_PRODUCTION_LEADERS = {
@@ -44,7 +45,19 @@ const state = {
   oeeOcrText: '',
   oeeMachineEditorData: [],
   oeeCropDataUrl: '',
-  sgmanSending: false
+  sgmanSending: false,
+  sgmanHistoryLoading: false,
+  sgmanHistory: {
+    loadedAt: '',
+    orders: [],
+    summary: {
+      completedToday: 0,
+      completedPeriod: 0,
+      overdue: 0,
+      open: 0,
+      hasCompletionDates: false
+    }
+  }
 };
 
 const $ = id => document.getElementById(id);
@@ -1607,6 +1620,7 @@ function managementSummaryText(analysis) {
   if (analysis.reportedOee) lines.push(`OEE informado: ${analysis.reportedOee}% | Meta: ${analysis.targetOee}%.`);
   lines.push(`Retrabalho: ${analysis.reworkCount || 0} | Presentes: ${analysis.present || 'não informado'} | Faltas: ${analysis.absenceCount} | Hora extra: ${analysis.overtimeCount}.`);
   lines.push(`Máquinas com ocorrência: ${analysis.machines.length} | Tempo somado registrado: ${formatMinutes(analysis.totalRecordedMinutes)}.`);
+  if (analysis.sgmanSummary) lines.push(`SGMan: ${sgmanDailySummaryText(analysis.sgmanSummary)}.`);
   lines.push(`Ações separadas: ${maintenanceActions.length} para manutenção e ${productionActions.length} para produção.`);
   if (analysis.laborShortageMachines.length) lines.push(`Sem mão de obra: ${analysis.laborShortageMachines.join(', ')}.`);
   const criticalMaintenance = maintenanceActions.filter(a => a.priority === 'Alta');
@@ -1635,6 +1649,7 @@ function maintenanceMessage() {
   const lines = ['*AÇÕES DA MANUTENÇÃO*'];
 
   if (state.analysis.reportedOee) lines.push(`OEE do turno: ${String(state.analysis.reportedOee).replace('.', ',')}%.`);
+  if (state.analysis.sgmanSummary) lines.push(`SGMan: ${sgmanDailySummaryText(state.analysis.sgmanSummary)}.`);
   if (state.analysis.boardScope?.label) lines.push(`Quadro OEE: ${state.analysis.boardScope.label}.`);
   const dashboard = getRecentOeeDashboard();
   if (dashboard.companyAverage != null) lines.push(`OEE geral 3 dias: ${formatOee(dashboard.companyAverage)}.`);
@@ -1643,7 +1658,7 @@ function maintenanceMessage() {
     lines.push('Sem ação técnica pendente.');
   } else {
     shown.forEach((action, index) => {
-      lines.push(`${index + 1}. *${action.machine}* — ${directMaintenanceAction(action)}`);
+      lines.push(`${index + 1}. *${action.machine}* — ${action.sgmanSuggestedResolution || suggestedResolutionFromHistory(action)}`);
     });
   }
 
@@ -1672,6 +1687,7 @@ function productionMessage() {
   const lines = [`*AÇÕES DA PRODUÇÃO — ${responsible}*`];
 
   if (analysis.reportedOee) lines.push(`OEE do turno: ${String(analysis.reportedOee).replace('.', ',')}%.`);
+  if (analysis.sgmanSummary) lines.push(`SGMan: ${sgmanDailySummaryText(analysis.sgmanSummary)}.`);
   if (analysis.boardScope?.label) lines.push(`Quadro OEE: ${analysis.boardScope.label}.`);
   const dashboard3Days = getRecentOeeDashboard();
   if (dashboard3Days.companyAverage != null) lines.push(`OEE geral 3 dias: ${formatOee(dashboard3Days.companyAverage)}.`);
@@ -1712,6 +1728,8 @@ function renderAnalysis() {
     ['Faltas', analysis.absenceCount, analysis.absences.join(', ') || 'Sem nomes identificados'],
     ['Presentes', analysis.present || '-', 'Incluindo liderança, conforme relatório'],
     ['Retrabalho', analysis.reworkCount || 0, 'Foco em reduzir repetição e perdas'],
+    ['OS concluídas', analysis.sgmanSummary?.hasCompletionDates ? Number(analysis.sgmanSummary.completedToday || 0) : Number(analysis.sgmanSummary?.completedPeriod || 0), analysis.sgmanSummary?.hasCompletionDates ? 'Concluídas hoje no SGMan' : 'Concluídas no período consultado'],
+    ['OS em atraso', Number(analysis.sgmanSummary?.overdue || 0), 'Pendências atuais no SGMan'],
     ['Máquinas', analysis.machines.length, 'Com registros no relatório'],
     ['Tempo somado', formatMinutes(analysis.totalRecordedMinutes), 'Ocorrências podem ser simultâneas'],
     ['Manutenção', state.actions.filter(a => a.department === 'maintenance').length, `${state.actions.filter(a => a.department === 'maintenance' && a.priority === 'Alta').length} de prioridade alta`],
@@ -1726,6 +1744,7 @@ function renderAnalysis() {
   notes.push(`<li><strong>Passagem de turno:</strong> o relatório permanece vinculado à equipe ${escapeHtml(analysis.crew)} que entregou. As ações ficam sob responsabilidade da equipe ${escapeHtml(analysis.responsibleCrew)} que está entrando.</li>`);
   notes.push(`<li><strong>Foto do quadro:</strong> considerar somente a coluna ${escapeHtml(analysis.boardScope?.label || '-')} referente às últimas 12 horas.</li>`);
   if (analysis.lowOeeMachines?.length) notes.push(`<li><strong>OEE do quadro:</strong> ${escapeHtml(oeeLowListText(analysis.lowOeeMachines, 10))}.</li>`);
+  if (analysis.sgmanSummary) notes.push(`<li><strong>SGMan:</strong> ${escapeHtml(sgmanDailySummaryText(analysis.sgmanSummary))}.</li>`);
   notes.push(`<li><strong>Separação:</strong> falhas técnicas seguem para manutenção. Passagem de papel, bobinas, limpeza, mão de obra, treinamento e autocontrole seguem para a produção.</li>`);
   if (analysis.scheduleMismatch) notes.push(`<li><strong>Conferência de escala:</strong> o texto informa ${escapeHtml(analysis.expectedCrew)}, mas pelo horário e pela escala automática foi identificado ${escapeHtml(analysis.crew)}.</li>`);
   if (analysis.reportedShift && analysis.reportedShift !== analysis.shift) notes.push(`<li><strong>Turno do relatório:</strong> o texto informa ${escapeHtml(analysis.reportedShift)}º turno. Para a escala 12x36, o aplicativo classificou como equipe ${escapeHtml(analysis.crew)} (${escapeHtml(analysis.schedule)}).</li>`);
@@ -1948,6 +1967,243 @@ function formatSgmanDateTime(date = new Date()) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+
+function machineKeyFromText(value = '') {
+  const digits = String(value).match(/(?:mk\s*[-:]?\s*)?(\d{1,3})/i)?.[1];
+  return digits ? `MK-${String(Number(digits)).padStart(2, '0')}` : '';
+}
+
+function getCachedSgmanHistory() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(STORAGE.sgmanHistory)) || null;
+    if (cached?.orders && cached?.summary) return cached;
+  } catch {}
+  return state.sgmanHistory;
+}
+
+function saveSgmanHistory(history) {
+  state.sgmanHistory = history;
+  localStorage.setItem(STORAGE.sgmanHistory, JSON.stringify(history));
+}
+
+function sgmanDailySummaryText(summary = state.sgmanHistory?.summary || {}) {
+  const completedLabel = summary.hasCompletionDates
+    ? `Concluídas hoje: ${Number(summary.completedToday || 0)}`
+    : `Concluídas no período: ${Number(summary.completedPeriod || 0)}`;
+
+  return `${completedLabel} | Em atraso: ${Number(summary.overdue || 0)} | Abertas: ${Number(summary.open || 0)}`;
+}
+
+function renderSgmanDailyStatus() {
+  const summary = state.sgmanHistory?.summary || {};
+  const cards = $('sgmanDailyCards');
+  const detail = $('sgmanHistoryDetail');
+  const status = $('sgmanHistoryStatus');
+
+  if (cards) {
+    cards.innerHTML = `
+      <div class="metric">
+        <span>${summary.hasCompletionDates ? 'Concluídas hoje' : 'Concluídas no período'}</span>
+        <strong>${summary.hasCompletionDates ? Number(summary.completedToday || 0) : Number(summary.completedPeriod || 0)}</strong>
+        <small>Dados consultados no SGMan</small>
+      </div>
+      <div class="metric">
+        <span>Em atraso</span>
+        <strong>${Number(summary.overdue || 0)}</strong>
+        <small>Ordens que exigem acompanhamento</small>
+      </div>
+      <div class="metric">
+        <span>Abertas</span>
+        <strong>${Number(summary.open || 0)}</strong>
+        <small>Aguardando execução ou conclusão</small>
+      </div>`;
+  }
+
+  if (detail) {
+    const completed = (state.sgmanHistory?.orders || [])
+      .filter(order => order.statusKey === 'completed')
+      .slice(0, 5);
+
+    detail.innerHTML = completed.length
+      ? `<strong>Últimas OS concluídas usadas como referência:</strong><ul>${
+          completed.map(order => `<li>${escapeHtml(order.machine || order.tag || 'Máquina não identificada')} — ${escapeHtml(order.solution || order.description || 'Serviço concluído')}</li>`).join('')
+        }</ul>`
+      : '<span class="muted">Nenhuma OS concluída disponível para sugerir soluções.</span>';
+  }
+
+  if (status) {
+    const loaded = state.sgmanHistory?.loadedAt
+      ? new Date(state.sgmanHistory.loadedAt).toLocaleString('pt-BR')
+      : 'ainda não atualizado';
+    status.textContent = `Última consulta: ${loaded}`;
+  }
+}
+
+async function refreshSgmanHistory(showMessage = true) {
+  if (state.sgmanHistoryLoading) return state.sgmanHistory;
+
+  state.sgmanHistoryLoading = true;
+  const button = $('refreshSgmanHistoryBtn');
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Atualizando...';
+  }
+
+  try {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 30);
+
+    const response = await fetch('/api/sgman-list', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        data_inicio: formatSgmanDateTime(start),
+        data_fim: formatSgmanDateTime(end),
+        status: ['Aberta', 'Atrasada', 'Concluída'],
+        calc_custos: 0
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) {
+      throw new Error(data.error || `Erro HTTP ${response.status}`);
+    }
+
+    saveSgmanHistory({
+      loadedAt: new Date().toISOString(),
+      orders: Array.isArray(data.orders) ? data.orders : [],
+      summary: data.summary || {}
+    });
+    renderSgmanDailyStatus();
+
+    if (showMessage) showToast('Histórico do SGMan atualizado.');
+    return state.sgmanHistory;
+  } catch (error) {
+    const cached = getCachedSgmanHistory();
+    state.sgmanHistory = cached;
+    renderSgmanDailyStatus();
+    if (showMessage) showToast(`Não foi possível atualizar o SGMan: ${error.message}`);
+    return cached;
+  } finally {
+    state.sgmanHistoryLoading = false;
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Atualizar SGMan';
+    }
+  }
+}
+
+function completedOrdersForAction(action) {
+  const machine = machineKeyFromText(action.machine);
+  const tag = normalizeKey(getConfig().sgmanTagMap?.[action.machine] || '');
+
+  return (state.sgmanHistory?.orders || [])
+    .filter(order => order.statusKey === 'completed')
+    .filter(order => {
+      const orderMachine = machineKeyFromText(order.machine || order.tag || order.description);
+      const orderTag = normalizeKey(order.tag || '');
+      return (machine && orderMachine === machine) || (tag && orderTag === tag);
+    })
+    .slice(0, 8);
+}
+
+function actionableHistorySnippet(text = '') {
+  const cleaned = String(text)
+    .replace(/problema\s*:/gi, '')
+    .replace(/poss[ií]vel resolu[cç][aã]o\s*:/gi, '')
+    .replace(/aten[cç][aã]o\s*:/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned) return '';
+
+  const sentences = cleaned
+    .split(/[.;]\s*/)
+    .map(item => item.trim())
+    .filter(Boolean);
+
+  const actionable = sentences.find(sentence =>
+    /(trocar|verificar|ajustar|regular|alinhar|substituir|apertar|limpar|cal[cç]ar|reposicionar|revisar|corrigir)/i.test(sentence)
+  );
+
+  return String(actionable || sentences[0] || '').slice(0, 170);
+}
+
+function ruleBasedResolutionChecks(action) {
+  const key = normalizeKey(`${action.description || ''} ${action.action || ''}`);
+  const checks = [];
+
+  if (/variacao.*altura|altura.*variacao/.test(key)) {
+    checks.push(
+      'verificar a mola do conjunto',
+      'verificar condição, posição e aperto da faca',
+      'conferir contrafaca, calços e fixações',
+      'acompanhar a altura após o ajuste'
+    );
+  }
+
+  if (/faca/.test(key)) {
+    checks.push('verificar afiação, posição, aperto e alinhamento da faca e contrafaca');
+  }
+
+  if (/tampao|vazamento/.test(key)) {
+    checks.push('verificar vedação, desgaste, aperto e alinhamento do tampão');
+  }
+
+  if (/peca.*volt|faixa.*volt|retorno/.test(key)) {
+    checks.push('verificar guias, sincronismo, garra e saída da peça');
+  }
+
+  if (/bobina.*estour|estour.*bobina/.test(key)) {
+    checks.push('verificar alinhamento, tensão, freio e roletes da bobina');
+  }
+
+  if (/lubrific/.test(key)) {
+    checks.push('verificar nível, bomba, sensor e possíveis obstruções da lubrificação');
+  }
+
+  return [...new Set(checks)];
+}
+
+function suggestedResolutionFromHistory(action) {
+  const base = String(action.baseAction || directMaintenanceAction(action))
+    .replace(/\.$/, '')
+    .trim();
+
+  const ruleChecks = ruleBasedResolutionChecks(action);
+  const historyChecks = completedOrdersForAction(action)
+    .map(order => actionableHistorySnippet(order.solution || order.comment || order.description))
+    .filter(Boolean)
+    .slice(0, 2);
+
+  const parts = [base, ...ruleChecks, ...historyChecks]
+    .map(value => String(value).trim().replace(/[.;]+$/, ''))
+    .filter(Boolean);
+
+  const unique = [];
+  const seen = new Set();
+
+  for (const part of parts) {
+    const key = normalizeKey(part);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(part);
+  }
+
+  return unique.join('; ').slice(0, 480) + '.';
+}
+
+function applySgmanHistoryToActions() {
+  state.actions.forEach(action => {
+    if (action.department !== 'maintenance') return;
+    action.baseAction = action.baseAction || action.action;
+    action.sgmanHistoryCount = completedOrdersForAction(action).length;
+    action.sgmanSuggestedResolution = suggestedResolutionFromHistory(action);
+    action.action = action.sgmanSuggestedResolution;
+  });
+}
+
 function isMachineStopped(action) {
   const key = normalizeKey(`${action.description || ''} ${action.action || ''}`);
   return /maquina parada|parada|nao funciona|sem funcionar|quebra|quebrou|rompimento/.test(key) ? 1 : 0;
@@ -2060,8 +2316,10 @@ function sgmanComment(action) {
   const problem = compactIssue(action.description || '') ||
     'Falha técnica identificada na máquina';
 
-  const resolution = directMaintenanceAction(action)
-    .replace(/\.$/, '');
+  const resolution = String(
+    action.sgmanSuggestedResolution ||
+    suggestedResolutionFromHistory(action)
+  ).replace(/\.$/, '');
 
   return [
     `Problema: ${problem}.`,
@@ -2102,7 +2360,7 @@ function buildSgmanOrders() {
       id_ext: `turnosmart-${state.analysis.id}-${action.machine}`.slice(0, 100),
       pendente: 1,
       duracao_estimada: String(config.sgmanDuracaoEstimada || '01:00'),
-      descricao: `${action.machine} - ${directMaintenanceAction(action)}`.slice(0, 500),
+      descricao: `${action.machine} - ${action.sgmanSuggestedResolution || suggestedResolutionFromHistory(action)}`.slice(0, 500),
       comentario: sgmanComment(action).slice(0, 2000),
       maquina_parada: isMachineStopped(action)
     };
@@ -2409,6 +2667,8 @@ async function analyzeCurrentReport() {
   $('oeeOcrText').value = oeeText;
   state.oeeOcrText = oeeText;
 
+  await refreshSgmanHistory(false);
+
   const scheduleInfo = detectOperationalShift($('reportReceivedAt').value, $('reportDate').value, $('reportShift').value, state.manualSchedule);
   const analysis = parseReport(text, scheduleInfo);
   analysis.oeeOcrText = oeeText;
@@ -2418,8 +2678,10 @@ async function analyzeCurrentReport() {
   analysis.lowOeeMachines = analysis.machineOee
     .filter(item => item.oee < 65)
     .sort((a, b) => a.oee - b.oee);
+  analysis.sgmanSummary = { ...(state.sgmanHistory?.summary || {}) };
   state.analysis = analysis;
   state.actions = generateActions(analysis);
+  applySgmanHistoryToActions();
 
   const history = getHistory();
   history.unshift({
@@ -2623,6 +2885,10 @@ function init() {
   updateOeeScopeHint();
   fillScaleForm('A1');
 
+  state.sgmanHistory = getCachedSgmanHistory();
+  renderSgmanDailyStatus();
+  refreshSgmanHistory(false);
+
   const draft = localStorage.getItem(STORAGE.draft);
   if (draft) $('reportText').value = draft;
 
@@ -2652,6 +2918,7 @@ function init() {
     updateDetectedShift();
     showToast('Referência da escala salva.');
   });
+  $('refreshSgmanHistoryBtn').addEventListener('click', () => refreshSgmanHistory(true));
   $('analyzeBtn').addEventListener('click', analyzeCurrentReport);
   $('sampleBtn').addEventListener('click', () => {
     $('reportText').value = SAMPLE_REPORT;
@@ -2892,7 +3159,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=22.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=23.0.0');
         registration.update();
       } catch {}
     });

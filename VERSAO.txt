@@ -1,3 +1,4 @@
-TurnoSmart V22.0.0
-Comentário do SGMan simplificado.
-Contém apenas problema, possível resolução e alerta para evitar retrabalho.
+TurnoSmart V23.0.0
+Consulta POST https://api.sgman.com.br/os/listar.
+Usa OS concluídas da mesma máquina para sugerir possíveis resoluções.
+Mostra OS concluídas, abertas e em atraso no relatório diário.
