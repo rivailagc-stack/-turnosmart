@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=12.0.0" />
+  <link rel="stylesheet" href="style.css?v=13.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -26,9 +26,9 @@
     <section id="view-novo" class="view active">
       <div class="hero card">
         <div>
-          <span class="badge">V12 • SGMan real</span>
-          <h2>Análise, OEE e criação de OS no SGMan</h2>
-          <p>O app analisa relatório e OEE, prepara as ações e cria ordens reais no SGMan após sua confirmação.</p>
+          <span class="badge">V13 • TAGs simplificadas</span>
+          <h2>Criação de OS com TAGs simplificadas</h2>
+          <p>Cadastre a TAG com apenas o nome, como Mk173, quando a TAG do SGMan for igual ao código da máquina.</p>
         </div>
       </div>
 
@@ -297,7 +297,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 12</h2>
+        <h2>Configuração da versão 13</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -357,9 +357,10 @@
         </div>
 
         <label>TAGs das máquinas no SGMan
-          <textarea id="sgmanTagMap" rows="14" placeholder="Uma por linha:&#10;MK-149=BC-018&#10;MK-172=TAG-DA-MK172&#10;MK-170=TAG-DA-MK170"></textarea>
+          <textarea id="sgmanTagMap" rows="14" placeholder="Quando a TAG for igual à máquina:&#10;Mk173&#10;Mk170&#10;Mk138&#10;&#10;Quando a TAG for diferente:&#10;MK-149=BC-018"></textarea>
         </label>
-        <p class="muted">A máquina só será enviada quando a TAG estiver cadastrada. Não coloque o token neste campo.</p>
+        <p id="sgmanTagCount" class="integration-status">0 TAG(s) reconhecida(s).</p>
+        <p class="muted">Pode escrever apenas Mk173 quando essa for a TAG real no SGMan. Se a TAG for diferente, use MK-173=TAG-REAL. Não coloque o token neste campo.</p>
 
         <div class="button-row">
           <button id="saveSgmanConfigBtn" class="primary" type="button">Salvar configuração SGMan</button>
@@ -387,6 +388,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=12.0.0" defer></script>
+  <script src="app.js?v=13.0.0" defer></script>
 </body>
 </html>

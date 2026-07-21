@@ -1794,22 +1794,25 @@ function downloadJson(filename, data) {
 
 function parseSgmanTagMap(text = '') {
   const map = {};
+
   String(text)
     .split(/\n+/)
     .map(line => line.trim())
     .filter(Boolean)
     .forEach(line => {
-      const parts = line.split('=');
-      if (parts.length < 2) return;
-      const machineRaw = parts.shift().trim().toUpperCase();
-      const tag = parts.join('=').trim();
-      if (!tag) return;
+      const hasMapping = line.includes('=');
+      const parts = hasMapping ? line.split('=') : [line, line];
 
+      const machineRaw = parts.shift().trim();
+      const tag = parts.join('=').trim();
       const digits = machineRaw.match(/\d{1,3}/)?.[0];
-      if (!digits) return;
+
+      if (!digits || !tag) return;
+
       const machine = `MK-${String(Number(digits)).padStart(2, '0')}`;
       map[machine] = tag;
     });
+
   return map;
 }
 
@@ -2222,6 +2225,7 @@ function init() {
   $('sgmanQtdExecutantes').value = config.sgmanQtdExecutantes || 1;
   $('sgmanDuracaoEstimada').value = config.sgmanDuracaoEstimada || '01:00';
   $('sgmanTagMap').value = stringifySgmanTagMap(config.sgmanTagMap || {});
+  $('sgmanTagCount').textContent = `${Object.keys(config.sgmanTagMap || {}).length} TAG(s) reconhecida(s).`;
   updateDetectedShift();
   updateOeeScopeHint();
   fillScaleForm('A1');
@@ -2364,6 +2368,8 @@ function init() {
 
   $('saveSgmanConfigBtn').addEventListener('click', () => {
     const current = getConfig();
+    const tagMap = parseSgmanTagMap($('sgmanTagMap').value);
+
     saveConfig({
       ...current,
       sgmanExecutante: $('sgmanExecutante').value.trim(),
@@ -2371,9 +2377,12 @@ function init() {
       sgmanTipoManutencao: $('sgmanTipoManutencao').value.trim() || 'Corretiva',
       sgmanQtdExecutantes: Math.max(1, Number($('sgmanQtdExecutantes').value || 1)),
       sgmanDuracaoEstimada: $('sgmanDuracaoEstimada').value.trim() || '01:00',
-      sgmanTagMap: parseSgmanTagMap($('sgmanTagMap').value)
+      sgmanTagMap: tagMap
     });
-    showToast('Configuração do SGMan salva.');
+
+    $('sgmanTagMap').value = stringifySgmanTagMap(tagMap);
+    $('sgmanTagCount').textContent = `${Object.keys(tagMap).length} TAG(s) reconhecida(s).`;
+    showToast(`${Object.keys(tagMap).length} TAG(s) do SGMan salva(s).`);
   });
   $('testSgmanBtn').addEventListener('click', getSgmanConnectorStatus);
   getSgmanConnectorStatus();
@@ -2420,7 +2429,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=12.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=13.0.0');
         registration.update();
       } catch {}
     });

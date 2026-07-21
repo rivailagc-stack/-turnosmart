@@ -1,43 +1,27 @@
-# TurnoSmart V12 — Integração SGMan
+# TurnoSmart V13
 
-## Endpoint oficial
+## Cadastro simplificado das TAGs
 
-`POST https://api.sgman.com.br/os/criar`
+Agora são aceitos dois formatos:
 
-O navegador envia somente as ordens para `/api/sgman`.  
-A função da Vercel adiciona o token e chama o SGMan. O token nunca é exposto no GitHub ou no celular.
+```text
+Mk173
+Mk170
+Mk138
+```
 
-## Variáveis na Vercel
+Nesse caso, o aplicativo entende:
 
-Em **Settings → Environment Variables**, crie:
+```text
+MK-173=Mk173
+MK-170=Mk170
+MK-138=Mk138
+```
 
-- `SGMAN_TOKEN`: token real fornecido pelo SGMan.
-- `SGMAN_API_URL`: `https://api.sgman.com.br/os/criar` (opcional, já existe como padrão).
+Quando a TAG do SGMan for diferente do nome da máquina, use:
 
-Depois faça um novo deploy.
+```text
+MK-149=BC-018
+```
 
-## Campos usados
-
-- data_programada
-- qtd_executantes
-- tipo_servico
-- tipo_manutencao
-- executante, quando configurado
-- tag
-- prioridade
-- id_ext
-- pendente
-- duracao_estimada
-- descricao
-- comentario
-- maquina_parada
-
-Os campos `parametros` e `fotos` não são enviados nesta versão porque o formato interno completo não apareceu no print e eles não são necessários para a criação básica.
-
-## Segurança
-
-- confirmação obrigatória antes de enviar;
-- TAG obrigatória por máquina;
-- limite de 30 OS por envio;
-- token somente no servidor;
-- sem token no localStorage, GitHub ou JSON exibido.
+Ao salvar, o aplicativo mostra quantas TAGs foram reconhecidas e normaliza a lista.
