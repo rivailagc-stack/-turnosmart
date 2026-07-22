@@ -578,11 +578,7 @@ function buildQuickSgmanOrder() {
       config.sgmanDuracaoEstimada || '01:00'
     ),
     descricao: `${machine} - ${problem}`.slice(0, 500),
-    comentario: [
-      `Problema: ${problem}.`,
-      `Possível resolução: ${resolution}.`,
-      'Atenção: testar a máquina, confirmar estabilidade e liberar somente após verificar que o defeito não voltou, evitando retrabalho.'
-    ].join(' ').slice(0, 2000),
+    comentario: `Lembretes: ${compactSgmanReminders(resolution)}.`.slice(0, 260),
     maquina_parada: machineStopped,
     executante,
     tipo_servico:
@@ -681,8 +677,8 @@ async function sendQuickOsToSgman() {
     `Equipe: ${context.crew}\n` +
     `Executante: ${order.executante}\n` +
     `Máquina: ${order.tag}\n` +
-    `Problema: ${order.descricao}\n` +
-    `Possível resolução: ${resolution}\n` +
+    `Descrição: ${order.descricao}\n` +
+    `Comentário: ${order.comentario}\n` +
     `Foto: ${order.fotos?.length ? 'sim' : 'não'}`
   );
 
@@ -4257,20 +4253,61 @@ function automaticSgmanMaintenanceType(action) {
   return SGMAN_MAINTENANCE_TYPES.CORRECTIVE;
 }
 
-function sgmanComment(action) {
-  const problem = compactIssue(action.description || '') ||
-    'Falha técnica identificada na máquina';
+function compactSgmanReminders(value = '', maximumItems = 3, maximumLength = 220) {
+  const raw = String(value || '')
+    .replace(/\(\s*\d+\s+registros?\s*\)/gi, '')
+    .replace(/\(\s*\d+\s+ocorr[eê]ncias?\s*\)/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 
+  if (!raw) {
+    return 'verificar a causa; corrigir a falha; testar o funcionamento';
+  }
+
+  const parts = raw
+    .split(/[;\n•]+/)
+    .map(part => part
+      .replace(/^[\s,.-]+|[\s,.;-]+$/g, '')
+      .replace(/^(poss[ií]vel resolu[cç][aã]o|lembretes?)\s*:\s*/i, '')
+      .trim()
+    )
+    .filter(Boolean);
+
+  const unique = [];
+  const seen = new Set();
+
+  for (const part of parts) {
+    const key = normalizeKey(part);
+
+    if (!key || seen.has(key)) continue;
+
+    seen.add(key);
+    unique.push(part);
+
+    if (unique.length >= maximumItems) break;
+  }
+
+  if (!unique.length) {
+    unique.push('verificar a causa', 'corrigir a falha', 'testar o funcionamento');
+  }
+
+  let result = unique.join('; ');
+
+  if (result.length > maximumLength) {
+    result = result.slice(0, maximumLength);
+    result = result.replace(/\s+\S*$/, '').replace(/[;,.\s]+$/, '');
+  }
+
+  return result;
+}
+
+function sgmanComment(action) {
   const resolution = String(
     action.sgmanSuggestedResolution ||
     suggestedResolutionFromHistory(action)
-  ).replace(/\.$/, '');
+  );
 
-  return [
-    `Problema: ${problem}.`,
-    `Possível resolução: ${resolution}.`,
-    'Atenção: testar a máquina, confirmar estabilidade e liberar somente após verificar que o defeito não voltou, evitando retrabalho.'
-  ].join(' ');
+  return `Lembretes: ${compactSgmanReminders(resolution)}.`;
 }
 
 function buildSgmanOrders() {
@@ -4321,8 +4358,11 @@ function buildSgmanOrders() {
       id_ext: `turnosmart-${state.analysis.id}-${action.machine}`.slice(0, 100),
       pendente: 1,
       duracao_estimada: String(config.sgmanDuracaoEstimada || '01:00'),
-      descricao: `${action.machine} - ${action.sgmanSuggestedResolution || suggestedResolutionFromHistory(action)}`.slice(0, 500),
-      comentario: sgmanComment(action).slice(0, 2000),
+      descricao: `${action.machine} - ${
+        compactIssue(action.description || '') ||
+        'Falha técnica identificada'
+      }`.slice(0, 500),
+      comentario: sgmanComment(action).slice(0, 260),
       maquina_parada: isMachineStopped(action),
       executante
     };
@@ -5247,7 +5287,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=31.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=32.0.0');
         registration.update();
       } catch {}
     });

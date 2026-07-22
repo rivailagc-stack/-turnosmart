@@ -1,5 +1,5 @@
-TurnoSmart V31.0.0
-As possíveis resoluções usam até 100 OS da própria máquina.
-A comparação considera o problema atual e ocorrências semelhantes.
-Não usa mais as últimas OS gerais como referência técnica.
-Mostra frequência das soluções encontradas, como mola, posição da faca e troca da faca.
+TurnoSmart V32.0.0
+Descrição da OS: máquina e problema apontado.
+Comentário da OS: apenas lembretes curtos das possíveis soluções.
+Máximo de três lembretes e aproximadamente 220 caracteres.
+Aplicado às OS do relatório e às OS rápidas por foto, áudio ou texto.

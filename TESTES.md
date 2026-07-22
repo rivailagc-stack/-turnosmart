@@ -1,12 +1,10 @@
-# Testes da V31
+# Testes da V32
 
-1. Analise um relatório com problema na MK-173.
-2. Confirme que o cartão da MK-173 mostra até 100 OS da própria máquina.
-3. Confirme que nenhuma OS de outra máquina aparece na referência.
-4. Use “variação de altura” e confira mola, posição da faca e troca da faca.
-5. Confira a quantidade de ocorrências semelhantes.
-6. Abra a prévia da OS e verifique a possível resolução.
-7. Toque em Atualizar análise e confirme uma nova consulta.
-8. Teste uma máquina sem TAG cadastrada.
-9. Teste uma máquina sem histórico semelhante.
-10. Confirme que o relatório de manutenção mostra a base SGMan da própria máquina.
+1. Gere uma OS pelo relatório.
+2. Confirme que a descrição contém a máquina e o problema.
+3. Confirme que o comentário começa com “Lembretes:”.
+4. Verifique que o comentário possui no máximo três lembretes.
+5. Confirme que o problema não é repetido no comentário.
+6. Abra uma OS rápida por áudio.
+7. Abra uma OS rápida com foto.
+8. Confira os mesmos campos no SGMan.
