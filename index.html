@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=32.0.0" />
+  <link rel="stylesheet" href="style.css?v=33.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -26,9 +26,9 @@
     <section id="view-novo" class="view active">
       <div class="hero card">
         <div>
-          <span class="badge">V32 • OS mais objetiva</span>
-          <h2>Descrição clara e comentário curto</h2>
-          <p>O problema fica na descrição da OS e o comentário recebe somente lembretes curtos das possíveis soluções.</p>
+          <span class="badge">V33 • Análise corrigida</span>
+          <h2>Análise rápida sem travar no SGMan</h2>
+          <p>O relatório abre imediatamente e o histórico do SGMan é atualizado em segundo plano.</p>
           <div class="button-row">
             <button id="openQuickOsBtn" class="primary" type="button">📷 🎙 Abrir OS rápida</button>
           </div>
@@ -106,6 +106,7 @@
           <button id="sampleBtn" class="secondary" type="button">Carregar exemplo</button>
           <button id="clearBtn" class="ghost" type="button">Limpar</button>
         </div>
+        <p id="analysisRunStatus" class="analysis-run-status" aria-live="polite"></p>
       </div>
     </section>
 
@@ -478,7 +479,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 32</h2>
+        <h2>Configuração da versão 33</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -597,6 +598,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=32.0.0"></script>
+  <script src="app.js?v=33.0.0"></script>
 </body>
 </html>

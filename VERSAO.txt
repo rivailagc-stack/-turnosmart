@@ -1,5 +1,6 @@
-TurnoSmart V32.0.0
-Descrição da OS: máquina e problema apontado.
-Comentário da OS: apenas lembretes curtos das possíveis soluções.
-Máximo de três lembretes e aproximadamente 220 caracteres.
-Aplicado às OS do relatório e às OS rápidas por foto, áudio ou texto.
+TurnoSmart V33.0.0
+Corrige o botão Analisar relatório.
+A análise local abre imediatamente.
+As consultas do SGMan e das 100 OS por máquina são executadas em segundo plano.
+Mostra o andamento e os erros embaixo do botão.
+Mantém todas as funções da V32.

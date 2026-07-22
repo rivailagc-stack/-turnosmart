@@ -201,7 +201,9 @@ const state = {
   quickOsSending: false,
   quickOsContext: null,
   sgmanMachineHistory: {},
-  sgmanMachineHistoryLoading: false
+  sgmanMachineHistoryLoading: false,
+  reportAnalyzing: false,
+  backgroundAnalysisId: ''
 };
 
 const $ = id => document.getElementById(id);
@@ -4660,49 +4662,17 @@ function escapeHtml(value = '') {
   return String(value).replace(/[&<>'"]/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[char]));
 }
 
-async function analyzeCurrentReport() {
-  const text = $('reportText').value.trim();
-  if (!text) {
-    showToast('Cole o relatório antes de analisar.');
-    return;
-  }
+function setAnalysisRunStatus(message = '', type = '') {
+  const target = $('analysisRunStatus');
+  if (!target) return;
 
-  let editorValues = machineOeeFromEditor();
-  const file = $('oeeImageInput')?.files?.[0];
+  target.textContent = message;
+  target.className = `analysis-run-status${type ? ` ${type}` : ''}`;
+}
 
-  if (!editorValues.length && file) {
-    await processOeeColumnPhoto();
-    editorValues = machineOeeFromEditor();
-  }
-
-  let oeeText = editorValues.length
-    ? editorOeeText()
-    : ($('oeeOcrText')?.value.trim() || '');
-
-  $('oeeOcrText').value = oeeText;
-  state.oeeOcrText = oeeText;
-
-  await refreshSgmanHistory(false);
-
-  const scheduleInfo = detectOperationalShift($('reportReceivedAt').value, $('reportDate').value, $('reportShift').value, state.manualSchedule);
-  const analysis = parseReport(text, scheduleInfo);
-  analysis.oeeOcrText = oeeText;
-  analysis.machineOee = editorValues.length
-    ? editorValues
-    : extractAllMachineOeeFromText(oeeText);
-  analysis.lowOeeMachines = analysis.machineOee
-    .filter(item => item.oee < 65)
-    .sort((a, b) => a.oee - b.oee);
-  analysis.sgmanSummary = { ...(state.sgmanHistory?.summary || {}) };
-  analysis.reliability3Days = { ...calculateReliability3Days() };
-  state.analysis = analysis;
-  state.actions = generateActions(analysis);
-
-  await loadSgmanMachineHistories(state.actions, false);
-  applySgmanHistoryToActions();
-
+function saveOrUpdateAnalysisHistory(analysis, actions) {
   const history = getHistory();
-  history.unshift({
+  const record = {
     id: analysis.id,
     date: analysis.date,
     shift: analysis.shift,
@@ -4711,16 +4681,185 @@ async function analyzeCurrentReport() {
     realized: analysis.realized,
     reportedOee: analysis.reportedOee,
     analysis,
-    actions: state.actions
-  });
+    actions
+  };
+
+  const existingIndex = history.findIndex(item => item.id === analysis.id);
+
+  if (existingIndex >= 0) {
+    history[existingIndex] = record;
+  } else {
+    history.unshift(record);
+  }
+
   saveHistory(history);
-  localStorage.removeItem(STORAGE.draft);
-  renderAnalysis();
-  renderActions();
-  renderHistory();
-  renderOeeDashboard();
-  switchView('analise');
-  showToast('Relatório e foto analisados.');
+}
+
+async function updateCurrentAnalysisWithSgman(analysisId) {
+  if (!analysisId) return;
+
+  state.backgroundAnalysisId = analysisId;
+  setAnalysisRunStatus(
+    'Relatório analisado. Atualizando SGMan e histórico das máquinas em segundo plano...',
+    'loading'
+  );
+
+  try {
+    await refreshSgmanHistory(false);
+
+    if (!state.analysis || state.analysis.id !== analysisId) return;
+
+    state.analysis.sgmanSummary = {
+      ...(state.sgmanHistory?.summary || {})
+    };
+    state.analysis.reliability3Days = {
+      ...calculateReliability3Days()
+    };
+
+    await loadSgmanMachineHistories(state.actions, false);
+
+    if (!state.analysis || state.analysis.id !== analysisId) return;
+
+    applySgmanHistoryToActions();
+    saveOrUpdateAnalysisHistory(state.analysis, state.actions);
+    renderAnalysis();
+    renderActions();
+    renderHistory();
+    renderOeeDashboard();
+
+    setAnalysisRunStatus(
+      'Análise concluída e referências do SGMan atualizadas.',
+      'success'
+    );
+  } catch (error) {
+    if (!state.analysis || state.analysis.id !== analysisId) return;
+
+    saveOrUpdateAnalysisHistory(state.analysis, state.actions);
+    renderAnalysis();
+    renderActions();
+    renderHistory();
+
+    setAnalysisRunStatus(
+      `O relatório foi analisado, mas o SGMan não atualizou: ${error.message}`,
+      'warning'
+    );
+  } finally {
+    if (state.backgroundAnalysisId === analysisId) {
+      state.backgroundAnalysisId = '';
+    }
+  }
+}
+
+async function analyzeCurrentReport() {
+  if (state.reportAnalyzing) {
+    showToast('A análise já está em andamento.');
+    return;
+  }
+
+  const button = $('analyzeBtn');
+  const originalButtonText = button?.textContent || 'Analisar relatório';
+
+  try {
+    state.reportAnalyzing = true;
+
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Analisando...';
+    }
+
+    setAnalysisRunStatus('Lendo o relatório...', 'loading');
+
+    const text = $('reportText').value.trim();
+
+    if (!text) {
+      setAnalysisRunStatus(
+        'Cole ou digite o relatório antes de analisar.',
+        'error'
+      );
+      showToast('Cole o relatório antes de analisar.');
+      return;
+    }
+
+    let editorValues = machineOeeFromEditor();
+    const file = $('oeeImageInput')?.files?.[0];
+
+    if (!editorValues.length && file) {
+      setAnalysisRunStatus('Lendo a foto do quadro de OEE...', 'loading');
+      await processOeeColumnPhoto();
+      editorValues = machineOeeFromEditor();
+    }
+
+    const oeeText = editorValues.length
+      ? editorOeeText()
+      : ($('oeeOcrText')?.value.trim() || '');
+
+    $('oeeOcrText').value = oeeText;
+    state.oeeOcrText = oeeText;
+
+    setAnalysisRunStatus('Montando a análise do turno...', 'loading');
+
+    const scheduleInfo = detectOperationalShift(
+      $('reportReceivedAt').value,
+      $('reportDate').value,
+      $('reportShift').value,
+      state.manualSchedule
+    );
+
+    const analysis = parseReport(text, scheduleInfo);
+    analysis.oeeOcrText = oeeText;
+    analysis.machineOee = editorValues.length
+      ? editorValues
+      : extractAllMachineOeeFromText(oeeText);
+    analysis.lowOeeMachines = analysis.machineOee
+      .filter(item => item.oee < 65)
+      .sort((a, b) => a.oee - b.oee);
+
+    // Usa imediatamente o último cache disponível. A atualização online
+    // acontece depois, sem impedir o relatório de abrir.
+    analysis.sgmanSummary = {
+      ...(state.sgmanHistory?.summary || {})
+    };
+    analysis.reliability3Days = {
+      ...calculateReliability3Days()
+    };
+
+    state.analysis = analysis;
+    state.actions = generateActions(analysis);
+
+    // Aplica histórico já armazenado no aparelho, quando existir.
+    applySgmanHistoryToActions();
+    saveOrUpdateAnalysisHistory(analysis, state.actions);
+    localStorage.removeItem(STORAGE.draft);
+
+    renderAnalysis();
+    renderActions();
+    renderHistory();
+    renderOeeDashboard();
+    switchView('analise');
+
+    setAnalysisRunStatus(
+      'Relatório analisado. Atualizando as referências do SGMan...',
+      'success'
+    );
+    showToast('Relatório analisado.');
+
+    // Não usa await: o botão e a tela não ficam presos nas consultas.
+    updateCurrentAnalysisWithSgman(analysis.id);
+  } catch (error) {
+    console.error('Falha ao analisar relatório:', error);
+    setAnalysisRunStatus(
+      `Não foi possível analisar: ${error.message}`,
+      'error'
+    );
+    showToast('Falha ao analisar o relatório.');
+  } finally {
+    state.reportAnalyzing = false;
+
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalButtonText;
+    }
+  }
 }
 
 const SAMPLE_REPORT = `*Relatório de produção diária*
@@ -5046,6 +5185,7 @@ function init() {
     state.oeeRowPreviews = [];
     state.oeeImageDataUrl = '';
     state.oeeCropDataUrl = '';
+    setAnalysisRunStatus('');
     localStorage.removeItem(STORAGE.draft);
   });
   $('reportText').addEventListener('input', e => localStorage.setItem(STORAGE.draft, e.target.value));
@@ -5287,7 +5427,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=32.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=33.0.0');
         registration.update();
       } catch {}
     });

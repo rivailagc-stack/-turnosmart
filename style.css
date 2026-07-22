@@ -855,3 +855,39 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
     flex-direction: column;
   }
 }
+
+
+.analysis-run-status {
+  min-height: 24px;
+  margin: 12px 0 0;
+  padding: 0 4px;
+  color: #64748b;
+  font-size: .86rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.analysis-run-status:empty {
+  display: none;
+}
+
+.analysis-run-status.loading {
+  color: #0f766e;
+}
+
+.analysis-run-status.success {
+  color: #15803d;
+}
+
+.analysis-run-status.warning {
+  color: #b45309;
+}
+
+.analysis-run-status.error {
+  color: #b91c1c;
+}
+
+#analyzeBtn:disabled {
+  cursor: wait;
+  opacity: .72;
+}

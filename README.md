@@ -1,26 +1,15 @@
-# TurnoSmart V32 — Campos da OS mais objetivos
+# TurnoSmart V33 — Botão Analisar corrigido
 
-## Descrição
+## Problema
 
-A descrição recebe somente a máquina e o problema apontado:
+A análise aguardava primeiro a consulta geral do SGMan e depois até 100 OS de cada máquina. Em conexões lentas, o botão parecia não funcionar.
 
-```text
-MK-173 - Variação de altura durante a produção
-```
+## Correção
 
-## Comentário
+1. O relatório é lido e exibido imediatamente.
+2. A tela muda para **Análise** sem esperar o SGMan.
+3. O histórico do SGMan é atualizado em segundo plano.
+4. As possíveis soluções por máquina são atualizadas quando as consultas terminam.
+5. Uma mensagem embaixo do botão mostra cada etapa e qualquer falha.
 
-O comentário não repete o problema e não recebe textos longos. Ele contém no máximo três lembretes de possíveis soluções:
-
-```text
-Lembretes: verificar mola; conferir posição da faca; avaliar troca da faca.
-```
-
-Os lembretes continuam sendo baseados nas OS semelhantes da própria máquina consultadas no SGMan.
-
-## Onde foi aplicado
-
-- OS geradas pelo relatório do turno;
-- OS rápidas abertas por foto;
-- OS rápidas abertas por áudio;
-- OS rápidas digitadas manualmente.
+Uma indisponibilidade do SGMan não impede mais a análise do relatório.
