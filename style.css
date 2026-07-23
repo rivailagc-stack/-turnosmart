@@ -891,3 +891,138 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
   cursor: wait;
   opacity: .72;
 }
+
+
+.efficiency-trend-card {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.efficiency-trend-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.efficiency-arrow {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border-radius: 18px;
+  font-size: 2.2rem;
+  font-weight: 900;
+  background: #e2e8f0;
+}
+
+.efficiency-trend-main div {
+  display: grid;
+  gap: 3px;
+}
+
+.efficiency-trend-main span:not(.efficiency-arrow) {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.efficiency-trend-main strong {
+  font-size: 2rem;
+}
+
+.efficiency-trend-card p {
+  margin: 0;
+  font-weight: 750;
+  line-height: 1.5;
+}
+
+.trend-up {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.trend-up .efficiency-arrow {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.trend-down {
+  border-color: #fdba74;
+  background: #fff7ed;
+}
+
+.trend-down .efficiency-arrow {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.trend-stable {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.trend-stable .efficiency-arrow {
+  background: #fef3c7;
+  color: #a16207;
+}
+
+.daily-plan-list {
+  display: grid;
+  gap: 10px;
+}
+
+.daily-plan-item {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.daily-plan-item p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+@media (max-width: 620px) {
+  .daily-plan-item {
+    grid-template-columns: 38px minmax(0, 1fr);
+  }
+
+  .daily-plan-item .trend-pill {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+
+.app-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-title-row h1 {
+  margin: 0;
+}
+
+.app-version-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 1px solid rgba(45, 212, 191, .55);
+  border-radius: 999px;
+  background: rgba(45, 212, 191, .12);
+  color: #5eead4;
+  font-size: .7rem;
+  font-weight: 900;
+  letter-spacing: .04em;
+}

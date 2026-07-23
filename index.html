@@ -10,14 +10,17 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=36.0.0" />
+  <link rel="stylesheet" href="style.css?v=38.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
   <header class="topbar">
     <div>
       <div class="eyebrow">PRODUÇÃO + MANUTENÇÃO</div>
-      <h1>TurnoSmart</h1>
+      <div class="app-title-row">
+        <h1>TurnoSmart</h1>
+        <span id="appVersionBadge" class="app-version-badge">V38.0.0</span>
+      </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
   </header>
@@ -210,6 +213,18 @@
       </div>
       <div id="analysisContent" class="hidden">
 
+        <div id="efficiencyTrendCard" class="efficiency-trend-card trend-unknown"></div>
+
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">PLANO DO DIA</span>
+              <h2>Três máquinas prioritárias</h2>
+            </div>
+          </div>
+          <p class="muted">Ranking baseado em falhas com máquina parada, reincidência, MTTR alto e MTBF baixo.</p>
+          <div id="dailyPlanList" class="daily-plan-list"></div>
+        </div>
 
         <div class="card">
           <div class="section-head">
@@ -244,8 +259,8 @@
         <div class="card">
           <div class="section-head">
             <div>
-              <span class="eyebrow">DADOS EXCLUSIVOS DO SGMAN — 72 HORAS</span>
-              <h2>MTTR, MTTF, MTBF e confiabilidade</h2>
+              <span class="eyebrow">SGMAN — PARADAS REAIS NAS ÚLTIMAS 72 HORAS</span>
+              <h2>MTTR, MTBF, confiabilidade e OS do turno</h2>
             </div>
             <button id="refreshReliabilityBtn" class="secondary" type="button">Atualizar dados</button>
           </div>
@@ -479,7 +494,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 36</h2>
+        <h2>Configuração da versão 38</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -598,6 +613,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=36.0.0"></script>
+  <script src="app.js?v=38.0.0"></script>
 </body>
 </html>

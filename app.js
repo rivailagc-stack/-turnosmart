@@ -194,6 +194,34 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
+const APP_VERSION = '38.0.0';
+
+async function forceCurrentAppVersion() {
+  try {
+    const cacheNames = await caches.keys();
+    await Promise.all(
+      cacheNames
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v38.0.0')
+        .map(name => caches.delete(name))
+    );
+  } catch {
+    // O navegador pode não disponibilizar CacheStorage.
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+
+    if (registration) {
+      await registration.update();
+    }
+  } catch {
+    // A aplicação continua normalmente.
+  }
+
+  const badge = document.getElementById('appVersionBadge');
+  if (badge) badge.textContent = `V${APP_VERSION}`;
+}
+
 function cleanupStorageOnStartup() {
   clearLargeLegacyCaches();
 
@@ -399,14 +427,12 @@ const state = {
     periodHours: 72,
     missionHours: 12,
     mttrMinutes: null,
-    mttfMinutes: null,
     mtbfMinutes: null,
     reliabilityPercent: null,
     reliabilityBasis: '',
     failureCount: 0,
     completedRepairs: 0,
     repairIntervals: 0,
-    uptimeIntervals: 0,
     failureIntervals: 0,
     recurrentMachines: 0,
     rows: [],
@@ -2704,7 +2730,7 @@ function maintenanceMessage() {
 
   if (state.analysis.reportedOee) lines.push(`OEE do turno: ${String(state.analysis.reportedOee).replace('.', ',')}%.`);
   if (state.analysis.sgmanSummary) lines.push(`SGMan: ${sgmanDailySummaryText(state.analysis.sgmanSummary)}.`);
-  if (state.analysis.reliability3Days) lines.push(`SGMan 3 dias — MTTR: ${formatReliabilityTime(state.analysis.reliability3Days.mttrMinutes)} | MTTF: ${formatReliabilityTime(state.analysis.reliability3Days.mttfMinutes)} | MTBF: ${formatReliabilityTime(state.analysis.reliability3Days.mtbfMinutes)} | Confiabilidade 12h: ${formatReliabilityPercent(state.analysis.reliability3Days.reliabilityPercent)}.`);
+  if (state.analysis.reliability3Days) lines.push(`SGMan 3 dias — MTTR: ${formatReliabilityTime(state.analysis.reliability3Days.mttrMinutes)} | MTBF: ${formatReliabilityTime(state.analysis.reliability3Days.mtbfMinutes)} | Confiabilidade 12h: ${formatReliabilityPercent(state.analysis.reliability3Days.reliabilityPercent)} | OS concluídas nas últimas 12h: ${Number(state.analysis.reliability3Days.completedLast12Hours || 0)}.`);
   if (state.analysis.boardScope?.label) lines.push(`Quadro OEE: ${state.analysis.boardScope.label}.`);
   const dashboard = getRecentOeeDashboard();
   if (dashboard.companyAverage != null) lines.push(`OEE geral 3 dias: ${formatOee(dashboard.companyAverage)}.`);
@@ -2754,7 +2780,7 @@ function productionMessage() {
 
   if (analysis.reportedOee) lines.push(`OEE do turno: ${String(analysis.reportedOee).replace('.', ',')}%.`);
   if (analysis.sgmanSummary) lines.push(`SGMan: ${sgmanDailySummaryText(analysis.sgmanSummary)}.`);
-  if (analysis.reliability3Days) lines.push(`SGMan 3 dias — MTTR: ${formatReliabilityTime(analysis.reliability3Days.mttrMinutes)} | MTTF: ${formatReliabilityTime(analysis.reliability3Days.mttfMinutes)} | MTBF: ${formatReliabilityTime(analysis.reliability3Days.mtbfMinutes)} | Confiabilidade 12h: ${formatReliabilityPercent(analysis.reliability3Days.reliabilityPercent)}.`);
+  if (analysis.reliability3Days) lines.push(`SGMan 3 dias — MTTR: ${formatReliabilityTime(analysis.reliability3Days.mttrMinutes)} | MTBF: ${formatReliabilityTime(analysis.reliability3Days.mtbfMinutes)} | Confiabilidade 12h: ${formatReliabilityPercent(analysis.reliability3Days.reliabilityPercent)} | OS concluídas nas últimas 12h: ${Number(analysis.reliability3Days.completedLast12Hours || 0)}.`);
   if (analysis.boardScope?.label) lines.push(`Quadro OEE: ${analysis.boardScope.label}.`);
   const dashboard3Days = getRecentOeeDashboard();
   if (dashboard3Days.companyAverage != null) lines.push(`OEE geral 3 dias: ${formatOee(dashboard3Days.companyAverage)}.`);
@@ -2795,10 +2821,9 @@ function renderAnalysis() {
     ['Faltas', analysis.absenceCount, analysis.absences.join(', ') || 'Sem nomes identificados'],
     ['Presentes', analysis.present || '-', 'Incluindo liderança, conforme relatório'],
     ['Retrabalho', analysis.reworkCount || 0, 'Foco em reduzir repetição e perdas'],
-    ['OS concluídas', analysis.sgmanSummary?.hasCompletionDates ? Number(analysis.sgmanSummary.completedToday || 0) : Number(analysis.sgmanSummary?.completedPeriod || 0), analysis.sgmanSummary?.hasCompletionDates ? 'Concluídas hoje no SGMan' : 'Concluídas no período consultado'],
+    ['OS concluídas — últimas 12h', Number(analysis.reliability3Days?.completedLast12Hours || 0), analysis.reliability3Days?.last12HoursLabel || 'Janela móvel de 12 horas'],
     ['OS em atraso', Number(analysis.sgmanSummary?.overdue || 0), 'Pendências atuais no SGMan'],
     ['MTTR SGMan', formatReliabilityTime(analysis.reliability3Days?.mttrMinutes), `${Number(analysis.reliability3Days?.repairIntervals || 0)} reparo(s) válido(s)`],
-    ['MTTF SGMan', formatReliabilityTime(analysis.reliability3Days?.mttfMinutes), `${Number(analysis.reliability3Days?.uptimeIntervals || 0)} intervalo(s) até nova falha`],
     ['MTBF SGMan', formatReliabilityTime(analysis.reliability3Days?.mtbfMinutes), `${Number(analysis.reliability3Days?.failureIntervals || 0)} intervalo(s) entre falhas`],
     ['Confiabilidade 12h', formatReliabilityPercent(analysis.reliability3Days?.reliabilityPercent), 'Estimativa baseada somente no MTBF do SGMan'],
     ['Máquinas', analysis.machines.length, 'Com registros no relatório'],
@@ -3221,13 +3246,115 @@ function isCorrectiveSgmanOrder(order = {}) {
   );
 }
 
+function configuredMachineCodes() {
+  const configured = Object.keys(getConfig().sgmanTagMap || {});
+  const board = Array.isArray(OEE_BOARD_MACHINES)
+    ? OEE_BOARD_MACHINES
+    : [];
+
+  return uniqueStrings([...configured, ...board])
+    .filter(machine => /^MK-\d+$/i.test(machine))
+    .sort((a, b) =>
+      Number(b.replace(/\D/g, '')) -
+      Number(a.replace(/\D/g, ''))
+    );
+}
+
 function orderMachineForReliability(order = {}) {
-  return (
+  const explicit = (
     machineKeyFromText(order.machine || '') ||
     machineKeyFromText(order.tag || '') ||
-    machineKeyFromText(order.description || '') ||
-    ''
+    machineKeyFromText(order.local || '') ||
+    machineKeyFromText(order.description || '')
   );
+
+  if (explicit) return explicit;
+
+  const source = normalizeKey(
+    [
+      order.tag,
+      order.local,
+      order.description,
+      order.comment
+    ].filter(Boolean).join(' ')
+  );
+
+  for (const machine of configuredMachineCodes()) {
+    const number = machine.replace(/\D/g, '');
+    const pattern = new RegExp(`(^|[^0-9])0*${number}([^0-9]|$)`);
+
+    if (pattern.test(source)) {
+      return machine;
+    }
+  }
+
+  return '';
+}
+
+function isStoppedSgmanOrder(order = {}) {
+  const raw = order.machineStopped;
+
+  if (raw === true || raw === 1 || raw === '1') return true;
+
+  const value = normalizeKey(String(raw || ''));
+
+  return [
+    'sim',
+    'true',
+    'parada',
+    'maquina parada',
+    'equipamento parado'
+  ].includes(value);
+}
+
+function lastTwelveHoursWindow(reference = new Date()) {
+  const end = new Date(reference);
+  const start = new Date(end.getTime() - 12 * 60 * 60 * 1000);
+
+  const timeLabel = date => date.toLocaleTimeString('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  const dateLabel = date => date.toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit'
+  });
+
+  const crossesDate =
+    start.getFullYear() !== end.getFullYear() ||
+    start.getMonth() !== end.getMonth() ||
+    start.getDate() !== end.getDate();
+
+  const label = crossesDate
+    ? `${dateLabel(start)} ${timeLabel(start)} até ${dateLabel(end)} ${timeLabel(end)}`
+    : `${timeLabel(start)} até ${timeLabel(end)}`;
+
+  return {
+    start,
+    end,
+    effectiveEnd: end,
+    label
+  };
+}
+
+function completedOrdersInLastTwelveHours(orders = []) {
+  const window = lastTwelveHoursWindow();
+
+  const completed = orders.filter(order => {
+    if (order.statusKey !== 'completed') return false;
+
+    const end = parseSgmanDateTime(order.endDate);
+    if (!end) return false;
+
+    return end >= window.start && end <= window.end;
+  });
+
+  return {
+    count: completed.length,
+    orders: completed,
+    ...window
+  };
 }
 
 function repairDurationInsideWindow(order, cutoff, now) {
@@ -3301,7 +3428,6 @@ function calculateMachineSgmanMetrics(machine, orders) {
     );
 
   const repairDurations = [];
-  const uptimeIntervals = [];
   const failureIntervals = [];
 
   for (const order of sortedOrders) {
@@ -3323,22 +3449,9 @@ function calculateMachineSgmanMetrics(machine, orders) {
     if (failureInterval !== null) {
       failureIntervals.push(failureInterval);
     }
-
-    if (
-      previous.statusKey === 'completed' &&
-      previous.reliabilityEnd
-    ) {
-      const uptime = validIntervalMinutes(
-        previous.reliabilityEnd,
-        current.reliabilityStart
-      );
-
-      if (uptime !== null) uptimeIntervals.push(uptime);
-    }
   }
 
   const mttrMinutes = averageNumbers(repairDurations);
-  const mttfMinutes = averageNumbers(uptimeIntervals);
   const mtbfMinutes = averageNumbers(failureIntervals);
   const reliabilityPercent = reliabilityPercentForMission(mtbfMinutes, 12);
 
@@ -3347,13 +3460,94 @@ function calculateMachineSgmanMetrics(machine, orders) {
     failureCount: sortedOrders.length,
     completedRepairs: repairDurations.length,
     repairIntervals: repairDurations.length,
-    uptimeIntervals: uptimeIntervals.length,
     failureIntervals: failureIntervals.length,
     mttrMinutes,
-    mttfMinutes,
     mtbfMinutes,
     reliabilityPercent,
     recurrent: sortedOrders.length >= 2
+  };
+}
+
+function calculateEfficiencyTrend() {
+  const dashboard = getRecentOeeDashboard();
+  const values = (dashboard.shifts || [])
+    .map(item => ({
+      label: item.label,
+      value: Number(item.reportedOee)
+    }))
+    .filter(item => Number.isFinite(item.value) && item.value > 0);
+
+  const currentAnalysisValue = Number(state.analysis?.reportedOee);
+
+  if (
+    Number.isFinite(currentAnalysisValue) &&
+    currentAnalysisValue > 0 &&
+    !values.some(item =>
+      item.label === `${formatDate(state.analysis?.date)} ${
+        String(state.analysis?.shift) === '2' ? 'B' : 'A'
+      }`
+    )
+  ) {
+    values.push({
+      label: 'Turno atual',
+      value: currentAnalysisValue
+    });
+  }
+
+  if (!values.length) {
+    return {
+      direction: 'unknown',
+      arrow: '➜',
+      current: null,
+      previous: null,
+      delta: null,
+      phrase: 'Registre o OEE do turno para acompanhar a evolução da eficiência.'
+    };
+  }
+
+  const current = values[values.length - 1].value;
+  const previous = values.length >= 2
+    ? values[values.length - 2].value
+    : null;
+
+  const delta = previous === null
+    ? null
+    : current - previous;
+
+  let direction = 'stable';
+  let arrow = '➜';
+
+  if (delta !== null && delta >= 0.5) {
+    direction = 'up';
+    arrow = '⬆';
+  } else if (delta !== null && delta <= -0.5) {
+    direction = 'down';
+    arrow = '⬇';
+  }
+
+  let phrase;
+
+  if (current >= 70 && direction === 'up') {
+    phrase = 'Boa evolução. Mantenha o ritmo e elimine as pequenas paradas para fechar o turno ainda melhor.';
+  } else if (current >= 70) {
+    phrase = 'Resultado positivo. O próximo passo é estabilizar as máquinas críticas e evitar reincidências.';
+  } else if (current >= 65 && direction === 'up') {
+    phrase = 'A recuperação começou. Continue atacando as maiores perdas para ultrapassar a meta.';
+  } else if (current >= 65) {
+    phrase = 'Estamos perto. Reaja nas três máquinas prioritárias e transforme pequenas melhorias em ganho de eficiência.';
+  } else if (direction === 'up') {
+    phrase = 'A eficiência ainda está baixa, mas a tendência virou. Mantenha o foco nas causas de maior impacto.';
+  } else {
+    phrase = 'O turno ainda pode reagir. Reduza o MTTR, elimine reincidências e recupere uma máquina crítica de cada vez.';
+  }
+
+  return {
+    direction,
+    arrow,
+    current,
+    previous,
+    delta,
+    phrase
   };
 }
 
@@ -3362,9 +3556,10 @@ function calculateReliability3Days() {
   const periodMinutes = 72 * 60;
   const cutoff = new Date(now.getTime() - periodMinutes * 60000);
 
-  // Fonte única: ordens retornadas pelo endpoint /os/listar do SGMan.
+  // Somente corretivas que realmente marcaram máquina parada.
   const correctiveOrders = (state.sgmanHistory?.orders || [])
     .filter(isCorrectiveSgmanOrder)
+    .filter(isStoppedSgmanOrder)
     .map(order => ({
       ...order,
       reliabilityMachine: orderMachineForReliability(order),
@@ -3396,14 +3591,14 @@ function calculateReliability3Days() {
       b.failureCount - a.failureCount ||
       (a.mtbfMinutes ?? Number.POSITIVE_INFINITY) -
         (b.mtbfMinutes ?? Number.POSITIVE_INFINITY) ||
+      (b.mttrMinutes ?? 0) - (a.mttrMinutes ?? 0) ||
       a.machine.localeCompare(b.machine, 'pt-BR', { numeric: true })
     );
 
   const allRepairDurations = [];
-  const allUptimeIntervals = [];
   const allFailureIntervals = [];
 
-  for (const [machine, orders] of machineMap.entries()) {
+  for (const orders of machineMap.values()) {
     const sortedOrders = [...orders]
       .filter(order => order.reliabilityStart)
       .sort((a, b) =>
@@ -3418,81 +3613,83 @@ function calculateReliability3Days() {
     }
 
     for (let index = 1; index < sortedOrders.length; index++) {
-      const previous = sortedOrders[index - 1];
-      const current = sortedOrders[index];
-
-      const failureInterval = validIntervalMinutes(
-        previous.reliabilityStart,
-        current.reliabilityStart
+      const interval = validIntervalMinutes(
+        sortedOrders[index - 1].reliabilityStart,
+        sortedOrders[index].reliabilityStart
       );
 
-      if (failureInterval !== null) {
-        allFailureIntervals.push(failureInterval);
-      }
-
-      if (
-        previous.statusKey === 'completed' &&
-        previous.reliabilityEnd
-      ) {
-        const uptime = validIntervalMinutes(
-          previous.reliabilityEnd,
-          current.reliabilityStart
-        );
-
-        if (uptime !== null) allUptimeIntervals.push(uptime);
-      }
+      if (interval !== null) allFailureIntervals.push(interval);
     }
   }
 
   const mttrMinutes = averageNumbers(allRepairDurations);
-  const mttfMinutes = averageNumbers(allUptimeIntervals);
   const mtbfMinutes = averageNumbers(allFailureIntervals);
   const reliabilityPercent = reliabilityPercentForMission(mtbfMinutes, 12);
-
   const failureCount = correctiveOrders.length;
   const recurrentMachines = rows.filter(row => row.recurrent).length;
+
+  const lastTwelveHours = completedOrdersInLastTwelveHours(
+    state.sgmanHistory?.orders || []
+  );
+
+  const dailyPlan = rows
+    .map(row => {
+      const mttrPenalty = Number(row.mttrMinutes || 0) / 30;
+      const mtbfPenalty = row.mtbfMinutes
+        ? Math.max(0, (24 * 60 - row.mtbfMinutes) / 60)
+        : 8;
+      const score =
+        row.failureCount * 10 +
+        mttrPenalty +
+        mtbfPenalty +
+        (row.recurrent ? 8 : 0);
+
+      return {
+        ...row,
+        score
+      };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
 
   let note;
 
   if (!failureCount) {
-    note = 'Nenhuma OS corretiva com data de início foi encontrada no SGMan nas últimas 72 horas.';
+    note = 'Nenhuma OS corretiva com máquina parada = sim foi encontrada nas últimas 72 horas.';
   } else {
     const missing = [];
 
     if (mttrMinutes === null) {
-      missing.push('MTTR: faltam OS concluídas com início, fim ou duração válida');
-    }
-
-    if (mttfMinutes === null) {
-      missing.push('MTTF: é necessário ter uma conclusão e uma falha posterior na mesma máquina');
+      missing.push('MTTR: faltam conclusões com início e fim válidos');
     }
 
     if (mtbfMinutes === null) {
-      missing.push('MTBF: são necessárias pelo menos duas falhas na mesma máquina');
+      missing.push('MTBF: são necessárias duas falhas da mesma máquina');
     }
 
-    if (missing.length) {
-      note = `${missing.join('. ')}.`;
-    } else {
-      note = 'Todos os indicadores foram calculados somente com horários e ordens corretivas retornados pelo SGMan.';
-    }
+    note = missing.length
+      ? `${missing.join('. ')}.`
+      : 'Indicadores calculados apenas com corretivas que marcaram a máquina como parada, agrupando todas as TAGs filhas na máquina principal.';
   }
 
   return {
     periodHours: 72,
     missionHours: 12,
     mttrMinutes,
-    mttfMinutes,
     mtbfMinutes,
     reliabilityPercent,
-    reliabilityBasis: mtbfMinutes !== null ? 'MTBF do SGMan' : '',
     failureCount,
     completedRepairs: allRepairDurations.length,
     repairIntervals: allRepairDurations.length,
-    uptimeIntervals: allUptimeIntervals.length,
     failureIntervals: allFailureIntervals.length,
     recurrentMachines,
     rows,
+    dailyPlan,
+    completedLast12Hours: lastTwelveHours.count,
+    last12HoursLabel: lastTwelveHours.label,
+    last12HoursStart: lastTwelveHours.start.toISOString(),
+    last12HoursEnd: lastTwelveHours.end.toISOString(),
+    efficiencyTrend: calculateEfficiencyTrend(),
     note
   };
 }
@@ -3500,11 +3697,53 @@ function calculateReliability3Days() {
 function reliabilitySummaryText(metrics = state.reliability3Days) {
   return [
     `MTTR SGMan: ${formatReliabilityTime(metrics?.mttrMinutes)}`,
-    `MTTF SGMan: ${formatReliabilityTime(metrics?.mttfMinutes)}`,
     `MTBF SGMan: ${formatReliabilityTime(metrics?.mtbfMinutes)}`,
     `Confiabilidade 12h: ${formatReliabilityPercent(metrics?.reliabilityPercent)}`,
-    `Falhas: ${Number(metrics?.failureCount || 0)}`
+    `OS concluídas nas últimas 12h: ${Number(metrics?.completedLast12Hours || 0)}`,
+    `Falhas com máquina parada: ${Number(metrics?.failureCount || 0)}`
   ].join(' | ');
+}
+
+function renderEfficiencyTrendAndPlan(metrics) {
+  const trend = metrics.efficiencyTrend || {};
+  const trendTarget = $('efficiencyTrendCard');
+  const planTarget = $('dailyPlanList');
+
+  if (trendTarget) {
+    const deltaText = trend.delta === null
+      ? 'Sem comparação anterior'
+      : `${trend.delta >= 0 ? '+' : ''}${trend.delta.toFixed(1).replace('.', ',')} ponto(s)`;
+
+    trendTarget.className = `efficiency-trend-card trend-${trend.direction || 'unknown'}`;
+    trendTarget.innerHTML = `
+      <div class="efficiency-trend-main">
+        <span class="efficiency-arrow">${escapeHtml(trend.arrow || '➜')}</span>
+        <div>
+          <span>Tendência da eficiência</span>
+          <strong>${trend.current == null ? '-' : escapeHtml(formatOee(trend.current))}</strong>
+          <small>${escapeHtml(deltaText)}</small>
+        </div>
+      </div>
+      <p>${escapeHtml(trend.phrase || '')}</p>`;
+  }
+
+  if (planTarget) {
+    if (!metrics.dailyPlan?.length) {
+      planTarget.innerHTML =
+        '<p class="muted">Não há falhas com máquina parada suficientes para montar o plano do dia.</p>';
+    } else {
+      planTarget.innerHTML = metrics.dailyPlan.map((row, index) => `
+        <div class="daily-plan-item">
+          <span class="priority-number">${index + 1}</span>
+          <div>
+            <strong>${escapeHtml(row.machine)}</strong>
+            <p>${row.failureCount} falha(s) • MTTR ${escapeHtml(formatReliabilityTime(row.mttrMinutes, '-'))} • MTBF ${escapeHtml(formatReliabilityTime(row.mtbfMinutes, '-'))}</p>
+          </div>
+          <span class="trend-pill ${row.recurrent ? 'trend-down' : 'trend-stable'}">${row.recurrent ? 'Reincidente' : 'Acompanhar'}</span>
+        </div>
+      `).join('');
+    }
+  }
 }
 
 function renderReliability3Days() {
@@ -3515,57 +3754,56 @@ function renderReliability3Days() {
   const table = $('reliabilityTable');
   const note = $('reliabilityNote');
 
+  renderEfficiencyTrendAndPlan(metrics);
+
   if (cards) {
     cards.innerHTML = `
       <div class="metric">
-        <span>MTTR SGMan — 3 dias</span>
-        <strong>${escapeHtml(formatReliabilityTime(metrics.mttrMinutes))}</strong>
-        <small>${metrics.repairIntervals} intervalo(s) de reparo válido(s)</small>
+        <span>OS concluídas — últimas 12h</span>
+        <strong>${metrics.completedLast12Hours}</strong>
+        <small>${escapeHtml(metrics.last12HoursLabel)}</small>
       </div>
       <div class="metric">
-        <span>MTTF SGMan — 3 dias</span>
-        <strong>${escapeHtml(formatReliabilityTime(metrics.mttfMinutes))}</strong>
-        <small>${metrics.uptimeIntervals} intervalo(s) entre reparo e nova falha</small>
+        <span>MTTR SGMan — 3 dias</span>
+        <strong>${escapeHtml(formatReliabilityTime(metrics.mttrMinutes))}</strong>
+        <small>${metrics.repairIntervals} reparo(s) com máquina parada</small>
       </div>
       <div class="metric">
         <span>MTBF SGMan — 3 dias</span>
         <strong>${escapeHtml(formatReliabilityTime(metrics.mtbfMinutes))}</strong>
-        <small>${metrics.failureIntervals} intervalo(s) entre falhas</small>
+        <small>${metrics.failureIntervals} intervalo(s) entre falhas da máquina completa</small>
       </div>
       <div class="metric">
         <span>Confiabilidade — próximo turno</span>
         <strong>${escapeHtml(formatReliabilityPercent(metrics.reliabilityPercent))}</strong>
-        <small>Probabilidade estimada de operar 12h sem falha, baseada no MTBF do SGMan</small>
+        <small>Probabilidade estimada de operar 12h sem falha</small>
       </div>
       <div class="metric">
-        <span>Falhas corretivas</span>
+        <span>Falhas com máquina parada</span>
         <strong>${metrics.failureCount}</strong>
-        <small>${metrics.rows.length} máquina(s) com OS corretiva</small>
+        <small>${metrics.rows.length} máquina(s), incluindo TAGs filhas</small>
       </div>
       <div class="metric">
         <span>Reincidência</span>
         <strong>${metrics.recurrentMachines}</strong>
-        <small>Máquinas com duas ou mais falhas no SGMan</small>
+        <small>Máquinas com duas ou mais falhas reais</small>
       </div>`;
   }
 
-  if (note) {
-    note.textContent = metrics.note;
-  }
+  if (note) note.textContent = metrics.note;
 
   if (table) {
     if (!metrics.rows.length) {
       table.innerHTML =
-        '<p class="muted">O SGMan ainda não possui dados corretivos suficientes nas últimas 72 horas.</p>';
+        '<p class="muted">Sem dados suficientes de corretivas com máquina parada nas últimas 72 horas.</p>';
     } else {
       table.innerHTML = `
         <table>
           <thead>
             <tr>
-              <th>Máquina</th>
+              <th>Máquina completa</th>
               <th>Falhas</th>
               <th>MTTR</th>
-              <th>MTTF</th>
               <th>MTBF</th>
               <th>Confiabilidade 12h</th>
             </tr>
@@ -3579,7 +3817,6 @@ function renderReliability3Days() {
                 </td>
                 <td>${row.failureCount}</td>
                 <td>${escapeHtml(formatReliabilityTime(row.mttrMinutes, '-'))}</td>
-                <td>${escapeHtml(formatReliabilityTime(row.mttfMinutes, '-'))}</td>
                 <td>${escapeHtml(formatReliabilityTime(row.mtbfMinutes, '-'))}</td>
                 <td>${escapeHtml(formatReliabilityPercent(row.reliabilityPercent, '-'))}</td>
               </tr>
@@ -5547,6 +5784,10 @@ Aguardando
 
 function init() {
   cleanupStorageOnStartup();
+  forceCurrentAppVersion();
+  const versionBadge = $('appVersionBadge');
+  if (versionBadge) versionBadge.textContent = `V${APP_VERSION}`;
+
   $('reportReceivedAt').value = toLocalDateTimeInput(new Date());
   migrateConfirmedSgmanUsers();
   populateSgmanUserSelect('scaleSgmanMechanic1');
@@ -5953,7 +6194,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=36.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=38.0.0');
         registration.update();
       } catch {}
     });

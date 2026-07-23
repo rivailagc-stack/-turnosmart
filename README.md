@@ -1,14 +1,33 @@
-# TurnoSmart V36 — Árvore completa da máquina
+# TurnoSmart V38 — Últimas 12 horas e cache corrigido
 
-Quando o relatório aponta uma máquina, o aplicativo consulta a TAG raiz e mantém as OS retornadas dos subconjuntos, módulos e componentes filhos.
+## OS concluídas
 
-Exemplo:
+O cartão conta ordens com status concluída e `data_fim` dentro da janela:
 
 ```text
-MK-179
-TAG raiz: BC-018
-TAGs encontradas na árvore: 14
-OS analisadas: 100
+agora - 12 horas → agora
 ```
 
-As possíveis soluções são extraídas das ocorrências semelhantes em toda a árvore da máquina.
+Exemplo, às 19:57:
+
+```text
+07:57 até 19:57
+```
+
+## MTTF
+
+O indicador foi removido do HTML, JavaScript, relatórios e cartões.
+
+## Confirmação da versão
+
+Ao lado do nome TurnoSmart deve aparecer:
+
+```text
+V38.0.0
+```
+
+Caso o selo não apareça, o site publicado ainda não recebeu os arquivos da V38.
+
+## Cache
+
+`index.html`, `app.js`, `style.css` e `sw.js` usam `no-store`. O aplicativo também apaga caches antigos automaticamente.

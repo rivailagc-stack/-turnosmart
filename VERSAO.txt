@@ -1,4 +1,7 @@
-TurnoSmart V36.0.0
-A análise usa a árvore completa da máquina no SGMan.
-Uma ocorrência na MK-179 considera a TAG principal, subconjuntos, módulos e componentes filhos.
-O navegador não descarta mais OS com TAG filha diferente da TAG raiz.
+TurnoSmart V38.0.0
+MTTF removido definitivamente.
+Mostra OS concluídas em uma janela móvel das últimas 12 horas.
+A janela é calculada do horário atual menos 12 horas até agora.
+Exibe V38.0.0 ao lado do nome TurnoSmart.
+Desativa cache de index.html, app.js, style.css e sw.js.
+Apaga caches antigos TurnoSmart automaticamente.

@@ -1,12 +1,11 @@
-# Testes da V35
+# Testes da V38
 
-1. Analise um relatório com muitas ocorrências.
-2. Confirme no máximo 5 ações de manutenção e 3 de produção.
-3. Confirme que OEE baixo sozinho não abriu OS.
-4. Verifique problemas repetidos agrupados por máquina.
-5. Confira a quantidade de OS realmente semelhantes.
-6. Verifique confiança alta, média ou baixa.
-7. Confirme que a solução usa textos reais ou padrões repetidos.
-8. Teste uma máquina sem histórico suficiente.
-9. Confirme a mensagem de diagnóstico local.
-10. Confira que o comentário da OS permanece curto.
+1. Substitua todos os arquivos pela V38.
+2. Aguarde o deploy terminar.
+3. Feche o aplicativo completamente.
+4. Abra novamente.
+5. Confirme o selo V38.0.0 ao lado de TurnoSmart.
+6. Confirme que não existe MTTF em nenhuma tela.
+7. Atualize o SGMan.
+8. Confira o cartão “OS concluídas — últimas 12h”.
+9. Confira o intervalo mostrado abaixo da quantidade.
