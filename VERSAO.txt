@@ -1,6 +1,6 @@
-TurnoSmart V33.0.0
-Corrige o botão Analisar relatório.
-A análise local abre imediatamente.
-As consultas do SGMan e das 100 OS por máquina são executadas em segundo plano.
-Mostra o andamento e os erros embaixo do botão.
-Mantém todas as funções da V32.
+TurnoSmart V34.0.0
+Corrige o erro “The quota has been exceeded”.
+Remove automaticamente o cache antigo de 100 OS por máquina.
+As OS usadas na análise permanecem somente na memória da sessão.
+O histórico de relatórios foi reduzido para 25 registros compactos.
+Falha ao salvar histórico local não impede a análise do relatório.

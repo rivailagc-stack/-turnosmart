@@ -1,15 +1,23 @@
-# TurnoSmart V33 — Botão Analisar corrigido
+# TurnoSmart V34 — Correção do limite de armazenamento
 
 ## Problema
 
-A análise aguardava primeiro a consulta geral do SGMan e depois até 100 OS de cada máquina. Em conexões lentas, o botão parecia não funcionar.
+As versões anteriores podiam guardar no `localStorage` até 100 ordens completas de várias máquinas. No iPhone, esse armazenamento possui um limite pequeno e gerava:
 
-## Correção
+```text
+The quota has been exceeded
+```
 
-1. O relatório é lido e exibido imediatamente.
-2. A tela muda para **Análise** sem esperar o SGMan.
-3. O histórico do SGMan é atualizado em segundo plano.
-4. As possíveis soluções por máquina são atualizadas quando as consultas terminam.
-5. Uma mensagem embaixo do botão mostra cada etapa e qualquer falha.
+## Correções
 
-Uma indisponibilidade do SGMan não impede mais a análise do relatório.
+- remove automaticamente o cache grande das versões anteriores;
+- as 100 OS de cada máquina ficam somente na memória durante a sessão;
+- o histórico local mantém no máximo 25 relatórios;
+- os registros do histórico são compactados;
+- nenhuma foto ou lista completa de OS é guardada no histórico;
+- falha ao salvar histórico não bloqueia a análise;
+- rascunho, configuração, escala e respostas do SGMan usam gravação segura.
+
+## Efeito
+
+O botão **Analisar relatório** continua funcionando mesmo quando o navegador não permite salvar mais dados localmente.

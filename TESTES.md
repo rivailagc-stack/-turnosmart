@@ -1,10 +1,11 @@
-# Testes da V33
+# Testes da V34
 
-1. Cole um relatório e toque em Analisar relatório.
-2. Confirme que o botão muda imediatamente para Analisando.
-3. Confirme que a tela Análise abre sem esperar o SGMan.
-4. Desligue a internet e teste novamente: a análise local deve abrir.
-5. Confira a mensagem de atualização em segundo plano.
-6. Aguarde o SGMan terminar e confirme as possíveis soluções por máquina.
-7. Teste Carregar exemplo e Analisar relatório.
-8. Confirme que o botão Limpar remove a mensagem de andamento.
+1. Atualize todos os arquivos para a V34.
+2. Feche e abra o aplicativo para executar a limpeza automática.
+3. Cole um relatório e toque em Analisar relatório.
+4. Confirme que não aparece “The quota has been exceeded”.
+5. Confirme que a tela Análise abre imediatamente.
+6. Aguarde a consulta das OS por máquina.
+7. Feche e abra o app e faça uma segunda análise.
+8. Confirme que o histórico mantém até 25 relatórios.
+9. Confirme que foto, áudio e abertura de OS continuam funcionando.

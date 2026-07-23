@@ -11,6 +11,213 @@ const STORAGE = {
   sgmanMachineHistory: 'turnosmart_sgman_machine_history_v1'
 };
 
+
+const STORAGE_HISTORY_LIMIT = 25;
+
+function isStorageQuotaError(error) {
+  return Boolean(
+    error &&
+    (
+      error.name === 'QuotaExceededError' ||
+      error.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+      error.code === 22 ||
+      error.code === 1014 ||
+      /quota|storage.*full|exceeded/i.test(String(error.message || error))
+    )
+  );
+}
+
+function storageByteEstimate(value = '') {
+  return String(value || '').length * 2;
+}
+
+function clearLargeLegacyCaches() {
+  try {
+    // A V31/V32 guardava até 100 OS completas de cada máquina no
+    // localStorage. Esse conteúdo pode ultrapassar o limite do iPhone.
+    localStorage.removeItem(STORAGE.sgmanMachineHistory);
+  } catch {
+    // Não interrompe o aplicativo caso o navegador bloqueie o storage.
+  }
+
+  try {
+    const history = JSON.parse(
+      localStorage.getItem(STORAGE.history) || '[]'
+    );
+
+    if (Array.isArray(history) && history.length > STORAGE_HISTORY_LIMIT) {
+      localStorage.setItem(
+        STORAGE.history,
+        JSON.stringify(history.slice(0, STORAGE_HISTORY_LIMIT))
+      );
+    }
+  } catch {
+    try {
+      localStorage.removeItem(STORAGE.history);
+    } catch {
+      // Sem ação.
+    }
+  }
+
+  try {
+    const lastResult = localStorage.getItem(STORAGE.sgmanLastResult);
+    if (storageByteEstimate(lastResult) > 400000) {
+      localStorage.removeItem(STORAGE.sgmanLastResult);
+    }
+  } catch {
+    // Sem ação.
+  }
+}
+
+function safeStorageSet(key, value, options = {}) {
+  const serialized =
+    typeof value === 'string'
+      ? value
+      : JSON.stringify(value);
+
+  try {
+    localStorage.setItem(key, serialized);
+    return true;
+  } catch (error) {
+    if (!isStorageQuotaError(error)) {
+      console.warn(`Falha ao salvar ${key}:`, error);
+      return false;
+    }
+
+    clearLargeLegacyCaches();
+
+    try {
+      localStorage.setItem(key, serialized);
+      return true;
+    } catch (retryError) {
+      if (options.removeOnFailure) {
+        try {
+          localStorage.removeItem(key);
+        } catch {
+          // Sem ação.
+        }
+      }
+
+      console.warn(
+        `Espaço local insuficiente para salvar ${key}. ` +
+        'O aplicativo continuará funcionando sem esse cache.',
+        retryError
+      );
+      return false;
+    }
+  }
+}
+
+function compactTextForStorage(value = '', maximumLength = 12000) {
+  const text = String(value || '');
+  return text.length > maximumLength
+    ? `${text.slice(0, maximumLength)}…`
+    : text;
+}
+
+function compactAnalysisForStorage(analysis = {}) {
+  const copy = {
+    ...analysis,
+    rawText: compactTextForStorage(analysis.rawText || '', 12000),
+    oeeOcrText: compactTextForStorage(analysis.oeeOcrText || '', 8000)
+  };
+
+  // Evita que dados temporários ou imagens futuras sejam gravados no histórico.
+  delete copy.imageDataUrl;
+  delete copy.photoDataUrl;
+  delete copy.oeeImageDataUrl;
+  delete copy.rowPreviews;
+
+  return copy;
+}
+
+function compactActionForStorage(action = {}) {
+  const copy = {
+    ...action,
+    description: compactTextForStorage(action.description || '', 1000),
+    action: compactTextForStorage(action.action || '', 1000),
+    sgmanSuggestedResolution: compactTextForStorage(
+      action.sgmanSuggestedResolution || '',
+      1000
+    )
+  };
+
+  // A análise resumida é útil; as 100 OS completas não são armazenadas aqui.
+  if (copy.sgmanHistoryAnalysis) {
+    copy.sgmanHistoryAnalysis = {
+      machine: copy.sgmanHistoryAnalysis.machine || '',
+      totalMachineOrders: Number(
+        copy.sgmanHistoryAnalysis.totalMachineOrders || 0
+      ),
+      completedMachineOrders: Number(
+        copy.sgmanHistoryAnalysis.completedMachineOrders || 0
+      ),
+      similarOrders: Number(
+        copy.sgmanHistoryAnalysis.similarOrders || 0
+      ),
+      patterns: Array.isArray(copy.sgmanHistoryAnalysis.patterns)
+        ? copy.sgmanHistoryAnalysis.patterns.slice(0, 5).map(pattern => ({
+            key: pattern.key || '',
+            label: compactTextForStorage(pattern.label || '', 200),
+            shortLabel: compactTextForStorage(
+              pattern.shortLabel || '',
+              100
+            ),
+            count: Number(pattern.count || 0)
+          }))
+        : [],
+      summary: compactTextForStorage(
+        copy.sgmanHistoryAnalysis.summary || '',
+        600
+      ),
+      resolution: compactTextForStorage(
+        copy.sgmanHistoryAnalysis.resolution || '',
+        600
+      )
+    };
+  }
+
+  delete copy.photoDataUrl;
+  delete copy.imageDataUrl;
+  delete copy.fotos;
+
+  return copy;
+}
+
+function cleanupStorageOnStartup() {
+  clearLargeLegacyCaches();
+
+  try {
+    const history = JSON.parse(
+      localStorage.getItem(STORAGE.history) || '[]'
+    );
+
+    if (Array.isArray(history)) {
+      const compact = history
+        .slice(0, STORAGE_HISTORY_LIMIT)
+        .map(record => ({
+          ...record,
+          analysis: compactAnalysisForStorage(record.analysis || {}),
+          actions: Array.isArray(record.actions)
+            ? record.actions.map(compactActionForStorage)
+            : []
+        }));
+
+      safeStorageSet(
+        STORAGE.history,
+        JSON.stringify(compact),
+        { removeOnFailure: true }
+      );
+    }
+  } catch {
+    try {
+      localStorage.removeItem(STORAGE.history);
+    } catch {
+      // Sem ação.
+    }
+  }
+}
+
 const DEFAULT_PRODUCTION_LEADERS = {
   A1: 'Maria',
   A2: 'Reginaldo',
@@ -275,7 +482,7 @@ function getConfig() {
 }
 
 function saveConfig(config) {
-  localStorage.setItem(STORAGE.config, JSON.stringify(config));
+  safeStorageSet(STORAGE.config, JSON.stringify(config));
 }
 
 function migrateSgmanConfig() {
@@ -2202,7 +2409,7 @@ function getScale() {
 }
 
 function saveScale(items) {
-  localStorage.setItem(STORAGE.scale, JSON.stringify(items));
+  safeStorageSet(STORAGE.scale, JSON.stringify(items));
 }
 
 function migrateConfirmedSgmanUsers() {
@@ -2393,7 +2600,29 @@ function getHistory() {
 }
 
 function saveHistory(items) {
-  localStorage.setItem(STORAGE.history, JSON.stringify(items.slice(0, 100)));
+  const compactItems = (Array.isArray(items) ? items : [])
+    .slice(0, STORAGE_HISTORY_LIMIT)
+    .map(record => ({
+      ...record,
+      analysis: compactAnalysisForStorage(record.analysis || {}),
+      actions: Array.isArray(record.actions)
+        ? record.actions.map(compactActionForStorage)
+        : []
+    }));
+
+  const saved = safeStorageSet(
+    STORAGE.history,
+    JSON.stringify(compactItems),
+    { removeOnFailure: true }
+  );
+
+  if (!saved) {
+    console.warn(
+      'O relatório foi analisado, mas o histórico local não pôde ser salvo.'
+    );
+  }
+
+  return saved;
 }
 
 function showToast(message) {
@@ -2826,7 +3055,11 @@ function getCachedSgmanHistory() {
 
 function saveSgmanHistory(history) {
   state.sgmanHistory = history;
-  localStorage.setItem(STORAGE.sgmanHistory, JSON.stringify(history));
+  safeStorageSet(
+    STORAGE.sgmanHistory,
+    JSON.stringify(history),
+    { removeOnFailure: true }
+  );
 }
 
 function sgmanDailySummaryText(summary = state.sgmanHistory?.summary || {}) {
@@ -3462,24 +3695,28 @@ function waitMilliseconds(milliseconds) {
 }
 
 function getCachedSgmanMachineHistory() {
+  // As 100 OS de cada máquina ficam somente na memória da sessão.
+  // Remove automaticamente o cache grande criado pelas versões antigas.
   try {
-    const cached = JSON.parse(
-      localStorage.getItem(STORAGE.sgmanMachineHistory)
-    );
-
-    return cached && typeof cached === 'object'
-      ? cached
-      : {};
+    localStorage.removeItem(STORAGE.sgmanMachineHistory);
   } catch {
-    return {};
+    // Sem ação.
   }
+
+  return {};
 }
 
 function saveSgmanMachineHistory() {
-  localStorage.setItem(
-    STORAGE.sgmanMachineHistory,
-    JSON.stringify(state.sgmanMachineHistory || {})
-  );
+  // Não grava as OS completas no localStorage.
+  // O navegador do iPhone possui limite pequeno e esse cache causava
+  // “The quota has been exceeded”.
+  try {
+    localStorage.removeItem(STORAGE.sgmanMachineHistory);
+  } catch {
+    // Sem ação.
+  }
+
+  return true;
 }
 
 function machineHistoryCacheIsFresh(entry, tag) {
@@ -4434,7 +4671,10 @@ function getConfirmedSgmanIds() {
 }
 
 function saveConfirmedSgmanIds(ids) {
-  localStorage.setItem(STORAGE.sgmanConfirmed, JSON.stringify([...new Set(ids)]));
+  safeStorageSet(
+    STORAGE.sgmanConfirmed,
+    JSON.stringify([...new Set(ids)].slice(-500))
+  );
 }
 
 function storeSgmanResult(data) {
@@ -4680,8 +4920,10 @@ function saveOrUpdateAnalysisHistory(analysis, actions) {
     responsibleCrew: analysis.responsibleCrew,
     realized: analysis.realized,
     reportedOee: analysis.reportedOee,
-    analysis,
-    actions
+    analysis: compactAnalysisForStorage(analysis),
+    actions: Array.isArray(actions)
+      ? actions.map(compactActionForStorage)
+      : []
   };
 
   const existingIndex = history.findIndex(item => item.id === analysis.id);
@@ -4721,7 +4963,16 @@ async function updateCurrentAnalysisWithSgman(analysisId) {
     if (!state.analysis || state.analysis.id !== analysisId) return;
 
     applySgmanHistoryToActions();
-    saveOrUpdateAnalysisHistory(state.analysis, state.actions);
+
+    try {
+      saveOrUpdateAnalysisHistory(state.analysis, state.actions);
+    } catch (storageError) {
+      console.warn(
+        'Referências atualizadas sem salvar o histórico local:',
+        storageError
+      );
+    }
+
     renderAnalysis();
     renderActions();
     renderHistory();
@@ -4734,7 +4985,15 @@ async function updateCurrentAnalysisWithSgman(analysisId) {
   } catch (error) {
     if (!state.analysis || state.analysis.id !== analysisId) return;
 
-    saveOrUpdateAnalysisHistory(state.analysis, state.actions);
+    try {
+      saveOrUpdateAnalysisHistory(state.analysis, state.actions);
+    } catch (storageError) {
+      console.warn(
+        'Relatório mantido aberto sem salvar o histórico local:',
+        storageError
+      );
+    }
+
     renderAnalysis();
     renderActions();
     renderHistory();
@@ -4828,8 +5087,21 @@ async function analyzeCurrentReport() {
 
     // Aplica histórico já armazenado no aparelho, quando existir.
     applySgmanHistoryToActions();
-    saveOrUpdateAnalysisHistory(analysis, state.actions);
-    localStorage.removeItem(STORAGE.draft);
+
+    try {
+      saveOrUpdateAnalysisHistory(analysis, state.actions);
+    } catch (storageError) {
+      console.warn(
+        'A análise continuará sem salvar o histórico local:',
+        storageError
+      );
+    }
+
+    try {
+      localStorage.removeItem(STORAGE.draft);
+    } catch {
+      // Sem ação.
+    }
 
     renderAnalysis();
     renderActions();
@@ -4847,8 +5119,16 @@ async function analyzeCurrentReport() {
     updateCurrentAnalysisWithSgman(analysis.id);
   } catch (error) {
     console.error('Falha ao analisar relatório:', error);
+    const quotaFailure = isStorageQuotaError(error);
+
+    if (quotaFailure) {
+      clearLargeLegacyCaches();
+    }
+
     setAnalysisRunStatus(
-      `Não foi possível analisar: ${error.message}`,
+      quotaFailure
+        ? 'O armazenamento antigo foi limpo. Toque novamente em Analisar relatório.'
+        : `Não foi possível analisar: ${error.message}`,
       'error'
     );
     showToast('Falha ao analisar o relatório.');
@@ -5026,6 +5306,7 @@ Aguardando
 1)falta de mão de obra e máquina preparada para amostras`;
 
 function init() {
+  cleanupStorageOnStartup();
   $('reportReceivedAt').value = toLocalDateTimeInput(new Date());
   migrateConfirmedSgmanUsers();
   populateSgmanUserSelect('scaleSgmanMechanic1');
@@ -5153,7 +5434,7 @@ function init() {
   $('analyzeBtn').addEventListener('click', analyzeCurrentReport);
   $('sampleBtn').addEventListener('click', () => {
     $('reportText').value = SAMPLE_REPORT;
-    localStorage.setItem(STORAGE.draft, SAMPLE_REPORT);
+    safeStorageSet(STORAGE.draft, SAMPLE_REPORT);
     const sampleValues = new Map([
       ['MK-223', 56], ['MK-172', 54], ['MK-170', 64],
       ['MK-149', 63], ['MK-176', 33]
@@ -5188,7 +5469,12 @@ function init() {
     setAnalysisRunStatus('');
     localStorage.removeItem(STORAGE.draft);
   });
-  $('reportText').addEventListener('input', e => localStorage.setItem(STORAGE.draft, e.target.value));
+  $('reportText').addEventListener('input', e =>
+    safeStorageSet(
+      STORAGE.draft,
+      compactTextForStorage(e.target.value, 30000)
+    )
+  );
   $('oeeOcrText').addEventListener('input', e => { state.oeeOcrText = e.target.value; });
   $('oeeImageInput').addEventListener('change', async e => {
     const file = e.target.files?.[0];
@@ -5427,7 +5713,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=33.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=34.0.0');
         registration.update();
       } catch {}
     });
