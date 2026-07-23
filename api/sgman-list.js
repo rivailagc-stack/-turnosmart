@@ -305,6 +305,13 @@ function normalizeOrder(order) {
     'horas_trabalhadas', 'horastrabalhadas'
   ]);
 
+  const machineStopped = pickValue(order, [
+    'maquina_parada', 'maquinaparada',
+    'equipamento_parado', 'equipamentoparado',
+    'parada_maquina', 'paradamaquina',
+    'machine_stopped', 'machinestopped'
+  ]);
+
   const combined = `${tag} ${local} ${description} ${comment}`;
 
   return {
@@ -321,6 +328,7 @@ function normalizeOrder(order) {
     endDate: String(endDate || ''),
     endDateISO: normalizeDate(endDate),
     duration: String(duration || ''),
+    machineStopped,
     executante: String(pickValue(order, [
       'executante', 'executante_nome', 'executantenome',
       'usuario', 'usuario_nome', 'usuarionome', 'responsavel'
