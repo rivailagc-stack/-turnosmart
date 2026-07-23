@@ -13,6 +13,10 @@ const STORAGE = {
 
 
 const STORAGE_HISTORY_LIMIT = 25;
+const MAX_MAINTENANCE_ACTIONS = 5;
+const MAX_PRODUCTION_ACTIONS = 3;
+const MIN_HISTORY_SIMILARITY_SCORE = 25;
+const MIN_SIMILAR_ORDERS_FOR_CONFIDENT_RESOLUTION = 2;
 
 function isStorageQuotaError(error) {
   return Boolean(
@@ -2359,23 +2363,8 @@ function generateActions(analysis) {
     });
   }
 
-  if (analysis.lowOeeMachines?.length) {
-    analysis.lowOeeMachines.forEach(item => {
-      actions.push({
-        id: uid(),
-        department: 'maintenance',
-        approved: true,
-        machine: item.machine,
-        priority: item.oee < 55 ? 'Alta' : 'Média',
-        type: 'OEE',
-        responsible: maintenanceResponsible,
-        description: `OEE de ${String(item.oee).replace('.', ',')}% no quadro semanal, abaixo de 65%.`,
-        action: 'Analisar a causa do OEE baixo, atacar a principal perda e estabilizar a máquina.',
-        recordedMinutes: 0,
-        categories: ['oee-machine']
-      });
-    });
-  }
+  // OEE baixo sozinho não abre OS. Ele apenas aumenta a prioridade
+  // quando a máquina também possui um problema técnico descrito.
 
   actions.forEach(action => {
     action.status = action.status || 'Pendente';
@@ -2400,7 +2389,30 @@ function generateActions(analysis) {
   }
 
   const order = { Alta: 0, Média: 1, Baixa: 2 };
-  return deduped.sort((a, b) => order[a.priority] - order[b.priority] || b.recordedMinutes - a.recordedMinutes || a.department.localeCompare(b.department));
+
+  const sorted = deduped.sort((a, b) =>
+    order[a.priority] - order[b.priority] ||
+    b.recordedMinutes - a.recordedMinutes ||
+    a.department.localeCompare(b.department)
+  );
+
+  const maintenance = sorted
+    .filter(action => action.department === 'maintenance')
+    .filter(action =>
+      action.priority !== 'Baixa' ||
+      action.recordedMinutes >= 20
+    )
+    .slice(0, MAX_MAINTENANCE_ACTIONS);
+
+  const production = sorted
+    .filter(action => action.department === 'production')
+    .slice(0, MAX_PRODUCTION_ACTIONS);
+
+  return [...maintenance, ...production]
+    .sort((a, b) =>
+      order[a.priority] - order[b.priority] ||
+      b.recordedMinutes - a.recordedMinutes
+    );
 }
 
 function getScale() {
@@ -2697,7 +2709,7 @@ function maintenanceMessage() {
     shown.forEach((action, index) => {
       lines.push(`${index + 1}. *${action.machine}* — ${action.sgmanSuggestedResolution || suggestedResolutionFromHistory(action)}`);
 
-      if (action.sgmanHistoryAnalysis?.similarOrders) {
+      if (action.sgmanHistoryAnalysis?.enoughEvidence) {
         const patterns = action.sgmanHistoryAnalysis.patterns
           ?.slice(0, 3)
           .map(pattern => `${pattern.shortLabel} ${pattern.count}x`)
@@ -3997,20 +4009,26 @@ function historySimilarityScore(currentProblem, order) {
 
   const currentCategories = historyIssueCategories(currentKey);
   const historicalCategories = historyIssueCategories(historicalKey);
-  const categoryMatches = currentCategories.filter(category =>
+
+  const matchedCategories = currentCategories.filter(category =>
     historicalCategories.includes(category)
-  ).length;
+  );
 
   const currentTokens = new Set(historyMeaningfulTokens(currentKey));
   const historicalTokens = new Set(historyMeaningfulTokens(historicalKey));
 
-  let tokenMatches = 0;
+  const matchedTokens = [...currentTokens].filter(token =>
+    historicalTokens.has(token)
+  );
 
-  currentTokens.forEach(token => {
-    if (historicalTokens.has(token)) tokenMatches++;
-  });
+  // Sem categoria técnica igual e sem ao menos duas palavras importantes
+  // iguais, a OS não é considerada referência confiável.
+  if (!matchedCategories.length && matchedTokens.length < 2) {
+    return 0;
+  }
 
-  let score = categoryMatches * 20 + tokenMatches * 5;
+  let score = matchedCategories.length * 30;
+  score += matchedTokens.length * 8;
 
   if (
     currentKey.length >= 8 &&
@@ -4019,7 +4037,14 @@ function historySimilarityScore(currentProblem, order) {
       currentKey.includes(historicalKey)
     )
   ) {
-    score += 15;
+    score += 25;
+  }
+
+  // Quanto maior a cobertura das palavras do problema atual, melhor.
+  if (currentTokens.size) {
+    score += Math.round(
+      (matchedTokens.length / currentTokens.size) * 20
+    );
   }
 
   return score;
@@ -4112,6 +4137,80 @@ const HISTORY_SOLUTION_PATTERNS = [
   }
 ];
 
+function cleanHistoricalResolution(value = '') {
+  return String(value || '')
+    .replace(/problema\s*:[\s\S]*?(?=poss[ií]vel resolu[cç][aã]o\s*:|$)/gi, '')
+    .replace(/poss[ií]vel resolu[cç][aã]o\s*:/gi, '')
+    .replace(/aten[cç][aã]o\s*:[\s\S]*$/gi, '')
+    .replace(/\b(verificar|analisar|avaliar)\s+a\s+causa\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s,;.-]+|[\s,;.-]+$/g, '')
+    .trim();
+}
+
+function historicalResolutionCandidates(orders = []) {
+  const candidates = [];
+
+  orders.forEach(order => {
+    const sources = [
+      order.solution,
+      extractHistorySection(order.comment || '', 'resolucao'),
+      order.comment
+    ];
+
+    for (const source of sources) {
+      const cleaned = cleanHistoricalResolution(source);
+
+      if (
+        cleaned.length >= 8 &&
+        !/^(sem solu[cç][aã]o|n[aã]o informado|n[aã]o definido)$/i.test(cleaned)
+      ) {
+        candidates.push(cleaned);
+        break;
+      }
+    }
+  });
+
+  return candidates;
+}
+
+function normalizeResolutionSignature(value = '') {
+  return normalizeKey(value)
+    .replace(/\b(foi|foram|realizado|realizada|efetuado|efetuada)\b/g, '')
+    .replace(/\b(verificar|conferir|avaliar)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function rankHistoricalResolutionTexts(orders = []) {
+  const grouped = new Map();
+
+  historicalResolutionCandidates(orders).forEach(text => {
+    const signature = normalizeResolutionSignature(text);
+    if (!signature) return;
+
+    const existing = grouped.get(signature);
+
+    if (existing) {
+      existing.count += 1;
+      if (text.length < existing.text.length) existing.text = text;
+    } else {
+      grouped.set(signature, {
+        signature,
+        text,
+        count: 1
+      });
+    }
+  });
+
+  return [...grouped.values()]
+    .sort((a, b) =>
+      b.count - a.count ||
+      a.text.length - b.text.length
+    )
+    .slice(0, 5);
+}
+
 function countHistorySolutionPatterns(orders = []) {
   const counts = new Map();
 
@@ -4147,57 +4246,98 @@ function analyzeMachineHistoryForAction(action) {
       order,
       score: historySimilarityScore(currentProblem, order)
     }))
-    .filter(item => item.score >= 10)
+    .filter(item => item.score >= MIN_HISTORY_SIMILARITY_SCORE)
     .sort((a, b) =>
       b.score - a.score ||
       String(b.order.endDate || b.order.startDate)
         .localeCompare(String(a.order.endDate || a.order.startDate))
     );
 
-  const similarOrders = scored
-    .slice(0, 50)
+  // Usa somente as melhores referências. Incluir dezenas de OS pouco
+  // parecidas torna a resposta genérica.
+  const bestScore = scored[0]?.score || 0;
+  const acceptedScored = scored.filter(item =>
+    item.score >= Math.max(
+      MIN_HISTORY_SIMILARITY_SCORE,
+      bestScore - 20
+    )
+  );
+
+  const similarOrders = acceptedScored
+    .slice(0, 20)
     .map(item => item.order);
 
   const patterns = countHistorySolutionPatterns(similarOrders);
-  const fallbackSnippets = similarOrders
-    .map(order =>
-      actionableHistorySnippet(
-        order.solution ||
-        extractHistorySection(order.comment || '', 'resolucao') ||
-        order.comment ||
-        order.description
-      )
-    )
-    .filter(Boolean)
-    .slice(0, 3);
+  const rankedTexts = rankHistoricalResolutionTexts(similarOrders);
 
-  let resolutionParts = patterns.map(pattern =>
-    `${pattern.label} (${pattern.count} registro${pattern.count === 1 ? '' : 's'})`
+  const strongPatterns = patterns.filter(pattern =>
+    pattern.count >= 2 ||
+    (
+      similarOrders.length <= 3 &&
+      pattern.count === 1
+    )
   );
 
-  if (!resolutionParts.length) {
-    resolutionParts = fallbackSnippets;
+  const strongTexts = rankedTexts.filter(item =>
+    item.count >= 2 ||
+    (
+      similarOrders.length <= 3 &&
+      item.count === 1
+    )
+  );
+
+  const confidence =
+    similarOrders.length >= 5 && bestScore >= 50
+      ? 'alta'
+      : similarOrders.length >= MIN_SIMILAR_ORDERS_FOR_CONFIDENT_RESOLUTION
+        ? 'média'
+        : 'baixa';
+
+  let resolutionParts = [];
+
+  // Primeiro usa os textos reais mais repetidos das conclusões.
+  strongTexts.slice(0, 2).forEach(item => {
+    resolutionParts.push(
+      item.count > 1
+        ? `${item.text} (${item.count}x)`
+        : item.text
+    );
+  });
+
+  // Completa apenas com padrões técnicos recorrentes ainda não citados.
+  strongPatterns.forEach(pattern => {
+    const alreadyCovered = resolutionParts.some(text =>
+      normalizeKey(text).includes(normalizeKey(pattern.shortLabel)) ||
+      pattern.regex.test(normalizeKey(text))
+    );
+
+    if (!alreadyCovered && resolutionParts.length < 3) {
+      resolutionParts.push(
+        `${pattern.label}${pattern.count > 1 ? ` (${pattern.count}x)` : ''}`
+      );
+    }
+  });
+
+  const enoughEvidence =
+    similarOrders.length >= MIN_SIMILAR_ORDERS_FOR_CONFIDENT_RESOLUTION &&
+    resolutionParts.length > 0;
+
+  let resolution;
+
+  if (enoughEvidence) {
+    resolution = resolutionParts
+      .slice(0, 3)
+      .map(value =>
+        String(value).trim().replace(/[.;]+$/, '')
+      )
+      .join('; ');
+  } else {
+    resolution =
+      'Histórico insuficiente para indicar uma causa específica. Fazer diagnóstico no local antes de trocar componentes.';
   }
 
-  if (!resolutionParts.length) {
-    resolutionParts = ruleBasedResolutionChecks(action);
-  }
-
-  if (!resolutionParts.length) {
-    resolutionParts = [
-      String(action.baseAction || directMaintenanceAction(action))
-        .replace(/\.$/, '')
-    ];
-  }
-
-  const resolution = resolutionParts
-    .slice(0, 4)
-    .map(value => String(value).trim().replace(/[.;]+$/, ''))
-    .filter(Boolean)
-    .join('; ');
-
-  const compactPatterns = patterns
-    .slice(0, 4)
+  const compactPatterns = strongPatterns
+    .slice(0, 3)
     .map(pattern => `${pattern.shortLabel} ${pattern.count}x`)
     .join(', ');
 
@@ -4208,13 +4348,13 @@ function analyzeMachineHistoryForAction(action) {
       `${action.machine}: nenhuma OS da própria máquina foi retornada pelo SGMan.`;
   } else if (!completedOrders.length) {
     summary =
-      `${action.machine}: ${machineOrders.length} OS consultada(s), mas nenhuma concluída com solução disponível.`;
+      `${action.machine}: ${machineOrders.length} OS consultada(s), sem conclusão técnica disponível.`;
   } else if (!similarOrders.length) {
     summary =
-      `${action.machine}: analisadas ${machineOrders.length} OS da própria máquina; nenhuma ocorrência semelhante suficiente para “${currentProblem}”.`;
+      `${action.machine}: ${machineOrders.length} OS analisadas; nenhuma ocorrência realmente semelhante ao problema atual.`;
   } else {
     summary =
-      `${action.machine}: ${similarOrders.length} ocorrência(s) semelhante(s) encontradas nas últimas ${machineOrders.length} OS da própria máquina` +
+      `${action.machine}: ${similarOrders.length} referência(s) realmente semelhante(s) entre ${machineOrders.length} OS, confiança ${confidence}` +
       (compactPatterns ? ` — ${compactPatterns}.` : '.');
   }
 
@@ -4223,7 +4363,11 @@ function analyzeMachineHistoryForAction(action) {
     totalMachineOrders: machineOrders.length,
     completedMachineOrders: completedOrders.length,
     similarOrders: similarOrders.length,
-    patterns,
+    bestSimilarityScore: bestScore,
+    confidence,
+    enoughEvidence,
+    patterns: strongPatterns,
+    rankedTexts: strongTexts,
     summary,
     resolution: resolution.endsWith('.') ? resolution : `${resolution}.`
   };
@@ -4269,7 +4413,7 @@ function renderSgmanMachineAnalysis() {
       <div class="machine-history-card">
         <div class="machine-history-title">
           <strong>${escapeHtml(action.machine)}</strong>
-          <span>${analysis.similarOrders}/${analysis.totalMachineOrders} semelhantes</span>
+          <span>${analysis.similarOrders}/${analysis.totalMachineOrders} semelhantes • confiança ${escapeHtml(analysis.confidence || 'baixa')}</span>
         </div>
         <p><strong>Problema atual:</strong> ${escapeHtml(action.description)}</p>
         <p>${escapeHtml(analysis.summary)}</p>
@@ -4541,12 +4685,19 @@ function compactSgmanReminders(value = '', maximumItems = 3, maximumLength = 220
 }
 
 function sgmanComment(action) {
-  const resolution = String(
-    action.sgmanSuggestedResolution ||
-    suggestedResolutionFromHistory(action)
-  );
+  const analysis =
+    action.sgmanHistoryAnalysis ||
+    analyzeMachineHistoryForAction(action);
 
-  return `Lembretes: ${compactSgmanReminders(resolution)}.`;
+  if (!analysis.enoughEvidence) {
+    return 'Lembrete: diagnosticar no local antes de trocar componentes.';
+  }
+
+  return `Lembretes: ${compactSgmanReminders(
+    analysis.resolution,
+    3,
+    220
+  )}.`;
 }
 
 function buildSgmanOrders() {
@@ -5713,7 +5864,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=34.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=35.0.0');
         registration.update();
       } catch {}
     });

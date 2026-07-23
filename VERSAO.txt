@@ -1,6 +1,8 @@
-TurnoSmart V34.0.0
-Corrige o erro “The quota has been exceeded”.
-Remove automaticamente o cache antigo de 100 OS por máquina.
-As OS usadas na análise permanecem somente na memória da sessão.
-O histórico de relatórios foi reduzido para 25 registros compactos.
-Falha ao salvar histórico local não impede a análise do relatório.
+TurnoSmart V35.0.0
+Máximo de 5 ações de manutenção e 3 de produção por relatório.
+OEE baixo sozinho não abre OS.
+Problemas repetidos da mesma máquina são agrupados.
+A análise do SGMan exige semelhança técnica mais forte.
+Usa primeiro os textos reais e repetidos das conclusões.
+Mostra confiança alta, média ou baixa.
+Sem evidência suficiente, informa que é necessário diagnóstico local.

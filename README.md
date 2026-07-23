@@ -1,23 +1,37 @@
-# TurnoSmart V34 — Correção do limite de armazenamento
+# TurnoSmart V35 — Menos ações e análise mais precisa
 
-## Problema
+## Quantidade de ações
 
-As versões anteriores podiam guardar no `localStorage` até 100 ordens completas de várias máquinas. No iPhone, esse armazenamento possui um limite pequeno e gerava:
+Por relatório:
+
+- até 5 ações de manutenção;
+- até 3 ações de produção;
+- ações repetidas da mesma máquina são agrupadas;
+- OEE baixo sem problema técnico descrito não abre OS.
+
+## Análise do SGMan
+
+Para cada máquina:
+
+1. consulta até 100 OS da própria máquina;
+2. considera somente OS concluídas;
+3. exige categoria técnica igual ou palavras importantes realmente coincidentes;
+4. descarta referências fracas;
+5. usa no máximo as 20 melhores referências;
+6. prioriza os textos reais de conclusão que se repetem;
+7. completa apenas com padrões técnicos recorrentes.
+
+## Confiança
+
+- alta: várias OS realmente semelhantes;
+- média: pelo menos duas referências úteis;
+- baixa: histórico insuficiente.
+
+Quando a confiança é baixa, a resposta será:
 
 ```text
-The quota has been exceeded
+Histórico insuficiente para indicar uma causa específica.
+Fazer diagnóstico no local antes de trocar componentes.
 ```
 
-## Correções
-
-- remove automaticamente o cache grande das versões anteriores;
-- as 100 OS de cada máquina ficam somente na memória durante a sessão;
-- o histórico local mantém no máximo 25 relatórios;
-- os registros do histórico são compactados;
-- nenhuma foto ou lista completa de OS é guardada no histórico;
-- falha ao salvar histórico não bloqueia a análise;
-- rascunho, configuração, escala e respostas do SGMan usam gravação segura.
-
-## Efeito
-
-O botão **Analisar relatório** continua funcionando mesmo quando o navegador não permite salvar mais dados localmente.
+Assim o aplicativo não inventa uma resolução genérica.
