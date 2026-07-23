@@ -1,8 +1,4 @@
-TurnoSmart V35.0.0
-Máximo de 5 ações de manutenção e 3 de produção por relatório.
-OEE baixo sozinho não abre OS.
-Problemas repetidos da mesma máquina são agrupados.
-A análise do SGMan exige semelhança técnica mais forte.
-Usa primeiro os textos reais e repetidos das conclusões.
-Mostra confiança alta, média ou baixa.
-Sem evidência suficiente, informa que é necessário diagnóstico local.
+TurnoSmart V36.0.0
+A análise usa a árvore completa da máquina no SGMan.
+Uma ocorrência na MK-179 considera a TAG principal, subconjuntos, módulos e componentes filhos.
+O navegador não descarta mais OS com TAG filha diferente da TAG raiz.

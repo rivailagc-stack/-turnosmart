@@ -150,6 +150,12 @@ function compactActionForStorage(action = {}) {
   if (copy.sgmanHistoryAnalysis) {
     copy.sgmanHistoryAnalysis = {
       machine: copy.sgmanHistoryAnalysis.machine || '',
+      rootTag: copy.sgmanHistoryAnalysis.rootTag || '',
+      treeMode: Boolean(copy.sgmanHistoryAnalysis.treeMode),
+      treeTagCount: Number(copy.sgmanHistoryAnalysis.treeTagCount || 0),
+      childTags: Array.isArray(copy.sgmanHistoryAnalysis.childTags)
+        ? copy.sgmanHistoryAnalysis.childTags.slice(0, 20)
+        : [],
       totalMachineOrders: Number(
         copy.sgmanHistoryAnalysis.totalMachineOrders || 0
       ),
@@ -2716,7 +2722,7 @@ function maintenanceMessage() {
           .join(', ');
 
         lines.push(
-          `   Base SGMan: ${action.sgmanHistoryAnalysis.similarOrders}/${action.sgmanHistoryAnalysis.totalMachineOrders} OS semelhantes da própria máquina${patterns ? ` — ${patterns}` : ''}.`
+          `   Base SGMan: ${action.sgmanHistoryAnalysis.similarOrders}/${action.sgmanHistoryAnalysis.totalMachineOrders} OS semelhantes da árvore completa da ${action.machine}${action.sgmanHistoryAnalysis.treeTagCount ? ` (${action.sgmanHistoryAnalysis.treeTagCount} TAGs)` : ''}${patterns ? ` — ${patterns}` : ''}.`
         );
       }
     });
@@ -3745,6 +3751,58 @@ function machineHistoryForMachine(machine = '') {
   return state.sgmanMachineHistory?.[machine]?.orders || [];
 }
 
+
+function normalizeSgmanTagTreeValue(value = '') {
+  return normalizeKey(value)
+    .replace(/\s+/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function orderBelongsToMachineTree(order = {}, rootMachine = '', rootTag = '') {
+  const machineFromOrder = machineKeyFromText(
+    [
+      order.machine,
+      order.tag,
+      order.local,
+      order.description,
+      order.comment,
+      order.solution
+    ].filter(Boolean).join(' ')
+  );
+
+  if (machineFromOrder === rootMachine) return true;
+
+  const rootTagKey = normalizeSgmanTagTreeValue(rootTag);
+  const orderTagKey = normalizeSgmanTagTreeValue(order.tag || '');
+  const localKey = normalizeSgmanTagTreeValue(order.local || '');
+
+  if (rootTagKey) {
+    if (
+      orderTagKey === rootTagKey ||
+      orderTagKey.startsWith(rootTagKey) ||
+      orderTagKey.endsWith(rootTagKey) ||
+      orderTagKey.includes(rootTagKey) ||
+      localKey.startsWith(rootTagKey) ||
+      localKey.includes(rootTagKey)
+    ) {
+      return true;
+    }
+  }
+
+  return Boolean(order._returnedFromTreeQuery);
+}
+
+function machineTreeLabel(order = {}) {
+  const tag = String(order.tag || '').trim();
+  const local = String(order.local || '').trim();
+
+  if (tag && local && normalizeKey(tag) !== normalizeKey(local)) {
+    return `${tag} — ${local}`;
+  }
+
+  return tag || local || 'TAG filha não identificada';
+}
+
 async function fetchSgmanMachineHistory(machine, force = false) {
   const config = getConfig();
   const tag = config.sgmanTagMap?.[machine] || '';
@@ -3786,27 +3844,33 @@ async function fetchSgmanMachineHistory(machine, force = false) {
     );
   }
 
-  const normalizedTag = normalizeKey(tag);
+  const returnedOrders = (Array.isArray(data.orders)
+    ? data.orders
+    : []
+  ).map(order => ({
+    ...order,
+    _returnedFromTreeQuery: true,
+    rootMachine: machine,
+    rootTag: tag
+  }));
 
-  const orders = (Array.isArray(data.orders) ? data.orders : [])
-    .filter(order => {
-      const orderMachine = machineKeyFromText(
-        `${order.machine || ''} ${order.description || ''}`
-      );
-      const orderTag = normalizeKey(order.tag || '');
-
-      return (
-        orderMachine === machine ||
-        (normalizedTag && orderTag === normalizedTag)
-      );
-    })
+  const orders = returnedOrders
+    .filter(order =>
+      orderBelongsToMachineTree(order, machine, tag)
+    )
     .slice(0, 100);
+
+  const childTags = uniqueStrings(
+    orders.map(order => machineTreeLabel(order))
+  ).slice(0, 50);
 
   const entry = {
     machine,
     tag,
     loadedAt: new Date().toISOString(),
     orders,
+    childTags,
+    treeMode: true,
     diagnostic: data.diagnostic || {},
     returnedCount: orders.length
   };
@@ -4233,8 +4297,24 @@ function countHistorySolutionPatterns(orders = []) {
 }
 
 function analyzeMachineHistoryForAction(action) {
-  const machineOrders = machineHistoryForMachine(action.machine)
+  const machineHistoryEntry =
+    state.sgmanMachineHistory?.[action.machine] || {};
+
+  const machineOrders = (machineHistoryEntry.orders || [])
+    .filter(order =>
+      orderBelongsToMachineTree(
+        order,
+        action.machine,
+        machineHistoryEntry.tag || ''
+      )
+    )
     .slice(0, 100);
+
+  const childTags = Array.isArray(machineHistoryEntry.childTags)
+    ? machineHistoryEntry.childTags
+    : uniqueStrings(
+        machineOrders.map(order => machineTreeLabel(order))
+      );
 
   const completedOrders = machineOrders
     .filter(order => order.statusKey === 'completed');
@@ -4353,13 +4433,21 @@ function analyzeMachineHistoryForAction(action) {
     summary =
       `${action.machine}: ${machineOrders.length} OS analisadas; nenhuma ocorrência realmente semelhante ao problema atual.`;
   } else {
+    const treeText = childTags.length > 1
+      ? ` em ${childTags.length} TAGs da árvore`
+      : ' na árvore da máquina';
+
     summary =
-      `${action.machine}: ${similarOrders.length} referência(s) realmente semelhante(s) entre ${machineOrders.length} OS, confiança ${confidence}` +
+      `${action.machine}: ${similarOrders.length} referência(s) realmente semelhante(s) entre ${machineOrders.length} OS${treeText}, confiança ${confidence}` +
       (compactPatterns ? ` — ${compactPatterns}.` : '.');
   }
 
   return {
     machine: action.machine,
+    rootTag: machineHistoryEntry.tag || '',
+    treeMode: true,
+    childTags,
+    treeTagCount: childTags.length,
     totalMachineOrders: machineOrders.length,
     completedMachineOrders: completedOrders.length,
     similarOrders: similarOrders.length,
@@ -4416,6 +4504,7 @@ function renderSgmanMachineAnalysis() {
           <span>${analysis.similarOrders}/${analysis.totalMachineOrders} semelhantes • confiança ${escapeHtml(analysis.confidence || 'baixa')}</span>
         </div>
         <p><strong>Problema atual:</strong> ${escapeHtml(action.description)}</p>
+        <p><strong>Escopo:</strong> árvore completa da ${escapeHtml(action.machine)}${analysis.rootTag ? ` • TAG raiz ${escapeHtml(analysis.rootTag)}` : ''}${analysis.treeTagCount ? ` • ${analysis.treeTagCount} TAG(s) encontradas` : ''}</p>
         <p>${escapeHtml(analysis.summary)}</p>
         ${patternHtml}
         <p><strong>Possível resolução:</strong> ${escapeHtml(analysis.resolution)}</p>
@@ -4424,7 +4513,7 @@ function renderSgmanMachineAnalysis() {
 
   if (status && !state.sgmanMachineHistoryLoading) {
     status.textContent =
-      'Referência feita somente com OS da mesma máquina e problema semelhante.';
+      'Referência feita com toda a árvore da máquina no SGMan e somente problemas semelhantes.';
   }
 }
 
@@ -5864,7 +5953,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=35.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=36.0.0');
         registration.update();
       } catch {}
     });

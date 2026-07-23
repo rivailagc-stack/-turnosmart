@@ -1,37 +1,14 @@
-# TurnoSmart V35 — Menos ações e análise mais precisa
+# TurnoSmart V36 — Árvore completa da máquina
 
-## Quantidade de ações
+Quando o relatório aponta uma máquina, o aplicativo consulta a TAG raiz e mantém as OS retornadas dos subconjuntos, módulos e componentes filhos.
 
-Por relatório:
-
-- até 5 ações de manutenção;
-- até 3 ações de produção;
-- ações repetidas da mesma máquina são agrupadas;
-- OEE baixo sem problema técnico descrito não abre OS.
-
-## Análise do SGMan
-
-Para cada máquina:
-
-1. consulta até 100 OS da própria máquina;
-2. considera somente OS concluídas;
-3. exige categoria técnica igual ou palavras importantes realmente coincidentes;
-4. descarta referências fracas;
-5. usa no máximo as 20 melhores referências;
-6. prioriza os textos reais de conclusão que se repetem;
-7. completa apenas com padrões técnicos recorrentes.
-
-## Confiança
-
-- alta: várias OS realmente semelhantes;
-- média: pelo menos duas referências úteis;
-- baixa: histórico insuficiente.
-
-Quando a confiança é baixa, a resposta será:
+Exemplo:
 
 ```text
-Histórico insuficiente para indicar uma causa específica.
-Fazer diagnóstico no local antes de trocar componentes.
+MK-179
+TAG raiz: BC-018
+TAGs encontradas na árvore: 14
+OS analisadas: 100
 ```
 
-Assim o aplicativo não inventa uma resolução genérica.
+As possíveis soluções são extraídas das ocorrências semelhantes em toda a árvore da máquina.
