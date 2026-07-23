@@ -562,7 +562,11 @@ module.exports = async function handler(req, res) {
       ok: true,
       orders: result.orders,
       summary: summarize(result.orders),
-      diagnostic: result.diagnostic,
+      diagnostic: {
+        ...result.diagnostic,
+        tagFilter: body.tag || '',
+        treeQueryRequested: Boolean(body.tag)
+      },
       queryStart: body.data_inicio
     });
   } catch (error) {
