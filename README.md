@@ -1,33 +1,32 @@
-# TurnoSmart V38 — Últimas 12 horas e cache corrigido
+# TurnoSmart V40 — OS concluídas no turno atual
 
-## OS concluídas
+## Turno diurno
 
-O cartão conta ordens com status concluída e `data_fim` dentro da janela:
-
-```text
-agora - 12 horas → agora
-```
-
-Exemplo, às 19:57:
+Entre 06:00 e 18:20, o painel conta as OS concluídas:
 
 ```text
-07:57 até 19:57
+hoje às 06:00 → horário atual
 ```
 
-## MTTF
+Quando o turno termina, o limite programado é 18:20.
 
-O indicador foi removido do HTML, JavaScript, relatórios e cartões.
+## Turno noturno
 
-## Confirmação da versão
-
-Ao lado do nome TurnoSmart deve aparecer:
+Entre 18:20 e 06:00, o painel conta:
 
 ```text
-V38.0.0
+data de início às 18:20 → horário atual
 ```
 
-Caso o selo não apareça, o site publicado ainda não recebeu os arquivos da V38.
+A janela atravessa a madrugada corretamente.
 
-## Cache
+## Exemplo
 
-`index.html`, `app.js`, `style.css` e `sw.js` usam `no-store`. O aplicativo também apaga caches antigos automaticamente.
+Às 20:57:
+
+```text
+Turno noturno
+18:20 até 20:57
+```
+
+O aplicativo usa a data/hora de conclusão reconhecida na resposta do SGMan.

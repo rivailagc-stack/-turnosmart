@@ -1,4 +1,4 @@
-const CACHE = 'turnosmart-v38.0.0';
+const CACHE = 'turnosmart-v40.0.0';
 const STATIC_ASSETS = [
   '/manifest.webmanifest',
   '/icons/icon-192.png',

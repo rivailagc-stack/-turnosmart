@@ -1,7 +1,6 @@
-TurnoSmart V38.0.0
-MTTF removido definitivamente.
-Mostra OS concluídas em uma janela móvel das últimas 12 horas.
-A janela é calculada do horário atual menos 12 horas até agora.
-Exibe V38.0.0 ao lado do nome TurnoSmart.
-Desativa cache de index.html, app.js, style.css e sw.js.
-Apaga caches antigos TurnoSmart automaticamente.
+TurnoSmart V40.0.0
+Conta OS concluídas no turno operacional atual.
+Turno diurno: hoje das 06:00 às 18:20.
+Turno noturno: das 18:20 às 06:00, atravessando a madrugada.
+Durante o turno, a contagem termina no horário atual.
+MTTF continua removido.

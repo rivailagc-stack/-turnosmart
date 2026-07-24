@@ -194,14 +194,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '38.0.0';
+const APP_VERSION = '40.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v38.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v40.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2730,7 +2730,7 @@ function maintenanceMessage() {
 
   if (state.analysis.reportedOee) lines.push(`OEE do turno: ${String(state.analysis.reportedOee).replace('.', ',')}%.`);
   if (state.analysis.sgmanSummary) lines.push(`SGMan: ${sgmanDailySummaryText(state.analysis.sgmanSummary)}.`);
-  if (state.analysis.reliability3Days) lines.push(`SGMan 3 dias — MTTR: ${formatReliabilityTime(state.analysis.reliability3Days.mttrMinutes)} | MTBF: ${formatReliabilityTime(state.analysis.reliability3Days.mtbfMinutes)} | Confiabilidade 12h: ${formatReliabilityPercent(state.analysis.reliability3Days.reliabilityPercent)} | OS concluídas nas últimas 12h: ${Number(state.analysis.reliability3Days.completedLast12Hours || 0)}.`);
+  if (state.analysis.reliability3Days) lines.push(`SGMan 3 dias — MTTR: ${formatReliabilityTime(state.analysis.reliability3Days.mttrMinutes)} | MTBF: ${formatReliabilityTime(state.analysis.reliability3Days.mtbfMinutes)} | Confiabilidade 12h: ${formatReliabilityPercent(state.analysis.reliability3Days.reliabilityPercent)} | OS concluídas no turno atual: ${Number(state.analysis.reliability3Days.completedCurrentShift || 0)}.`);
   if (state.analysis.boardScope?.label) lines.push(`Quadro OEE: ${state.analysis.boardScope.label}.`);
   const dashboard = getRecentOeeDashboard();
   if (dashboard.companyAverage != null) lines.push(`OEE geral 3 dias: ${formatOee(dashboard.companyAverage)}.`);
@@ -2780,7 +2780,7 @@ function productionMessage() {
 
   if (analysis.reportedOee) lines.push(`OEE do turno: ${String(analysis.reportedOee).replace('.', ',')}%.`);
   if (analysis.sgmanSummary) lines.push(`SGMan: ${sgmanDailySummaryText(analysis.sgmanSummary)}.`);
-  if (analysis.reliability3Days) lines.push(`SGMan 3 dias — MTTR: ${formatReliabilityTime(analysis.reliability3Days.mttrMinutes)} | MTBF: ${formatReliabilityTime(analysis.reliability3Days.mtbfMinutes)} | Confiabilidade 12h: ${formatReliabilityPercent(analysis.reliability3Days.reliabilityPercent)} | OS concluídas nas últimas 12h: ${Number(analysis.reliability3Days.completedLast12Hours || 0)}.`);
+  if (analysis.reliability3Days) lines.push(`SGMan 3 dias — MTTR: ${formatReliabilityTime(analysis.reliability3Days.mttrMinutes)} | MTBF: ${formatReliabilityTime(analysis.reliability3Days.mtbfMinutes)} | Confiabilidade 12h: ${formatReliabilityPercent(analysis.reliability3Days.reliabilityPercent)} | OS concluídas no turno atual: ${Number(analysis.reliability3Days.completedCurrentShift || 0)}.`);
   if (analysis.boardScope?.label) lines.push(`Quadro OEE: ${analysis.boardScope.label}.`);
   const dashboard3Days = getRecentOeeDashboard();
   if (dashboard3Days.companyAverage != null) lines.push(`OEE geral 3 dias: ${formatOee(dashboard3Days.companyAverage)}.`);
@@ -2821,7 +2821,7 @@ function renderAnalysis() {
     ['Faltas', analysis.absenceCount, analysis.absences.join(', ') || 'Sem nomes identificados'],
     ['Presentes', analysis.present || '-', 'Incluindo liderança, conforme relatório'],
     ['Retrabalho', analysis.reworkCount || 0, 'Foco em reduzir repetição e perdas'],
-    ['OS concluídas — últimas 12h', Number(analysis.reliability3Days?.completedLast12Hours || 0), analysis.reliability3Days?.last12HoursLabel || 'Janela móvel de 12 horas'],
+    ['OS concluídas no turno atual', Number(analysis.reliability3Days?.completedCurrentShift || 0), `${analysis.reliability3Days?.currentShiftName || 'Turno'} • ${analysis.reliability3Days?.currentShiftLabel || ''}`],
     ['OS em atraso', Number(analysis.sgmanSummary?.overdue || 0), 'Pendências atuais no SGMan'],
     ['MTTR SGMan', formatReliabilityTime(analysis.reliability3Days?.mttrMinutes), `${Number(analysis.reliability3Days?.repairIntervals || 0)} reparo(s) válido(s)`],
     ['MTBF SGMan', formatReliabilityTime(analysis.reliability3Days?.mtbfMinutes), `${Number(analysis.reliability3Days?.failureIntervals || 0)} intervalo(s) entre falhas`],
@@ -3118,15 +3118,35 @@ function parseSgmanDateTime(value = '') {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
 
   if (typeof value === 'number' && Number.isFinite(value)) {
-    const date = new Date(value);
+    const milliseconds = value < 100000000000
+      ? value * 1000
+      : value;
+
+    const date = new Date(milliseconds);
     return Number.isNaN(date.getTime()) ? null : date;
   }
 
   const text = String(value || '').trim();
   if (!text) return null;
 
+  const dotNet = text.match(/\/Date\((\d+)(?:[+-]\d+)?\)\//i);
+  if (dotNet) {
+    const date = new Date(Number(dotNet[1]));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  if (/^\d{10,13}$/.test(text)) {
+    const numeric = Number(text);
+    const milliseconds = text.length === 10
+      ? numeric * 1000
+      : numeric;
+
+    const date = new Date(milliseconds);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
   const iso = text.match(
-    /(\d{4})[-/](\d{2})[-/](\d{2})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/
+    /(\d{4})[-/](\d{2})[-/](\d{2})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/
   );
 
   if (iso) {
@@ -3307,9 +3327,83 @@ function isStoppedSgmanOrder(order = {}) {
   ].includes(value);
 }
 
-function lastTwelveHoursWindow(reference = new Date()) {
-  const end = new Date(reference);
-  const start = new Date(end.getTime() - 12 * 60 * 60 * 1000);
+function currentOperationalShiftWindow(reference = new Date()) {
+  const now = new Date(reference);
+
+  if (Number.isNaN(now.getTime())) {
+    return {
+      start: new Date(),
+      end: new Date(),
+      effectiveEnd: new Date(),
+      label: 'Horário inválido',
+      shiftName: 'Turno'
+    };
+  }
+
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const dayStartMinutes = 6 * 60;
+  const dayEndMinutes = 18 * 60 + 20;
+
+  let start;
+  let scheduledEnd;
+  let shiftName;
+
+  if (
+    currentMinutes >= dayStartMinutes &&
+    currentMinutes < dayEndMinutes
+  ) {
+    start = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      6, 0, 0, 0
+    );
+
+    scheduledEnd = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      18, 20, 0, 0
+    );
+
+    shiftName = 'Turno diurno';
+  } else if (currentMinutes >= dayEndMinutes) {
+    start = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      18, 20, 0, 0
+    );
+
+    scheduledEnd = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() + 1,
+      6, 0, 0, 0
+    );
+
+    shiftName = 'Turno noturno';
+  } else {
+    start = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate() - 1,
+      18, 20, 0, 0
+    );
+
+    scheduledEnd = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      6, 0, 0, 0
+    );
+
+    shiftName = 'Turno noturno';
+  }
+
+  const effectiveEnd = new Date(
+    Math.min(now.getTime(), scheduledEnd.getTime())
+  );
 
   const timeLabel = date => date.toLocaleTimeString('pt-BR', {
     hour: '2-digit',
@@ -3322,32 +3416,36 @@ function lastTwelveHoursWindow(reference = new Date()) {
   });
 
   const crossesDate =
-    start.getFullYear() !== end.getFullYear() ||
-    start.getMonth() !== end.getMonth() ||
-    start.getDate() !== end.getDate();
+    start.getFullYear() !== effectiveEnd.getFullYear() ||
+    start.getMonth() !== effectiveEnd.getMonth() ||
+    start.getDate() !== effectiveEnd.getDate();
 
   const label = crossesDate
-    ? `${dateLabel(start)} ${timeLabel(start)} até ${dateLabel(end)} ${timeLabel(end)}`
-    : `${timeLabel(start)} até ${timeLabel(end)}`;
+    ? `${dateLabel(start)} ${timeLabel(start)} até ${dateLabel(effectiveEnd)} ${timeLabel(effectiveEnd)}`
+    : `${timeLabel(start)} até ${timeLabel(effectiveEnd)}`;
 
   return {
     start,
-    end,
-    effectiveEnd: end,
-    label
+    end: scheduledEnd,
+    effectiveEnd,
+    label,
+    shiftName
   };
 }
 
-function completedOrdersInLastTwelveHours(orders = []) {
-  const window = lastTwelveHoursWindow();
+function completedOrdersInCurrentOperationalShift(orders = []) {
+  const window = currentOperationalShiftWindow();
 
   const completed = orders.filter(order => {
     if (order.statusKey !== 'completed') return false;
 
-    const end = parseSgmanDateTime(order.endDate);
-    if (!end) return false;
+    const completionDate = parseSgmanDateTime(order.endDate);
+    if (!completionDate) return false;
 
-    return end >= window.start && end <= window.end;
+    return (
+      completionDate >= window.start &&
+      completionDate <= window.effectiveEnd
+    );
   });
 
   return {
@@ -3628,7 +3726,7 @@ function calculateReliability3Days() {
   const failureCount = correctiveOrders.length;
   const recurrentMachines = rows.filter(row => row.recurrent).length;
 
-  const lastTwelveHours = completedOrdersInLastTwelveHours(
+  const currentShift = completedOrdersInCurrentOperationalShift(
     state.sgmanHistory?.orders || []
   );
 
@@ -3685,10 +3783,11 @@ function calculateReliability3Days() {
     recurrentMachines,
     rows,
     dailyPlan,
-    completedLast12Hours: lastTwelveHours.count,
-    last12HoursLabel: lastTwelveHours.label,
-    last12HoursStart: lastTwelveHours.start.toISOString(),
-    last12HoursEnd: lastTwelveHours.end.toISOString(),
+    completedCurrentShift: currentShift.count,
+    currentShiftLabel: currentShift.label,
+    currentShiftName: currentShift.shiftName,
+    currentShiftStart: currentShift.start.toISOString(),
+    currentShiftEnd: currentShift.effectiveEnd.toISOString(),
     efficiencyTrend: calculateEfficiencyTrend(),
     note
   };
@@ -3699,7 +3798,7 @@ function reliabilitySummaryText(metrics = state.reliability3Days) {
     `MTTR SGMan: ${formatReliabilityTime(metrics?.mttrMinutes)}`,
     `MTBF SGMan: ${formatReliabilityTime(metrics?.mtbfMinutes)}`,
     `Confiabilidade 12h: ${formatReliabilityPercent(metrics?.reliabilityPercent)}`,
-    `OS concluídas nas últimas 12h: ${Number(metrics?.completedLast12Hours || 0)}`,
+    `OS concluídas no turno atual: ${Number(metrics?.completedCurrentShift || 0)}`,
     `Falhas com máquina parada: ${Number(metrics?.failureCount || 0)}`
   ].join(' | ');
 }
@@ -3759,9 +3858,9 @@ function renderReliability3Days() {
   if (cards) {
     cards.innerHTML = `
       <div class="metric">
-        <span>OS concluídas — últimas 12h</span>
-        <strong>${metrics.completedLast12Hours}</strong>
-        <small>${escapeHtml(metrics.last12HoursLabel)}</small>
+        <span>OS concluídas no turno atual</span>
+        <strong>${metrics.completedCurrentShift}</strong>
+        <small>${escapeHtml(metrics.currentShiftName)} • ${escapeHtml(metrics.currentShiftLabel)} • ${Number(state.sgmanHistory?.summary?.completedWithDate || 0)} concluída(s) com data reconhecida</small>
       </div>
       <div class="metric">
         <span>MTTR SGMan — 3 dias</span>
@@ -3879,8 +3978,15 @@ function renderSgmanDailyStatus() {
     const largestArray = Number(diagnostic.largestArrayLength || 0);
     const mode = diagnostic.queryMode || '';
 
+    const completedWithDate = Number(
+      state.sgmanHistory?.summary?.completedWithDate || 0
+    );
+    const completedWithoutDate = Number(
+      state.sgmanHistory?.summary?.completedWithoutDate || 0
+    );
+
     const detailText = diagnostic.queryMode
-      ? ` • API: ${largestArray} item(ns) em lista • reconhecidos: ${interpreted} • modo: ${mode}`
+      ? ` • API: ${largestArray} item(ns) • reconhecidos: ${interpreted} • concluídas com data: ${completedWithDate} • sem data: ${completedWithoutDate} • modo: ${mode}`
       : '';
 
     status.textContent = `Última consulta: ${loaded}${detailText}`;
@@ -6194,7 +6300,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=38.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=40.0.0');
         registration.update();
       } catch {}
     });
