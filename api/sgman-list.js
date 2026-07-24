@@ -181,6 +181,150 @@ function valueToText(value) {
   return String(value);
 }
 
+
+function parseDateCandidate(value) {
+  if (value === null || value === undefined || value === '') return null;
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const milliseconds = value < 100000000000
+      ? value * 1000
+      : value;
+
+    const date = new Date(milliseconds);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const text = valueToText(value).trim();
+  if (!text) return null;
+
+  const dotNet = text.match(/\/Date\((\d+)(?:[+-]\d+)?\)\//i);
+  if (dotNet) {
+    const date = new Date(Number(dotNet[1]));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  if (/^\d{10,13}$/.test(text)) {
+    const numeric = Number(text);
+    const milliseconds = text.length === 10
+      ? numeric * 1000
+      : numeric;
+
+    const date = new Date(milliseconds);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const iso = text.match(
+    /(\d{4})[-/](\d{2})[-/](\d{2})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/
+  );
+
+  if (iso) {
+    const date = new Date(
+      Number(iso[1]),
+      Number(iso[2]) - 1,
+      Number(iso[3]),
+      Number(iso[4] || 0),
+      Number(iso[5] || 0),
+      Number(iso[6] || 0)
+    );
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const brazilian = text.match(
+    /(\d{2})\/(\d{2})\/(\d{4})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/
+  );
+
+  if (brazilian) {
+    const date = new Date(
+      Number(brazilian[3]),
+      Number(brazilian[2]) - 1,
+      Number(brazilian[1]),
+      Number(brazilian[4] || 0),
+      Number(brazilian[5] || 0),
+      Number(brazilian[6] || 0)
+    );
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const nativeDate = new Date(text);
+  return Number.isNaN(nativeDate.getTime()) ? null : nativeDate;
+}
+
+function findDateByKeyPatterns(object, patterns = []) {
+  const entries = flattenObject(object);
+  const valid = [];
+
+  entries.forEach(entry => {
+    if (!patterns.some(pattern => pattern.test(entry.key))) return;
+
+    const date = parseDateCandidate(entry.value);
+    if (!date) return;
+
+    valid.push({
+      path: entry.path,
+      key: entry.key,
+      value: valueToText(entry.value),
+      date
+    });
+  });
+
+  valid.sort((a, b) => b.date.getTime() - a.date.getTime());
+  return valid[0] || null;
+}
+
+function findCompletionDate(object) {
+  const exact = pickValue(object, [
+    'data_fim', 'datafim', 'dt_fim', 'dtfim',
+    'data_conclusao', 'dataconclusao', 'dt_conclusao', 'dtconclusao',
+    'concluido_em', 'concluidoem', 'finalizado_em', 'finalizadoem',
+    'data_encerramento', 'dataencerramento',
+    'data_fechamento', 'datafechamento',
+    'data_finalizacao', 'datafinalizacao',
+    'data_execucao', 'dataexecucao',
+    'data_realizacao', 'datarealizacao',
+    'fim_execucao', 'fimexecucao',
+    'termino', 'data_termino', 'datatermino',
+    'fechado_em', 'fechadoem',
+    'encerrado_em', 'encerradoem',
+    'executado_em', 'executadoem',
+    'ultima_atualizacao', 'ultimaatualizacao',
+    'atualizado_em', 'atualizadoem',
+    'modified_at', 'modifiedat',
+    'updated_at', 'updatedat'
+  ]);
+
+  if (parseDateCandidate(exact)) {
+    return {
+      value: exact,
+      source: 'campo conhecido'
+    };
+  }
+
+  const discovered = findDateByKeyPatterns(object, [
+    /conclus/,
+    /finaliz/,
+    /encerr/,
+    /fech/,
+    /termin/,
+    /fim/,
+    /executad/,
+    /realiz/,
+    /baixad/,
+    /updated/,
+    /modified/,
+    /ultima.*atualiz/
+  ]);
+
+  return discovered
+    ? {
+        value: discovered.value,
+        source: discovered.path
+      }
+    : {
+        value: '',
+        source: ''
+      };
+}
+
 function pickValue(object, candidates) {
   const entries = flattenObject(object);
   const normalizedCandidates = candidates.map(candidate =>
@@ -290,12 +434,8 @@ function normalizeOrder(order) {
     'data_programada', 'dataprogramada'
   ]);
 
-  const endDate = pickValue(order, [
-    'data_fim', 'datafim', 'dt_fim', 'dtfim',
-    'data_conclusao', 'dataconclusao', 'dt_conclusao', 'dtconclusao',
-    'concluido_em', 'concluidoem', 'finalizado_em', 'finalizadoem',
-    'data_encerramento', 'dataencerramento'
-  ]);
+  const completionDate = findCompletionDate(order);
+  const endDate = completionDate.value;
 
   const duration = pickValue(order, [
     'duracao', 'duracao_real', 'duracaoreal',
@@ -327,6 +467,7 @@ function normalizeOrder(order) {
     startDate: String(startDate || ''),
     endDate: String(endDate || ''),
     endDateISO: normalizeDate(endDate),
+    endDateSource: completionDate.source || '',
     duration: String(duration || ''),
     machineStopped,
     executante: String(pickValue(order, [
@@ -357,6 +498,8 @@ function summarize(orders) {
   return {
     completedToday: datedCompleted.filter(order => order.endDateISO === localToday).length,
     completedPeriod: completed.length,
+    completedWithDate: datedCompleted.length,
+    completedWithoutDate: Math.max(0, completed.length - datedCompleted.length),
     overdue: orders.filter(order => order.statusKey === 'overdue').length,
     open: orders.filter(order => order.statusKey === 'open').length,
     other: orders.filter(order => order.statusKey === 'other').length,
