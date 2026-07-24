@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=40.0.0" />
+  <link rel="stylesheet" href="style.css?v=41.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -19,7 +19,7 @@
       <div class="eyebrow">PRODUÇÃO + MANUTENÇÃO</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V40.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V41.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -206,12 +206,23 @@
       </div>
     </section>
 
+    <section id="view-mecanico" class="view">
+      <div class="hero card"><div><span class="badge">MECÂNICO VIRTUAL</span><h2>Diagnóstico pelo SGMan</h2><p>Consulta até 100 OS da árvore completa da máquina.</p></div></div>
+      <div class="card form-card"><div class="grid two"><label>Máquina<select id="virtualMechanicMachine"><option value="">Selecione a máquina</option></select></label><label>Problema encontrado<input id="virtualMechanicProblem" type="text" placeholder="Ex.: MK 179 variando altura" /></label></div><div class="button-row"><button id="virtualMechanicRunBtn" class="primary" type="button">Analisar problema</button></div><p id="virtualMechanicStatus" class="muted"></p><div id="virtualMechanicResult" class="virtual-mechanic-result"></div></div>
+    </section>
+
     <section id="view-analise" class="view">
       <div id="emptyAnalysis" class="card empty-state">
         <h2>Nenhuma análise ainda</h2>
         <p>Cole um relatório e toque em “Analisar relatório”.</p>
       </div>
       <div id="analysisContent" class="hidden">
+        <div class="card manager-panel-card">
+          <span class="eyebrow">PAINEL DO GESTOR</span><h2>Decisão do turno</h2>
+          <div id="managerDashboard" class="manager-dashboard"></div>
+          <div class="manager-guidance-box"><strong>Orientação para o líder</strong><p id="managerGuidance">Atualize os dados para receber a orientação.</p></div>
+          <h3>Distribuição das três prioridades</h3><div id="managerPlan" class="manager-plan"></div>
+        </div>
 
         <div id="efficiencyTrendCard" class="efficiency-trend-card trend-unknown"></div>
 
@@ -494,7 +505,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 40</h2>
+        <h2>Configuração da versão 41</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -602,6 +613,7 @@
   <nav class="bottom-nav" aria-label="Navegação principal">
     <button class="nav-btn active" data-view="novo"><span>＋</span>Novo</button>
     <button class="nav-btn quick-nav" data-view="osrapida"><span>📷</span>Abrir OS</button>
+    <button class="nav-btn" data-view="mecanico"><span>🧠</span>Mecânico</button>
     <button class="nav-btn" data-view="analise"><span>▦</span>Análise</button>
     <button class="nav-btn" data-view="acoes"><span>✓</span>Ações</button>
     <button class="nav-btn" data-view="oee"><span>%</span>OEE 3 dias</button>
@@ -613,6 +625,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=40.0.0"></script>
+  <script src="app.js?v=41.0.0"></script>
 </body>
 </html>

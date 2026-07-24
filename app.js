@@ -194,14 +194,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '40.0.0';
+const APP_VERSION = '41.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v40.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v41.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -3803,6 +3803,78 @@ function reliabilitySummaryText(metrics = state.reliability3Days) {
   ].join(' | ');
 }
 
+
+function managerGuidance(metrics = {}) {
+  const trend = metrics.efficiencyTrend || {};
+  const top = metrics.dailyPlan?.[0];
+  const overdue = Number(state.sgmanHistory?.summary?.overdue || 0);
+
+  if (!top) return 'Atualize o SGMan e registre o OEE para montar o plano do turno.';
+  if (trend.direction === 'down' && overdue > 0) return `A eficiência está caindo. Comece pela ${top.machine}, retire as OS críticas do atraso e acompanhe até a conclusão.`;
+  if (trend.direction === 'down') return `A eficiência está caindo. Direcione o melhor recurso para ${top.machine} e ataque primeiro a falha reincidente.`;
+  if (Number(metrics.mttrMinutes || 0) >= 120) return `O MTTR está alto. Antecipe peças e ferramentas antes de iniciar a intervenção na ${top.machine}.`;
+  if (Number(metrics.recurrentMachines || 0) >= 3) return `Há ${metrics.recurrentMachines} máquinas reincidentes. O foco deve ser eliminar causa raiz, não apenas restaurar a produção.`;
+  return `Mantenha o ritmo. Proteja a disponibilidade da ${top.machine} e acompanhe as três prioridades até o fim do turno.`;
+}
+
+function renderManagerDashboard(metrics = {}) {
+  const target = $('managerDashboard');
+  if (!target) return;
+  const trend = metrics.efficiencyTrend || {};
+  const summary = state.sgmanHistory?.summary || {};
+  target.innerHTML = `
+    <div class="manager-kpi"><span>Eficiência</span><strong>${trend.current == null ? '-' : escapeHtml(formatOee(trend.current))}</strong><small>${escapeHtml(trend.arrow || '➜')} tendência</small></div>
+    <div class="manager-kpi"><span>OS concluídas no turno</span><strong>${Number(metrics.completedCurrentShift || 0)}</strong><small>${escapeHtml(metrics.currentShiftLabel || '')}</small></div>
+    <div class="manager-kpi"><span>OS em atraso</span><strong>${Number(summary.overdue || 0)}</strong><small>Exigem acompanhamento</small></div>
+    <div class="manager-kpi"><span>Reincidências</span><strong>${Number(metrics.recurrentMachines || 0)}</strong><small>Máquinas com 2+ falhas</small></div>`;
+
+  const guidance = $('managerGuidance');
+  if (guidance) guidance.textContent = managerGuidance(metrics);
+
+  const plan = $('managerPlan');
+  if (plan) {
+    const roster = detectWorkingCrew(new Date()).roster || [];
+    plan.innerHTML = (metrics.dailyPlan || []).slice(0,3).map((row,index)=>`
+      <div class="manager-plan-item">
+        <span class="priority-number">${index+1}</span>
+        <div><strong>${escapeHtml(row.machine)}</strong><p>${row.failureCount} falha(s) • MTTR ${escapeHtml(formatReliabilityTime(row.mttrMinutes,'-'))} • MTBF ${escapeHtml(formatReliabilityTime(row.mtbfMinutes,'-'))}</p></div>
+        <span>${escapeHtml(roster[index % Math.max(roster.length,1)] ? sgmanUserLabel(roster[index % roster.length]) : 'Definir responsável')}</span>
+      </div>`).join('') || '<p class="muted">Sem dados suficientes para montar o plano.</p>';
+  }
+}
+
+function populateVirtualMechanicMachines(selected='') {
+  const select=$('virtualMechanicMachine'); if(!select) return;
+  const machines=configuredMachineCodes().sort((a,b)=>a.localeCompare(b,'pt-BR',{numeric:true}));
+  select.innerHTML='<option value="">Selecione a máquina</option>'+machines.map(m=>`<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
+  if(selected && machines.includes(selected)) select.value=selected;
+}
+
+function virtualInspectionSequence(analysis={}) {
+  const seq=[];
+  (analysis.rankedTexts||[]).slice(0,2).forEach(item=>{ const t=cleanHistoricalResolution(item.text); if(t) seq.push(t); });
+  (analysis.patterns||[]).forEach(p=>{ if(seq.length<4 && !seq.some(t=>normalizeKey(t).includes(normalizeKey(p.shortLabel)))) seq.push(p.label); });
+  if(!seq.length) seq.push('Confirmar o sintoma com segurança','Inspecionar o conjunto do defeito','Medir folgas, alinhamento e sinais','Registrar a causa real na conclusão da OS');
+  return uniqueStrings(seq).slice(0,4);
+}
+
+async function runVirtualMechanic() {
+  const machine=$('virtualMechanicMachine')?.value||'';
+  const problem=compactIssue($('virtualMechanicProblem')?.value||'');
+  if(!machine){ showToast('Selecione a máquina.'); return; }
+  if(!problem){ showToast('Descreva o problema.'); return; }
+  const btn=$('virtualMechanicRunBtn'), status=$('virtualMechanicStatus'), out=$('virtualMechanicResult');
+  btn.disabled=true; btn.textContent='Analisando...'; status.textContent=`Consultando até 100 OS da árvore da ${machine}...`;
+  try {
+    await fetchSgmanMachineHistory(machine,true);
+    const analysis=analyzeMachineHistoryForAction({machine,description:problem,department:'maintenance',action:'',baseAction:''});
+    const seq=virtualInspectionSequence(analysis);
+    out.innerHTML=`<div class="virtual-summary"><span class="confidence confidence-${escapeHtml(analysis.confidence||'baixa')}">Confiança ${escapeHtml(analysis.confidence||'baixa')}</span><h3>${escapeHtml(machine)} — ${escapeHtml(problem)}</h3><p>${escapeHtml(analysis.summary)}</p></div><div class="virtual-sequence"><h4>Sequência recomendada</h4><ol>${seq.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ol></div><div class="reference-box"><strong>Orientação</strong><p>${escapeHtml(analysis.resolution)}</p></div>`;
+    status.textContent=`${analysis.similarOrders} OS semelhante(s) entre ${analysis.totalMachineOrders} analisadas.`;
+  } catch(e){ out.innerHTML=`<p class="error-text">Falha: ${escapeHtml(e.message)}</p>`; status.textContent='Falha na consulta ao SGMan.'; }
+  finally { btn.disabled=false; btn.textContent='Analisar problema'; }
+}
+
 function renderEfficiencyTrendAndPlan(metrics) {
   const trend = metrics.efficiencyTrend || {};
   const trendTarget = $('efficiencyTrendCard');
@@ -3854,6 +3926,7 @@ function renderReliability3Days() {
   const note = $('reliabilityNote');
 
   renderEfficiencyTrendAndPlan(metrics);
+  renderManagerDashboard(metrics);
 
   if (cards) {
     cards.innerHTML = `
@@ -5915,6 +5988,7 @@ function init() {
 
   $('quickOsDateTime').value = toLocalDateTimeInput(new Date());
   populateQuickOsMachineSelect();
+  populateVirtualMechanicMachines();
   updateQuickOsContext();
   updateQuickOsTagStatus();
 
@@ -5970,6 +6044,8 @@ function init() {
   });
 
   $('quickOsSendBtn').addEventListener('click', sendQuickOsToSgman);
+  $('virtualMechanicRunBtn').addEventListener('click', runVirtualMechanic);
+  $('virtualMechanicProblem').addEventListener('input', e => { const m=machineKeyFromText(e.target.value); if(m){ populateVirtualMechanicMachines(m); $('virtualMechanicMachine').value=m; } });
   $('quickOsClearBtn').addEventListener('click', () => {
     clearQuickOsForm(false);
     $('quickOsResult').textContent = '';
@@ -6300,7 +6376,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=40.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=41.0.0');
         registration.update();
       } catch {}
     });
