@@ -1,1 +1,1 @@
-module.exports=(req,res)=>res.status(200).json({ok:true,app:'TurnoSmart',version:'43.0.0',robust_machine_history_search:true,full_voice_order_enabled:true,voice_fields:['machine','location','problem','assignee'],sgman_configured:Boolean(process.env.SGMAN_TOKEN)});
+module.exports=(req,res)=>res.status(200).json({ok:true,app:'TurnoSmart',version:'44.0.0',team_performance_enabled:true,training_recommendations_enabled:true,mentor_suggestion_enabled:true,preventive_plan_enabled:true,improvement_plan_enabled:true,sgman_configured:Boolean(process.env.SGMAN_TOKEN)});
