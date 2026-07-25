@@ -1,9 +1,12 @@
-# Testes da V45
+# Testes da V47
 
-1. Confirme V45.0.0.
-2. Confira que aparece somente a página de planos.
-3. Cole conversas do grupo e analise.
-4. Filtre uma máquina.
-5. Filtre um mecânico da escala.
-6. Confira o plano preventivo.
-7. Confira o treinamento, mentor e ação de melhoria do mecânico.
+1. Confirme V47.0.0.
+2. Abra Novo.
+3. Abra OS.
+4. Abra Mecânico.
+5. Abra Análise.
+6. Abra Ações.
+7. Abra OEE 3 dias.
+8. Abra Inteligência.
+9. Abra Escala.
+10. Abra Histórico e Configuração.

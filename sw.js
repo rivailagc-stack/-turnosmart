@@ -1,5 +1,6 @@
-const CACHE = 'turnosmart-v45.0.0';
+const CACHE = 'turnosmart-v47.0.0';
 const STATIC_ASSETS = [
+  '/historico-grupo.json',
   '/manifest.webmanifest',
   '/icons/icon-192.png',
   '/icons/icon-512.png'

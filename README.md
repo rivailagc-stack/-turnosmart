@@ -1,12 +1,18 @@
-# TurnoSmart V45 — Página única de planos
+# TurnoSmart V47 — Aplicativo completo
 
-A página principal contém somente:
+A Inteligência do Turno agora é uma nova aba e não substitui as funções antigas.
 
-1. conversas do grupo;
-2. filtros por máquina e mecânico;
-3. plano preventivo;
-4. plano de melhoria dos mecânicos da escala.
+## Páginas disponíveis
 
-Cole mensagens do WhatsApp ou Telegram e toque em **Analisar e atualizar planos**.
+- Novo relatório;
+- Abrir OS;
+- Mecânico Virtual;
+- Análise;
+- Ações;
+- OEE 3 dias;
+- Inteligência do Turno;
+- Escala;
+- Histórico;
+- Configuração.
 
-O filtro por máquina mostra somente a preventiva selecionada. O filtro por mecânico inclui apenas líderes e mecânicos cadastrados nas escalas A1, A2, B1 e B2.
+A aba Inteligência continua cruzando fotos do quadro de OEE, conversas do grupo, histórico Team Leaders, SGMan, preventivas e desenvolvimento dos mecânicos.

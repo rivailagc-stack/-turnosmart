@@ -1,7 +1,5 @@
-TurnoSmart V45.0.0
-Página única focada em plano preventivo e melhoria dos mecânicos da escala.
-Filtro por máquina.
-Filtro por mecânico.
-Área para colar conversas do grupo.
-As conversas são unidas ao relatório e usadas na análise.
-As outras telas permanecem no código, mas ficam ocultas.
+TurnoSmart V47.0.0
+Restaura todas as páginas e funções da V46.
+Mantém Novo, Abrir OS, Mecânico, Análise, Ações, OEE 3 dias, Escala, Histórico e Configuração.
+Adiciona Inteligência do Turno como nova aba.
+Nenhuma função anterior foi removida ou escondida.
