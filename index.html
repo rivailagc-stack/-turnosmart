@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=44.0.0" />
+  <link rel="stylesheet" href="style.css?v=46.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -19,13 +19,148 @@
       <div class="eyebrow">PRODUÇÃO + MANUTENÇÃO</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V44.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V46.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
   </header>
 
   <main class="app-shell">
+
+    <section id="view-planos" class="view active focused-management-page">
+      <div class="hero card focused-hero">
+        <div>
+          <span class="badge">GESTÃO DE MANUTENÇÃO</span>
+          <h2>Preventiva e desenvolvimento da equipe</h2>
+          <p>Cole as conversas do grupo, analise o SGMan e filtre os planos por máquina ou por mecânico da escala.</p>
+        </div>
+        <button id="focusedRefreshBtn" class="secondary" type="button">Atualizar SGMan</button>
+      </div>
+
+      <div class="card intelligence-upload-card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">QUADRO DE OEE</span>
+            <h2>Registrar foto e leitura diária</h2>
+          </div>
+        </div>
+
+        <div class="grid three">
+          <label>Data
+            <input id="intelligenceDate" type="date" />
+          </label>
+
+          <label>Turno
+            <select id="intelligenceShift">
+              <option value="1">Turno A / diurno</option>
+              <option value="2">Turno B / noturno</option>
+            </select>
+          </label>
+
+          <label>OEE geral do turno
+            <input id="intelligenceGeneralOee" type="number" min="0" max="100" step="0.1" placeholder="Ex.: 65" />
+          </label>
+        </div>
+
+        <label class="file-action intelligence-file-action">
+          Escolher foto do quadro
+          <input id="intelligenceOeePhotos" type="file" accept="image/*" capture="environment" />
+        </label>
+
+        <div class="button-row">
+          <button id="intelligenceReadPhotoBtn" class="secondary" type="button">Ler foto do quadro</button>
+          <button id="intelligenceSaveBtn" class="primary" type="button">Salvar leitura diária</button>
+        </div>
+
+        <p id="intelligencePhotoStatus" class="muted"></p>
+
+        <div id="intelligencePhotoPreviewWrap" class="hidden image-preview-wrap">
+          <img id="intelligencePhotoPreview" class="image-preview" alt="Recorte do quadro de OEE" />
+        </div>
+
+        <div id="intelligenceOeeEditor"></div>
+      </div>
+
+      <div class="card">
+        <span class="eyebrow">HISTÓRICO ENVIADO</span>
+        <h2>Base do grupo Team Leaders</h2>
+        <div id="intelligenceHistoricSummary"></div>
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">INTELIGÊNCIA DO TURNO</span>
+            <h2>Relatório cruzando OEE, grupo e SGMan</h2>
+          </div>
+          <button id="intelligenceGenerateReportBtn" class="primary" type="button">Gerar relatório inteligente</button>
+        </div>
+        <div id="intelligenceReport"></div>
+      </div>
+
+      <div class="card">
+        <span class="eyebrow">HISTÓRICO DIÁRIO</span>
+        <h2>Leituras salvas no aplicativo</h2>
+        <div id="intelligenceDailyHistory" class="intelligence-history-list"></div>
+      </div>
+
+      <div class="card form-card">
+        <label>Conversas do grupo / passagem do turno
+          <textarea id="focusedGroupConversation" rows="11" placeholder="Cole aqui as mensagens do WhatsApp ou Telegram..."></textarea>
+        </label>
+
+        <div class="button-row">
+          <button id="focusedAnalyzeBtn" class="primary" type="button">Analisar e atualizar planos</button>
+        </div>
+
+        <p id="focusedPlanStatus" class="integration-status">
+          Cole as conversas do grupo ou atualize o SGMan.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">FILTROS</span>
+            <h2>Escolha o foco</h2>
+          </div>
+        </div>
+
+        <div class="grid two">
+          <label>Máquina
+            <select id="focusedMachineFilter">
+              <option value="">Todas as máquinas</option>
+            </select>
+          </label>
+
+          <label>Mecânico da escala
+            <select id="focusedMechanicFilter">
+              <option value="">Todos os mecânicos da escala</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="card">
+        <span class="eyebrow">CONVERSAS DO GRUPO</span>
+        <h2>Ocorrências identificadas</h2>
+        <div id="focusedConversationAnalysis" class="focused-conversation-list"></div>
+      </div>
+
+      <div class="card">
+        <span class="eyebrow">PLANO PREVENTIVO</span>
+        <h2>Máquinas e inspeções sugeridas</h2>
+        <div id="focusedPreventiveList" class="focused-plan-list"></div>
+      </div>
+
+      <div class="card">
+        <span class="eyebrow">PLANO DE MELHORIA</span>
+        <h2>Mecânicos que estão na escala</h2>
+        <p class="muted">O objetivo é orientar treinamento e acompanhamento, não punir.</p>
+        <div id="focusedMechanicPlan" class="focused-mechanic-list"></div>
+      </div>
+    </section>
+
     <section id="view-novo" class="view active">
       <div class="hero card">
         <div>
@@ -514,7 +649,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 44</h2>
+        <h2>Configuração da versão 46</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -634,6 +769,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=44.0.0"></script>
+  <script src="app.js?v=46.0.0"></script>
 </body>
 </html>

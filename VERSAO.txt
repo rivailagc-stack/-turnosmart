@@ -1,3 +1,9 @@
-TurnoSmart V44.0.0
-Desempenho da equipe, treinamentos, mentores, preventiva e melhoria.
-Quando faltar histórico: analisar e resolver o problema durante o turno e registrar causa e solução no SGMan.
+TurnoSmart V46.0.0
+Adiciona Inteligência do Turno.
+Importa e lê foto diária do quadro de OEE.
+Permite confirmar OEE por máquina.
+Salva até 180 leituras diárias compactas.
+Inclui base histórica do grupo Team Leaders:
+3007 mensagens processadas, 972 relatórios encontrados e 955 leituras de OEE.
+Cruza foto, relatório diário, conversas e SGMan.
+Gera prioridades, tendência, preventiva e plano de melhoria.

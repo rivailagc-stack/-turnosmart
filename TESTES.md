@@ -1,10 +1,11 @@
-# Testes da V42
+# Testes da V46
 
-1. Confirme o selo V42.0.0.
-2. Analise um relatório com OEE atual e histórico anterior.
-3. Confira a linha de tendência: melhora, piora ou estável.
-4. Confira a frase de direção do turno.
-5. Verifique que as ações não repetem o problema.
-6. Verifique no máximo três ações de correção por máquina.
-7. Confirme que a Base SGMan extensa não aparece na mensagem.
-8. Confira que a análise detalhada continua no painel.
+1. Confirme V46.0.0.
+2. Veja a base histórica do grupo.
+3. Escolha uma foto do quadro.
+4. Leia a foto e confirme os valores.
+5. Informe o OEE geral e salve a leitura.
+6. Cole o relatório diário do grupo.
+7. Toque em Gerar relatório inteligente.
+8. Confira tendência, prioridades, MTTR, MTBF e ações.
+9. Filtre máquina e mecânico nos planos.

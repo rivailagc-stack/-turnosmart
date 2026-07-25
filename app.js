@@ -194,14 +194,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '44.0.0';
+const APP_VERSION = '46.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v44.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v46.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -451,7 +451,11 @@ const state = {
   quickOsVoiceParsed: null,
   teamPerformance: [],
   preventivePlan: [],
-  improvementPlan: []
+  improvementPlan: [],
+  intelligenceOeeRows: [],
+  intelligencePhotoName: '',
+  intelligenceSeed: null,
+  intelligenceReport: null
 };
 
 const $ = id => document.getElementById(id);
@@ -6080,6 +6084,867 @@ async function analyzeCurrentReport() {
   }
 }
 
+
+function scaleExecutantesOnly() {
+  const users = [];
+
+  ['A1', 'A2', 'B1', 'B2'].forEach(crew => {
+    const record = getScaleRecord(crew);
+    findSgmanTeamExecutantes(crew).forEach(username => {
+      users.push({
+        username,
+        label: sgmanUserLabel(username),
+        crew,
+        leader: username === record.sgmanExecutante
+      });
+    });
+  });
+
+  const seen = new Set();
+
+  return users.filter(user => {
+    const key = String(user.username || '').toLocaleLowerCase('pt-BR');
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function populateFocusedFilters() {
+  const machineSelect = $('focusedMachineFilter');
+  const mechanicSelect = $('focusedMechanicFilter');
+
+  if (machineSelect) {
+    const current = machineSelect.value;
+    const machines = configuredMachineCodes()
+      .sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
+
+    machineSelect.innerHTML = `
+      <option value="">Todas as máquinas</option>
+      ${machines.map(machine => `
+        <option value="${escapeHtml(machine)}">${escapeHtml(machine)}</option>
+      `).join('')}
+    `;
+
+    if (machines.includes(current)) machineSelect.value = current;
+  }
+
+  if (mechanicSelect) {
+    const current = mechanicSelect.value;
+    const users = scaleExecutantesOnly();
+
+    mechanicSelect.innerHTML = `
+      <option value="">Todos os mecânicos da escala</option>
+      ${users.map(user => `
+        <option value="${escapeHtml(user.username)}">
+          ${escapeHtml(user.label)} — ${escapeHtml(user.crew)}
+        </option>
+      `).join('')}
+    `;
+
+    if (users.some(user => user.username === current)) {
+      mechanicSelect.value = current;
+    }
+  }
+}
+
+function focusedConversationMachines(text = '') {
+  return uniqueStrings(
+    String(text || '')
+      .split(/\n+/)
+      .map(line => machineKeyFromText(line))
+      .filter(Boolean)
+  );
+}
+
+function focusedConversationSummary() {
+  const actions = (state.actions || [])
+    .filter(action =>
+      action.department === 'maintenance' &&
+      action.status !== 'Concluída'
+    )
+    .slice(0, 10);
+
+  if (!actions.length) {
+    return '<p class="muted">Cole as conversas do grupo e toque em “Analisar e atualizar planos”.</p>';
+  }
+
+  return actions.map(action => `
+    <div class="focused-conversation-item">
+      <strong>${escapeHtml(action.machine)}</strong>
+      <span>${escapeHtml(action.description || 'Ocorrência registrada no grupo')}</span>
+      <small>${escapeHtml(
+        conciseMaintenanceRepairActions
+          ? conciseMaintenanceRepairActions(action)
+          : 'Analisar e resolver o problema durante o turno.'
+      )}</small>
+    </div>
+  `).join('');
+}
+
+function mechanicDevelopmentFor(username = '') {
+  const team = state.teamPerformance?.length
+    ? state.teamPerformance
+    : calculateTeamPerformance();
+
+  return team.find(row =>
+    String(row.executante).toLocaleLowerCase('pt-BR') ===
+    String(username).toLocaleLowerCase('pt-BR')
+  ) || null;
+}
+
+function renderFocusedPreventivePlan() {
+  const machineFilter = $('focusedMachineFilter')?.value || '';
+  const mechanicFilter = $('focusedMechanicFilter')?.value || '';
+
+  const metrics = state.reliability3Days || calculateReliability3Days();
+  const preventive = buildPreventivePlan(metrics);
+  const improvements = buildImprovementPlan(metrics);
+  const team = calculateTeamPerformance();
+
+  const preventiveTarget = $('focusedPreventiveList');
+  const mechanicTarget = $('focusedMechanicPlan');
+  const conversationTarget = $('focusedConversationAnalysis');
+  const status = $('focusedPlanStatus');
+
+  let preventiveRows = preventive;
+
+  if (machineFilter) {
+    preventiveRows = preventiveRows.filter(item =>
+      item.machine === machineFilter
+    );
+  }
+
+  if (preventiveTarget) {
+    preventiveTarget.innerHTML = preventiveRows.length
+      ? preventiveRows.map(item => `
+          <article class="focused-plan-card">
+            <div class="focused-plan-head">
+              <div>
+                <strong>${escapeHtml(item.machine)}</strong>
+                <span>${escapeHtml(item.frequency)}</span>
+              </div>
+              <span class="focused-risk">
+                ${item.failureCount >= 5 ? 'Risco alto' :
+                  item.failureCount >= 3 ? 'Risco médio' : 'Acompanhar'}
+              </span>
+            </div>
+            <p>
+              ${item.failureCount} falha(s) •
+              MTTR ${escapeHtml(formatReliabilityTime(item.mttrMinutes, '-'))} •
+              MTBF ${escapeHtml(formatReliabilityTime(item.mtbfMinutes, '-'))}
+            </p>
+            <h4>Preventiva sugerida</h4>
+            <ol>
+              ${item.actions.map(action => `<li>${escapeHtml(action)}</li>`).join('')}
+            </ol>
+          </article>
+        `).join('')
+      : '<p class="muted">Nenhum plano preventivo encontrado para o filtro selecionado.</p>';
+  }
+
+  const scaleUsers = scaleExecutantesOnly();
+  const filteredUsers = mechanicFilter
+    ? scaleUsers.filter(user => user.username === mechanicFilter)
+    : scaleUsers;
+
+  if (mechanicTarget) {
+    mechanicTarget.innerHTML = filteredUsers.length
+      ? filteredUsers.map(user => {
+          const row = mechanicDevelopmentFor(user.username);
+          const mentor = row?.trainingCategory
+            ? findMentorForCategory(row.trainingCategory, team)
+            : null;
+
+          const machinePlan = improvements.find(plan =>
+            !machineFilter || plan.machine === machineFilter
+          );
+
+          return `
+            <article class="focused-mechanic-card">
+              <div class="focused-plan-head">
+                <div>
+                  <strong>${escapeHtml(user.label)}</strong>
+                  <span>Equipe ${escapeHtml(user.crew)}${user.leader ? ' • líder' : ''}</span>
+                </div>
+                <span class="${row?.needsTraining ? 'training-badge' : 'specialist-badge'}">
+                  ${row?.needsTraining ? 'Desenvolver' : 'Acompanhar'}
+                </span>
+              </div>
+
+              <p>
+                OS concluídas: ${Number(row?.completed || 0)} •
+                MTTR: ${escapeHtml(formatReliabilityTime(row?.mttrMinutes, '-'))}
+              </p>
+
+              <h4>Plano de melhoria do mecânico</h4>
+              <ol>
+                <li>
+                  ${row?.trainingCategory
+                    ? `Treinamento prático em ${escapeHtml(row.trainingCategory)}`
+                    : 'Melhorar o preenchimento da causa e da solução no SGMan'}
+                </li>
+                <li>
+                  ${mentor && mentor.executante !== user.username
+                    ? `Acompanhar uma intervenção com ${escapeHtml(mentor.label)}`
+                    : 'Realizar intervenção acompanhada pelo líder da equipe'}
+                </li>
+                <li>
+                  ${machinePlan
+                    ? `Atuar no plano da ${escapeHtml(machinePlan.machine)} e comparar MTTR antes/depois`
+                    : 'Selecionar uma máquina crítica e acompanhar a evolução do MTTR'}
+                </li>
+                <li>Registrar testes realizados e confirmar que a falha não voltou.</li>
+              </ol>
+
+              <small>
+                ${row?.bestCategory
+                  ? `Ponto forte identificado: ${escapeHtml(row.bestCategory)}.`
+                  : 'Ainda não há dados suficientes para definir especialidade.'}
+              </small>
+            </article>
+          `;
+        }).join('')
+      : '<p class="muted">Nenhum mecânico da escala corresponde ao filtro.</p>';
+  }
+
+  if (conversationTarget) {
+    conversationTarget.innerHTML = focusedConversationSummary();
+  }
+
+  if (status) {
+    const conversationText = $('focusedGroupConversation')?.value || '';
+    const machines = focusedConversationMachines(conversationText);
+
+    status.textContent =
+      `Planos atualizados • ${preventiveRows.length} máquina(s) • ` +
+      `${filteredUsers.length} mecânico(s) da escala` +
+      (machines.length ? ` • Conversa citou: ${machines.join(', ')}` : '');
+  }
+}
+
+async function analyzeFocusedManagementPage() {
+  const button = $('focusedAnalyzeBtn');
+  const text = $('focusedGroupConversation')?.value.trim() || '';
+
+  if (!text) {
+    showToast('Cole as conversas do grupo.');
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = 'Analisando...';
+  $('focusedPlanStatus').textContent =
+    'Lendo as conversas e consultando os dados do SGMan...';
+
+  try {
+    $('reportText').value = text;
+    safeStorageSet(STORAGE.draft, text);
+    $('reportReceivedAt').value = toLocalDateTimeInput(new Date());
+
+    await analyzeCurrentReport();
+    await refreshSgmanHistory(true);
+
+    if (state.actions?.length) {
+      await loadSgmanMachineHistories(state.actions, true);
+      applySgmanHistoryToActions();
+    }
+
+    state.reliability3Days = calculateReliability3Days();
+    populateFocusedFilters();
+    renderFocusedPreventivePlan();
+
+    document.body.classList.add('focused-management-mode');
+    switchView('planos');
+    showToast('Planos atualizados.');
+  } catch (error) {
+    $('focusedPlanStatus').textContent =
+      `Não foi possível atualizar os planos: ${error.message}`;
+    showToast('Falha ao atualizar os planos.');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Analisar e atualizar planos';
+  }
+}
+
+function initFocusedManagementPage() {
+  document.body.classList.add('focused-management-mode');
+  populateFocusedFilters();
+
+  const conversation = $('focusedGroupConversation');
+  const saved = localStorage.getItem('turnosmart_group_conversation_v1');
+  if (conversation && saved) conversation.value = saved;
+
+  $('focusedAnalyzeBtn')?.addEventListener(
+    'click',
+    analyzeFocusedManagementPage
+  );
+
+  $('focusedGroupConversation')?.addEventListener('input', event => {
+    safeStorageSet(
+      'turnosmart_group_conversation_v1',
+      compactTextForStorage(event.target.value, 50000)
+    );
+  });
+
+  $('focusedMachineFilter')?.addEventListener(
+    'change',
+    renderFocusedPreventivePlan
+  );
+
+  $('focusedMechanicFilter')?.addEventListener(
+    'change',
+    renderFocusedPreventivePlan
+  );
+
+  $('focusedRefreshBtn')?.addEventListener('click', async () => {
+    const button = $('focusedRefreshBtn');
+    button.disabled = true;
+    button.textContent = 'Atualizando...';
+
+    try {
+      await refreshSgmanHistory(true);
+      state.reliability3Days = calculateReliability3Days();
+      populateFocusedFilters();
+      renderFocusedPreventivePlan();
+      showToast('Dados do SGMan atualizados.');
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Atualizar SGMan';
+    }
+  });
+
+  switchView('planos');
+  renderFocusedPreventivePlan();
+  initTurnIntelligence();
+}
+
+
+const INTELLIGENCE_HISTORY_KEY = 'turnosmart_intelligence_history_v1';
+
+function getIntelligenceHistory() {
+  try {
+    const data = JSON.parse(localStorage.getItem(INTELLIGENCE_HISTORY_KEY) || '[]');
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveIntelligenceHistory(items = []) {
+  const compact = items.slice(0, 180).map(item => ({
+    id: item.id,
+    date: item.date,
+    shift: item.shift,
+    reportedOee: item.reportedOee,
+    machineOee: Array.isArray(item.machineOee)
+      ? item.machineOee.slice(0, 40)
+      : [],
+    machinesFromConversation: Array.isArray(item.machinesFromConversation)
+      ? item.machinesFromConversation.slice(0, 30)
+      : [],
+    conversationSummary: compactTextForStorage(item.conversationSummary || '', 5000),
+    createdAt: item.createdAt
+  }));
+
+  safeStorageSet(
+    INTELLIGENCE_HISTORY_KEY,
+    JSON.stringify(compact),
+    { removeOnFailure: true }
+  );
+}
+
+async function loadHistoricGroupSeed() {
+  if (state.intelligenceSeed) return state.intelligenceSeed;
+
+  try {
+    const response = await fetch('/historico-grupo.json', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    state.intelligenceSeed = await response.json();
+  } catch {
+    state.intelligenceSeed = {
+      messageCount: 0,
+      reportCount: 0,
+      oeeCount: 0,
+      oeeAverage: null,
+      machineOccurrences: [],
+      problemOccurrences: []
+    };
+  }
+
+  return state.intelligenceSeed;
+}
+
+function renderIntelligenceHistoricSeed() {
+  const target = $('intelligenceHistoricSummary');
+  if (!target) return;
+
+  const seed = state.intelligenceSeed || {};
+  const machines = (seed.machineOccurrences || []).slice(0, 8);
+  const problems = (seed.problemOccurrences || []).slice(0, 8);
+
+  target.innerHTML = `
+    <div class="intelligence-seed-metrics">
+      <div class="metric">
+        <span>Mensagens processadas</span>
+        <strong>${Number(seed.messageCount || 0).toLocaleString('pt-BR')}</strong>
+        <small>Histórico do grupo enviado</small>
+      </div>
+      <div class="metric">
+        <span>Relatórios encontrados</span>
+        <strong>${Number(seed.reportCount || 0).toLocaleString('pt-BR')}</strong>
+        <small>Relatórios de produção identificados</small>
+      </div>
+      <div class="metric">
+        <span>OEE histórico médio</span>
+        <strong>${seed.oeeAverage == null ? '-' : `${String(seed.oeeAverage).replace('.', ',')}%`}</strong>
+        <small>${Number(seed.oeeCount || 0).toLocaleString('pt-BR')} leituras reconhecidas</small>
+      </div>
+    </div>
+
+    <div class="grid two">
+      <div>
+        <h4>Máquinas mais citadas no grupo</h4>
+        <div class="intelligence-ranking">
+          ${machines.map((item, index) => `
+            <div><span>${index + 1}. ${escapeHtml(item.machine)}</span><strong>${item.count}</strong></div>
+          `).join('') || '<p class="muted">Sem dados.</p>'}
+        </div>
+      </div>
+      <div>
+        <h4>Problemas mais citados</h4>
+        <div class="intelligence-ranking">
+          ${problems.map((item, index) => `
+            <div><span>${index + 1}. ${escapeHtml(item.problem)}</span><strong>${item.count}</strong></div>
+          `).join('') || '<p class="muted">Sem dados.</p>'}
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderIntelligenceOeeEditor(rows = []) {
+  const target = $('intelligenceOeeEditor');
+  if (!target) return;
+
+  state.intelligenceOeeRows = rows.length
+    ? rows
+    : OEE_BOARD_MACHINES.map(machine => ({
+        machine,
+        oee: '',
+        confidence: 0
+      }));
+
+  target.innerHTML = `
+    <div class="oee-editor-head">
+      <strong>Confirme os valores do quadro</strong>
+      <span class="muted">Deixe vazio quando a máquina não trabalhou.</span>
+    </div>
+    <div class="intelligence-oee-grid">
+      ${state.intelligenceOeeRows.map((row, index) => `
+        <label class="intelligence-oee-row">
+          <span>${escapeHtml(row.machine)}</span>
+          <input
+            data-intelligence-oee="${index}"
+            type="number"
+            min="0"
+            max="100"
+            step="0.1"
+            inputmode="decimal"
+            value="${row.oee === '' ? '' : escapeHtml(String(row.oee))}"
+            placeholder="-"
+          />
+          <small>${row.oee === '' ? 'Revisar' : `${Math.round(row.confidence || 0)}% confiança`}</small>
+        </label>
+      `).join('')}
+    </div>`;
+
+  $$('[data-intelligence-oee]').forEach(input => {
+    input.addEventListener('input', event => {
+      const index = Number(event.target.dataset.intelligenceOee);
+      const raw = event.target.value.trim().replace(',', '.');
+      const value = raw === '' ? '' : Number(raw);
+
+      state.intelligenceOeeRows[index].oee =
+        Number.isFinite(value) && value >= 0 && value <= 100
+          ? value
+          : '';
+
+      state.intelligenceOeeRows[index].confidence = 100;
+    });
+  });
+}
+
+async function analyzeIntelligenceOeePhoto() {
+  const input = $('intelligenceOeePhotos');
+  const file = input?.files?.[0];
+
+  if (!file) {
+    showToast('Escolha uma foto do quadro de OEE.');
+    return;
+  }
+
+  const status = $('intelligencePhotoStatus');
+  const date = $('intelligenceDate')?.value || todayISO();
+  const shift = $('intelligenceShift')?.value || '1';
+
+  status.textContent = 'Preparando e lendo a foto do quadro...';
+
+  try {
+    const dataUrl = await dataUrlFromFile(file);
+    state.intelligencePhotoName = file.name;
+
+    const image = await loadImageElement(dataUrl);
+    const processed = preprocessOeeColumn(image, date, shift);
+
+    $('intelligencePhotoPreview').src = processed.previewDataUrl;
+    $('intelligencePhotoPreviewWrap').classList.remove('hidden');
+
+    state.oeeRowPreviews = processed.rowPreviews || [];
+
+    if (!window.Tesseract) {
+      throw new Error('Leitor OCR não carregado.');
+    }
+
+    const result = await window.Tesseract.recognize(
+      processed.ocrDataUrl,
+      'eng',
+      {
+        logger: info => {
+          if (
+            info.status === 'recognizing text' &&
+            typeof info.progress === 'number'
+          ) {
+            status.textContent =
+              `Lendo a coluna do quadro... ${Math.round(info.progress * 100)}%`;
+          }
+        }
+      },
+      {
+        tessedit_char_whitelist: '0123456789%.,',
+        tessedit_pageseg_mode: '6',
+        preserve_interword_spaces: '1'
+      }
+    );
+
+    const rows = mapOcrWordsToMachineRows(
+      result?.data?.words || [],
+      processed.canvas.height
+    );
+
+    renderIntelligenceOeeEditor(rows);
+
+    const detected = rows.filter(row => row.oee !== '').length;
+    status.textContent =
+      `${detected} valor(es) sugerido(s). Confira a tabela antes de salvar.`;
+  } catch (error) {
+    console.warn(error);
+    renderIntelligenceOeeEditor([]);
+    status.textContent =
+      'A leitura automática ficou incompleta. Preencha os valores manualmente usando a foto.';
+  }
+}
+
+function currentIntelligenceMachineOee() {
+  return (state.intelligenceOeeRows || [])
+    .map(row => ({
+      machine: row.machine,
+      oee: row.oee === '' ? null : Number(row.oee)
+    }))
+    .filter(row =>
+      Number.isFinite(row.oee) &&
+      row.oee >= 0 &&
+      row.oee <= 100
+    );
+}
+
+function intelligenceTrendFromHistory(history = []) {
+  const values = history
+    .map(item => Number(item.reportedOee))
+    .filter(value => Number.isFinite(value) && value > 0);
+
+  if (!values.length) {
+    return {
+      direction: 'unknown',
+      arrow: '➜',
+      delta: null,
+      current: null,
+      previous: null
+    };
+  }
+
+  const current = values[0];
+  const previous = values[1] ?? null;
+  const delta = previous == null ? null : current - previous;
+
+  return {
+    current,
+    previous,
+    delta,
+    direction:
+      delta == null ? 'unknown' :
+      delta >= 0.5 ? 'up' :
+      delta <= -0.5 ? 'down' : 'stable',
+    arrow:
+      delta == null ? '➜' :
+      delta >= 0.5 ? '⬆' :
+      delta <= -0.5 ? '⬇' : '➜'
+  };
+}
+
+function buildIntelligenceReport() {
+  const history = getIntelligenceHistory();
+  const trend = intelligenceTrendFromHistory(history);
+  const metrics = state.reliability3Days || calculateReliability3Days();
+  const dashboard = getRecentOeeDashboard();
+  const conversationText = $('focusedGroupConversation')?.value || '';
+  const conversationMachines = focusedConversationMachines(conversationText);
+  const preventive = buildPreventivePlan(metrics);
+  const seed = state.intelligenceSeed || {};
+
+  const currentMachineOee = currentIntelligenceMachineOee();
+  const below65 = currentMachineOee
+    .filter(item => item.oee < 65)
+    .sort((a, b) => a.oee - b.oee);
+
+  const historicalTopMachines = (seed.machineOccurrences || [])
+    .slice(0, 10)
+    .map(item => item.machine);
+
+  const priorityPool = uniqueStrings([
+    ...below65.map(item => item.machine),
+    ...conversationMachines,
+    ...(metrics.dailyPlan || []).map(item => item.machine),
+    ...(dashboard.priorityMachines || []).map(item => item.machine),
+    ...historicalTopMachines
+  ]);
+
+  const priorities = priorityPool.slice(0, 5).map(machine => {
+    const preventiveItem = preventive.find(item => item.machine === machine);
+    const currentOee = currentMachineOee.find(item => item.machine === machine);
+    const metric = (metrics.rows || []).find(item => item.machine === machine);
+
+    return {
+      machine,
+      oee: currentOee?.oee ?? null,
+      mttrMinutes: metric?.mttrMinutes ?? null,
+      mtbfMinutes: metric?.mtbfMinutes ?? null,
+      failures: metric?.failureCount ?? 0,
+      actions: preventiveItem?.actions?.slice(0, 3) || [
+        'analisar e resolver o problema durante o turno',
+        'registrar a causa e a solução no SGMan',
+        'confirmar estabilidade antes da liberação'
+      ]
+    };
+  });
+
+  let directionText = 'Sem comparação anterior.';
+  if (trend.delta != null) {
+    const delta = Math.abs(trend.delta).toFixed(1).replace('.', ',');
+    directionText =
+      trend.direction === 'up'
+        ? `Melhora de ${delta} ponto(s).`
+        : trend.direction === 'down'
+          ? `Piora de ${delta} ponto(s).`
+          : 'Eficiência estável.';
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    trend,
+    directionText,
+    priorities,
+    below65,
+    conversationMachines,
+    historicAverage: seed.oeeAverage ?? null,
+    historicReports: seed.reportCount ?? 0,
+    currentShiftCompleted: metrics.completedCurrentShift || 0,
+    mttrMinutes: metrics.mttrMinutes,
+    mtbfMinutes: metrics.mtbfMinutes,
+    reliabilityPercent: metrics.reliabilityPercent,
+    preventive
+  };
+}
+
+function renderIntelligenceReport() {
+  const target = $('intelligenceReport');
+  if (!target) return;
+
+  const report = buildIntelligenceReport();
+  state.intelligenceReport = report;
+
+  target.innerHTML = `
+    <div class="intelligence-report-header">
+      <div>
+        <span class="eyebrow">RELATÓRIO INTELIGÊNCIA DO TURNO</span>
+        <h3>${escapeHtml(report.trend.arrow)} ${escapeHtml(report.directionText)}</h3>
+      </div>
+      <span>${new Date(report.generatedAt).toLocaleString('pt-BR')}</span>
+    </div>
+
+    <div class="intelligence-report-metrics">
+      <div class="metric">
+        <span>MTTR</span>
+        <strong>${escapeHtml(formatReliabilityTime(report.mttrMinutes, '-'))}</strong>
+        <small>SGMan — paradas reais</small>
+      </div>
+      <div class="metric">
+        <span>MTBF</span>
+        <strong>${escapeHtml(formatReliabilityTime(report.mtbfMinutes, '-'))}</strong>
+        <small>Máquina completa</small>
+      </div>
+      <div class="metric">
+        <span>Confiabilidade 12h</span>
+        <strong>${escapeHtml(formatReliabilityPercent(report.reliabilityPercent, '-'))}</strong>
+        <small>Estimativa do próximo turno</small>
+      </div>
+      <div class="metric">
+        <span>OS concluídas no turno</span>
+        <strong>${Number(report.currentShiftCompleted || 0)}</strong>
+        <small>Até o horário atual</small>
+      </div>
+    </div>
+
+    <h4>Prioridades do próximo turno</h4>
+    <div class="intelligence-priority-list">
+      ${report.priorities.length
+        ? report.priorities.map((item, index) => `
+            <article>
+              <span class="priority-number">${index + 1}</span>
+              <div>
+                <strong>${escapeHtml(item.machine)}</strong>
+                <p>
+                  OEE ${item.oee == null ? '-' : escapeHtml(formatOee(item.oee))}
+                  • ${item.failures} falha(s)
+                  • MTTR ${escapeHtml(formatReliabilityTime(item.mttrMinutes, '-'))}
+                  • MTBF ${escapeHtml(formatReliabilityTime(item.mtbfMinutes, '-'))}
+                </p>
+                <ol>
+                  ${item.actions.map(action => `<li>${escapeHtml(action)}</li>`).join('')}
+                </ol>
+              </div>
+            </article>
+          `).join('')
+        : '<p class="muted">Sem prioridades suficientes. Atualize foto, conversa e SGMan.</p>'}
+    </div>
+
+    <div class="reference-box">
+      <strong>Base utilizada</strong>
+      <p>
+        Foto do quadro e lançamentos diários, conversas do grupo,
+        ${Number(report.historicReports || 0).toLocaleString('pt-BR')} relatórios históricos identificados
+        e dados atuais do SGMan.
+      </p>
+    </div>`;
+}
+
+function saveCurrentIntelligenceReading() {
+  const date = $('intelligenceDate')?.value || todayISO();
+  const shift = $('intelligenceShift')?.value || '1';
+  const reportedOeeRaw = $('intelligenceGeneralOee')?.value || '';
+  const reportedOee = Number(String(reportedOeeRaw).replace(',', '.'));
+  const machineOee = currentIntelligenceMachineOee();
+  const conversationText = $('focusedGroupConversation')?.value || '';
+
+  if (
+    !Number.isFinite(reportedOee) &&
+    !machineOee.length &&
+    !conversationText.trim()
+  ) {
+    showToast('Informe o OEE, confirme máquinas ou cole o relatório do grupo.');
+    return;
+  }
+
+  const item = {
+    id: `intelligence-${date}-${shift}-${Date.now()}`,
+    date,
+    shift,
+    reportedOee: Number.isFinite(reportedOee) ? reportedOee : null,
+    machineOee,
+    machinesFromConversation: focusedConversationMachines(conversationText),
+    conversationSummary: conversationText,
+    createdAt: new Date().toISOString()
+  };
+
+  const history = getIntelligenceHistory();
+  history.unshift(item);
+  saveIntelligenceHistory(history);
+
+  // Também alimenta o histórico padrão usado pelo painel de OEE.
+  const analysis = {
+    id: `oee-${date}-${shift}`,
+    date,
+    shift,
+    crew: crewForReport(date, shift),
+    responsibleCrew: responsibleCrewForReport(date, shift),
+    realized: null,
+    reportedOee: item.reportedOee,
+    machineOee: item.machineOee,
+    rawText: conversationText
+  };
+
+  saveOrUpdateAnalysisHistory(analysis, []);
+  renderOeeDashboard();
+  renderIntelligenceHistory();
+  renderIntelligenceReport();
+  showToast('Leitura diária salva no histórico.');
+}
+
+function renderIntelligenceHistory() {
+  const target = $('intelligenceDailyHistory');
+  if (!target) return;
+
+  const history = getIntelligenceHistory();
+
+  target.innerHTML = history.length
+    ? history.slice(0, 20).map(item => `
+        <div class="intelligence-history-row">
+          <div>
+            <strong>${escapeHtml(formatDate(item.date))} • Turno ${String(item.shift) === '2' ? 'B' : 'A'}</strong>
+            <span>OEE geral: ${item.reportedOee == null ? '-' : escapeHtml(formatOee(item.reportedOee))}</span>
+          </div>
+          <small>${item.machineOee?.length || 0} máquina(s) • ${item.machinesFromConversation?.length || 0} citada(s) no grupo</small>
+        </div>
+      `).join('')
+    : '<p class="muted">Nenhuma leitura diária salva ainda.</p>';
+}
+
+async function initTurnIntelligence() {
+  $('intelligenceDate').value = todayISO();
+
+  await loadHistoricGroupSeed();
+  renderIntelligenceHistoricSeed();
+  renderIntelligenceOeeEditor([]);
+  renderIntelligenceHistory();
+  renderIntelligenceReport();
+
+  $('intelligenceReadPhotoBtn')?.addEventListener(
+    'click',
+    analyzeIntelligenceOeePhoto
+  );
+
+  $('intelligenceSaveBtn')?.addEventListener(
+    'click',
+    saveCurrentIntelligenceReading
+  );
+
+  $('intelligenceGenerateReportBtn')?.addEventListener('click', async () => {
+    const button = $('intelligenceGenerateReportBtn');
+    button.disabled = true;
+    button.textContent = 'Atualizando...';
+
+    try {
+      await refreshSgmanHistory(true);
+      state.reliability3Days = calculateReliability3Days();
+      renderFocusedPreventivePlan();
+      renderIntelligenceReport();
+      showToast('Relatório inteligente atualizado.');
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Gerar relatório inteligente';
+    }
+  });
+}
+
 const SAMPLE_REPORT = `*Relatório de produção diária*
 - Turno: 3°
 *Lideres* : Adriana 
@@ -6658,7 +7523,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=44.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=46.0.0');
         registration.update();
       } catch {}
     });
@@ -6669,6 +7534,7 @@ function init() {
   renderScale();
   renderHistory();
   renderOeeDashboard();
+  initFocusedManagementPage();
 }
 
 document.addEventListener('DOMContentLoaded', init);
