@@ -1,22 +1,12 @@
-# TurnoSmart V46 — Inteligência do Turno
+# TurnoSmart V45 — Página única de planos
 
-## Fontes cruzadas
+A página principal contém somente:
 
-- foto diária do quadro de OEE;
-- OEE geral e por máquina;
-- conversas e relatórios do grupo;
-- histórico exportado do grupo Team Leaders;
-- ordens atuais do SGMan;
-- MTTR, MTBF e confiabilidade;
-- planos preventivos e desenvolvimento da equipe.
+1. conversas do grupo;
+2. filtros por máquina e mecânico;
+3. plano preventivo;
+4. plano de melhoria dos mecânicos da escala.
 
-## Histórico já incluído
+Cole mensagens do WhatsApp ou Telegram e toque em **Analisar e atualizar planos**.
 
-O arquivo enviado foi processado e gerou uma base compacta com:
-
-- 3.007 mensagens;
-- 972 relatórios de produção;
-- 955 valores de OEE reconhecidos;
-- média histórica de 61,9%.
-
-As 887 fotos não são incluídas dentro do aplicativo para evitar um pacote de quase 200 MB. As novas fotos podem ser registradas diariamente na página.
+O filtro por máquina mostra somente a preventiva selecionada. O filtro por mecânico inclui apenas líderes e mecânicos cadastrados nas escalas A1, A2, B1 e B2.
