@@ -194,14 +194,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '43.0.0';
+const APP_VERSION = '44.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v43.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v44.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -448,7 +448,10 @@ const state = {
   reportAnalyzing: false,
   backgroundAnalysisId: '',
   quickOsVoiceTranscript: '',
-  quickOsVoiceParsed: null
+  quickOsVoiceParsed: null,
+  teamPerformance: [],
+  preventivePlan: [],
+  improvementPlan: []
 };
 
 const $ = id => document.getElementById(id);
@@ -2857,11 +2860,7 @@ function conciseMaintenanceRepairActions(action) {
   );
 
   if (genericHistoryMessage || !actions.length) {
-    return [
-      'confirmar o sintoma e localizar o conjunto com falha',
-      'medir folgas, alinhamento, sinais e condições dos componentes',
-      'corrigir a causa encontrada e testar a estabilidade da máquina'
-    ].join('; ') + '.';
+    return 'analisar e resolver o problema durante o turno; registrar a causa e a solução no SGMan.';
   }
 
   return uniqueStrings(actions)
@@ -4008,6 +4007,96 @@ function managerGuidance(metrics = {}) {
   return `Mantenha o ritmo. Proteja a disponibilidade da ${top.machine} e acompanhe as três prioridades até o fim do turno.`;
 }
 
+
+function orderExecutanteKey(order = {}) {
+  return String(order.executante || order.executor || '').trim();
+}
+
+function orderTechnicalCategory(order = {}) {
+  const text = normalizeKey([
+    order.description, order.comment, order.solution, order.typeService
+  ].filter(Boolean).join(' '));
+  const categories = [
+    ['faca', /faca|contra ?faca|corte/],
+    ['camme', /camme|came|leva|sincronismo/],
+    ['altura', /altura|desnivel|varia/],
+    ['cola', /cola|hhs|colagem/],
+    ['pneumática', /pneumat|mangueira|valvula|cilindro/],
+    ['elétrica', /sensor|encoder|drive|eletric|rele|fusivel|cabo/],
+    ['bobina', /bobina|desbobin|freio|tensao/],
+    ['rolamento', /rolamento|eixo|folga/],
+    ['limpeza', /limpeza|residuo|sujeira|refilo/]
+  ];
+  return categories.find(([, regex]) => regex.test(text))?.[0] || 'geral';
+}
+
+function calculateTeamPerformance() {
+  const orders = (state.sgmanHistory?.orders || [])
+    .filter(order => order.statusKey === 'completed')
+    .filter(order => orderExecutanteKey(order));
+  const map = new Map();
+  orders.forEach(order => {
+    const name = orderExecutanteKey(order);
+    const duration = sgmanRepairDuration(order);
+    const category = orderTechnicalCategory(order);
+    if (!map.has(name)) map.set(name, { executante:name, completed:0, durations:[], categories:{} });
+    const row=map.get(name); row.completed++;
+    if (duration !== null) row.durations.push(duration);
+    row.categories[category] ||= {count:0,durations:[]};
+    row.categories[category].count++;
+    if (duration !== null) row.categories[category].durations.push(duration);
+  });
+  const rows=[...map.values()].map(row=>{
+    const categoryRows=Object.entries(row.categories).map(([category,data])=>({category,count:data.count,mttrMinutes:averageNumbers(data.durations)}));
+    const bestCategory=categoryRows.filter(x=>x.count>=2&&x.mttrMinutes!==null).sort((a,b)=>a.mttrMinutes-b.mttrMinutes)[0]||null;
+    return {executante:row.executante,label:sgmanUserLabel(row.executante),completed:row.completed,mttrMinutes:averageNumbers(row.durations),categoryRows,bestCategory};
+  });
+  const teamAverage=averageNumbers(rows.map(r=>r.mttrMinutes).filter(v=>v!==null));
+  rows.forEach(row=>{
+    row.needsTraining=row.mttrMinutes!==null&&teamAverage!==null&&row.mttrMinutes>teamAverage*1.35;
+    row.trainingCategory=row.categoryRows.filter(x=>x.count>=2&&x.mttrMinutes!==null).sort((a,b)=>(b.mttrMinutes||0)-(a.mttrMinutes||0))[0]?.category||'';
+  });
+  rows.sort((a,b)=>(a.mttrMinutes??Infinity)-(b.mttrMinutes??Infinity)||b.completed-a.completed);
+  state.teamPerformance=rows; return rows;
+}
+
+function findMentorForCategory(category, rows=state.teamPerformance) {
+  return rows.map(row=>{ const item=row.categoryRows.find(x=>x.category===category); return item?{label:row.label,executante:row.executante,count:item.count,mttrMinutes:item.mttrMinutes}:null; })
+    .filter(x=>x&&x.count>=2&&x.mttrMinutes!==null).sort((a,b)=>a.mttrMinutes-b.mttrMinutes||b.count-a.count)[0]||null;
+}
+
+function buildPreventivePlan(metrics = state.reliability3Days || {}) {
+  const plan=(metrics.rows||[]).map(row=>{
+    const orders=state.sgmanMachineHistory?.[row.machine]?.orders||[];
+    const patterns=countHistorySolutionPatterns(orders.filter(o=>o.statusKey==='completed')).slice(0,3);
+    const actions=patterns.length?patterns.map(p=>p.label):['inspecionar o conjunto com maior reincidência','verificar folgas, alinhamento e desgaste','registrar causa e solução no SGMan'];
+    let frequency='Semanal';
+    if(row.failureCount>=5||(row.mtbfMinutes&&row.mtbfMinutes<480)) frequency='Diária';
+    else if(row.failureCount>=3||row.recurrent) frequency='A cada 3 dias';
+    return {machine:row.machine,frequency,actions:actions.slice(0,3),failureCount:row.failureCount,mttrMinutes:row.mttrMinutes,mtbfMinutes:row.mtbfMinutes,score:row.failureCount*10+(row.recurrent?15:0)+(row.mttrMinutes||0)/20};
+  }).sort((a,b)=>b.score-a.score).slice(0,10);
+  state.preventivePlan=plan; return plan;
+}
+
+function buildImprovementPlan(metrics = state.reliability3Days || {}) {
+  const plan=(metrics.dailyPlan||[]).slice(0,3).map((row,index)=>({
+    priority:index+1,machine:row.machine,
+    objective:`Reduzir reincidência e elevar a disponibilidade da ${row.machine}.`,
+    targetMttr:row.mttrMinutes?row.mttrMinutes*0.75:null,
+    targetMtbf:row.mtbfMinutes?row.mtbfMinutes*1.30:null,
+    actions:['eliminar a causa mais recorrente da árvore da máquina','padronizar inspeção, regulagem e teste de liberação','confirmar causa e solução em todas as conclusões do SGMan']
+  })); state.improvementPlan=plan; return plan;
+}
+
+function renderPeopleAndPreventivePanels(metrics = state.reliability3Days || {}) {
+  const team=calculateTeamPerformance(); const preventive=buildPreventivePlan(metrics); const improvements=buildImprovementPlan(metrics);
+  const teamTarget=$('teamPerformanceList'), trainingTarget=$('trainingRecommendations'), preventiveTarget=$('preventivePlanList'), improvementTarget=$('improvementPlanList');
+  if(teamTarget) teamTarget.innerHTML=team.length?team.slice(0,12).map((row,i)=>`<div class="people-performance-row"><span class="priority-number">${i+1}</span><div><strong>${escapeHtml(row.label||row.executante)}</strong><p>${row.completed} OS • MTTR ${escapeHtml(formatReliabilityTime(row.mttrMinutes,'-'))}${row.bestCategory?` • referência em ${escapeHtml(row.bestCategory)}`:''}</p></div><span class="${row.needsTraining?'training-badge':'specialist-badge'}">${row.needsTraining?'Treinamento':'Referência'}</span></div>`).join(''):'<p class="muted">Sem dados suficientes por executante.</p>';
+  if(trainingTarget){ const t=team.filter(r=>r.needsTraining); trainingTarget.innerHTML=t.length?t.slice(0,8).map(row=>{const mentor=findMentorForCategory(row.trainingCategory,team);return `<div class="training-row"><strong>${escapeHtml(row.label||row.executante)}</strong><span>Treinar: ${escapeHtml(row.trainingCategory||'diagnóstico')}</span><small>Mentor sugerido: ${escapeHtml(mentor?.label||'líder da equipe')}</small></div>`}).join(''):'<p class="muted">Nenhum treinamento prioritário identificado.</p>'; }
+  if(preventiveTarget) preventiveTarget.innerHTML=preventive.length?preventive.map(item=>`<div class="preventive-row"><div><strong>${escapeHtml(item.machine)}</strong><span>${escapeHtml(item.frequency)}</span></div><ul>${item.actions.map(a=>`<li>${escapeHtml(a)}</li>`).join('')}</ul><small>${item.failureCount} falha(s) • MTTR ${escapeHtml(formatReliabilityTime(item.mttrMinutes,'-'))} • MTBF ${escapeHtml(formatReliabilityTime(item.mtbfMinutes,'-'))}</small></div>`).join(''):'<p class="muted">Sem dados suficientes para preventivas.</p>';
+  if(improvementTarget) improvementTarget.innerHTML=improvements.length?improvements.map(p=>`<div class="improvement-row"><span class="priority-number">${p.priority}</span><div><strong>${escapeHtml(p.machine)}</strong><p>${escapeHtml(p.objective)}</p><ul>${p.actions.map(a=>`<li>${escapeHtml(a)}</li>`).join('')}</ul><small>Meta MTTR: ${escapeHtml(formatReliabilityTime(p.targetMttr,'-'))} • Meta MTBF: ${escapeHtml(formatReliabilityTime(p.targetMtbf,'-'))}</small></div></div>`).join(''):'<p class="muted">Sem dados suficientes para plano de melhoria.</p>';
+}
+
 function renderManagerDashboard(metrics = {}) {
   const target = $('managerDashboard');
   if (!target) return;
@@ -4118,6 +4207,7 @@ function renderReliability3Days() {
 
   renderEfficiencyTrendAndPlan(metrics);
   renderManagerDashboard(metrics);
+  renderPeopleAndPreventivePanels(metrics);
 
   if (cards) {
     cards.innerHTML = `
@@ -5021,7 +5111,7 @@ function analyzeMachineHistoryForAction(action) {
       .join('; ');
   } else {
     resolution =
-      'Histórico insuficiente para indicar uma causa específica. Fazer diagnóstico no local antes de trocar componentes.';
+      'Analisar e resolver o problema durante o turno. Registrar a causa e a solução no SGMan.';
   }
 
   const compactPatterns = strongPatterns
@@ -6568,7 +6658,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=43.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=44.0.0');
         registration.update();
       } catch {}
     });
