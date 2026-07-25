@@ -1,18 +1,12 @@
-# TurnoSmart V47 — Aplicativo completo
+# TurnoSmart V48 — Módulos independentes
 
-A Inteligência do Turno agora é uma nova aba e não substitui as funções antigas.
+O problema da V47 era que a nova Inteligência ainda iniciava junto com o aplicativo. Caso alguma consulta, histórico ou elemento da nova página falhasse, o JavaScript podia parar antes de concluir a inicialização das outras funções.
 
-## Páginas disponíveis
+## Correção
 
-- Novo relatório;
-- Abrir OS;
-- Mecânico Virtual;
-- Análise;
-- Ações;
-- OEE 3 dias;
-- Inteligência do Turno;
-- Escala;
-- Histórico;
-- Configuração.
-
-A aba Inteligência continua cruzando fotos do quadro de OEE, conversas do grupo, histórico Team Leaders, SGMan, preventivas e desenvolvimento dos mecânicos.
+- navegação independente;
+- aplicação inicia sempre em Novo;
+- Inteligência inicia somente ao abrir sua aba;
+- erros da Inteligência ficam restritos à própria aba;
+- banner informa erros sem bloquear o aplicativo;
+- listeners de navegação não dependem do restante do init.

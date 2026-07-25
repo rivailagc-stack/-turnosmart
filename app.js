@@ -194,14 +194,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '47.0.0';
+const APP_VERSION = '48.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v47.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v48.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -459,6 +459,71 @@ const state = {
 };
 
 const $ = id => document.getElementById(id);
+
+let intelligenceModuleInitialized = false;
+
+function safeSwitchView(name) {
+  const target = document.getElementById(`view-${name}`);
+
+  if (!target) {
+    console.warn(`Tela não encontrada: ${name}`);
+    return false;
+  }
+
+  document.querySelectorAll('.view').forEach(view => {
+    view.classList.toggle('active', view === target);
+  });
+
+  document.querySelectorAll('.nav-btn').forEach(button => {
+    button.classList.toggle(
+      'active',
+      button.dataset.view === name
+    );
+  });
+
+  window.scrollTo({ top: 0, behavior: 'auto' });
+  return true;
+}
+
+async function initializeIntelligenceOnlyWhenNeeded() {
+  if (intelligenceModuleInitialized) return;
+
+  intelligenceModuleInitialized = true;
+
+  try {
+    initFocusedManagementPage();
+  } catch (error) {
+    intelligenceModuleInitialized = false;
+    console.error('Falha ao iniciar Inteligência:', error);
+
+    const status = document.getElementById('focusedPlanStatus');
+    if (status) {
+      status.textContent =
+        `A aba Inteligência não iniciou: ${error.message}. As demais páginas continuam disponíveis.`;
+    }
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Delegação independente: funciona mesmo se qualquer outro módulo falhar.
+  document.addEventListener('click', event => {
+    const button = event.target.closest('.nav-btn[data-view]');
+    if (!button) return;
+
+    event.preventDefault();
+
+    const viewName = button.dataset.view;
+    safeSwitchView(viewName);
+
+    if (viewName === 'inteligencia') {
+      initializeIntelligenceOnlyWhenNeeded();
+    }
+  });
+
+  // A aplicação sempre começa no relatório original.
+  safeSwitchView('novo');
+}, { once: true });
+
 const $$ = selector => Array.from(document.querySelectorAll(selector));
 
 function todayISO() {
@@ -2730,9 +2795,7 @@ function showToast(message) {
 }
 
 function switchView(name) {
-  $$('.view').forEach(view => view.classList.toggle('active', view.id === `view-${name}`));
-  $$('.nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === name));
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  return safeSwitchView(name);
 }
 
 function managementSummaryText(analysis) {
@@ -6367,6 +6430,19 @@ async function analyzeFocusedManagementPage() {
 }
 
 function initFocusedManagementPage() {
+  const root = $('view-inteligencia');
+  if (!root) return;
+
+  if (root.dataset.initialized === 'true') {
+    renderFocusedPreventivePlan();
+    renderIntelligenceReport();
+    return;
+  }
+
+  root.dataset.initialized = 'true';
+
+  try {
+
   populateFocusedFilters();
 
   const conversation = $('focusedGroupConversation');
@@ -6413,7 +6489,19 @@ function initFocusedManagementPage() {
   });
 
   renderFocusedPreventivePlan();
-  initTurnIntelligence();
+
+    initTurnIntelligence().catch(error => {
+      console.error('Falha no módulo Inteligência:', error);
+      const status = $('focusedPlanStatus');
+      if (status) {
+        status.textContent =
+          `Falha parcial na Inteligência: ${error.message}.`;
+      }
+    });
+  } catch (error) {
+    root.dataset.initialized = 'false';
+    throw error;
+  }
 }
 
 
@@ -7144,7 +7232,6 @@ function init() {
   const draft = localStorage.getItem(STORAGE.draft);
   if (draft) $('reportText').value = draft;
 
-  $$('.nav-btn').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.view)));
 
   $('openQuickOsBtn').addEventListener('click', () => {
     $('quickOsDateTime').value = toLocalDateTimeInput(new Date());
@@ -7520,7 +7607,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=47.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=48.0.0');
         registration.update();
       } catch {}
     });
@@ -7531,7 +7618,20 @@ function init() {
   renderScale();
   renderHistory();
   renderOeeDashboard();
-  initFocusedManagementPage();
 }
 
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => {
+  try {
+    init();
+  } catch (error) {
+    console.error('Falha em um módulo do TurnoSmart:', error);
+
+    const banner = document.createElement('div');
+    banner.className = 'runtime-error-banner';
+    banner.innerHTML =
+      `<strong>Uma função não iniciou:</strong> ${escapeHtml(error.message)}. ` +
+      `A navegação e as outras páginas continuam disponíveis.`;
+
+    document.body.prepend(banner);
+  }
+});

@@ -1,5 +1,6 @@
-TurnoSmart V47.0.0
-Restaura todas as páginas e funções da V46.
-Mantém Novo, Abrir OS, Mecânico, Análise, Ações, OEE 3 dias, Escala, Histórico e Configuração.
-Adiciona Inteligência do Turno como nova aba.
-Nenhuma função anterior foi removida ou escondida.
+TurnoSmart V48.0.0
+Corrige as outras páginas que não abriam.
+A navegação agora funciona de forma independente.
+A Inteligência do Turno só inicia quando a aba é aberta.
+Falhas da Inteligência não travam o restante do aplicativo.
+Novo, Abrir OS, Mecânico, Análise, Ações, OEE, Escala, Histórico e Configuração foram preservados.
