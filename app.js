@@ -194,14 +194,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '41.0.0';
+const APP_VERSION = '43.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v41.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v43.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -446,7 +446,9 @@ const state = {
   sgmanMachineHistory: {},
   sgmanMachineHistoryLoading: false,
   reportAnalyzing: false,
-  backgroundAnalysisId: ''
+  backgroundAnalysisId: '',
+  quickOsVoiceTranscript: '',
+  quickOsVoiceParsed: null
 };
 
 const $ = id => document.getElementById(id);
@@ -755,6 +757,7 @@ function buildQuickSgmanOrder() {
   const dateTime = $('quickOsDateTime')?.value || '';
   const context = detectWorkingCrew(dateTime);
   const machine = $('quickOsMachine')?.value || '';
+  const location = compactIssue($('quickOsLocation')?.value || '');
   const problem = compactIssue($('quickOsProblem')?.value || '');
   const manualResolution = compactIssue(
     $('quickOsResolution')?.value || ''
@@ -822,7 +825,7 @@ function buildQuickSgmanOrder() {
     duracao_estimada: String(
       config.sgmanDuracaoEstimada || '01:00'
     ),
-    descricao: `${machine} - ${problem}`.slice(0, 500),
+    descricao: `${machine}${location ? ` - ${location}` : ''} - ${problem}`.slice(0, 500),
     comentario: `Lembretes: ${compactSgmanReminders(resolution)}.`.slice(0, 260),
     maquina_parada: machineStopped,
     executante,
@@ -848,6 +851,7 @@ function buildQuickSgmanOrder() {
     order,
     context,
     machine,
+    location,
     problem,
     resolution
   };
@@ -887,7 +891,9 @@ function renderQuickOsResult(data) {
 
 function clearQuickOsForm(keepContext = true) {
   $('quickOsProblem').value = '';
+  $('quickOsLocation').value = '';
   $('quickOsResolution').value = '';
+  $('quickOsVoiceReview').innerHTML = '';
   $('quickOsPhotoInput').value = '';
   $('quickOsPhotoPreview').src = '';
   $('quickOsPhotoWrap').classList.add('hidden');
@@ -981,6 +987,59 @@ async function sendQuickOsToSgman() {
   }
 }
 
+function findAssigneeInSpeech(text = '') {
+  const key = normalizeKey(text);
+  for (const user of SGMAN_MAINTENANCE_USERS) {
+    for (const candidate of [user.name, user.username, ...(user.aliases || [])]) {
+      const c = normalizeKey(candidate);
+      if (c && (key.includes(`para ${c}`) || key.includes(`pro ${c}`) || key.includes(`mandar ${c}`) || key.includes(`enviar ${c}`) || key.includes(`responsavel ${c}`))) return user.username;
+    }
+  }
+  return '';
+}
+
+function extractQuickOsLocation(text = '') {
+  const raw=String(text||'');
+  const patterns=[
+    /(?:onde|local|aplica[cç][aã]o|aplicado|aplicar|no conjunto|na parte|no setor)\s*(?:é|será|vai ser|:)?\s*([^,.]+?)(?=\s+(?:problema|defeito|falha|mandar|enviar|respons[aá]vel|para|pro)\b|[,.]|$)/i,
+    /(?:mk\s*[-:]?\s*\d+)\s+([^,.]+?)(?=\s+(?:problema|defeito|falha|mandar|enviar|respons[aá]vel|para|pro)\b|[,.]|$)/i
+  ];
+  for (const p of patterns) { const v=raw.match(p)?.[1]?.trim(); if(v&&v.length>=3) return v; }
+  return '';
+}
+
+function extractQuickOsProblem(text = '') {
+  const raw=String(text||'');
+  const explicit=raw.match(/(?:problema|defeito|falha)\s*(?:é|:)?\s*([\s\S]*?)(?=\s+(?:mandar|enviar|respons[aá]vel|para|pro)\b|$)/i)?.[1]?.trim();
+  if(explicit) return explicit;
+  return raw.replace(/\b(?:abrir|criar|fazer)\s+(?:uma\s+)?(?:ordem|os|ordem de servi[cç]o)\b/gi,'')
+    .replace(/\bmk\s*[-:]?\s*\d+\b/gi,'')
+    .replace(/\b(?:mandar|enviar|respons[aá]vel)\s+(?:para|pro)?\s*[\p{L}._-]+(?:\s+[\p{L}._-]+)?/giu,'')
+    .replace(/\s+/g,' ').replace(/^[,.;\s-]+|[,.;\s-]+$/g,'').trim();
+}
+
+function parseQuickOsVoiceCommand(text='') {
+  return { transcript:String(text||'').trim(), machine:machineKeyFromText(text), location:extractQuickOsLocation(text), problem:extractQuickOsProblem(text), executante:findAssigneeInSpeech(text) };
+}
+
+function applyQuickOsVoiceCommand(parsed) {
+  if (!parsed) return;
+  state.quickOsVoiceParsed=parsed; state.quickOsVoiceTranscript=parsed.transcript||'';
+  if(parsed.machine){ populateQuickOsMachineSelect(parsed.machine); $('quickOsMachine').value=parsed.machine; }
+  $('quickOsLocation').value=parsed.location||'';
+  if(parsed.problem) $('quickOsProblem').value=parsed.problem;
+  updateQuickOsContext();
+  if(parsed.executante){
+    const select=$('quickOsExecutante');
+    if(![...select.options].some(o=>o.value===parsed.executante)){
+      const o=document.createElement('option'); o.value=parsed.executante; o.textContent=sgmanUserLabel(parsed.executante); select.appendChild(o);
+    }
+    select.value=parsed.executante;
+  }
+  updateQuickOsTagStatus();
+  $('quickOsVoiceReview').innerHTML=`<strong>Entendido pelo áudio</strong><span>Máquina: ${escapeHtml(parsed.machine||'não identificada')}</span><span>Local: ${escapeHtml(parsed.location||'não informado')}</span><span>Problema: ${escapeHtml(parsed.problem||'não identificado')}</span><span>Responsável: ${escapeHtml(parsed.executante?sgmanUserLabel(parsed.executante):'líder automático do turno')}</span>`;
+}
+
 function startQuickOsSpeech() {
   const Recognition =
     window.SpeechRecognition ||
@@ -1011,33 +1070,19 @@ function startQuickOsSpeech() {
     state.quickOsListening = true;
     $('quickOsSpeechBtn').textContent = 'Parar áudio';
     $('quickOsSpeechStatus').textContent =
-      'Ouvindo... fale a máquina e o problema.';
+      'Ouvindo... fale máquina, local, problema e responsável.';
   };
 
   recognition.onresult = event => {
     let interimTranscript = '';
-
-    for (
-      let index = event.resultIndex;
-      index < event.results.length;
-      index++
-    ) {
+    for (let index = event.resultIndex; index < event.results.length; index++) {
       const transcript = event.results[index][0].transcript;
-
-      if (event.results[index].isFinal) {
-        finalTranscript += `${transcript} `;
-      } else {
-        interimTranscript += transcript;
-      }
+      if (event.results[index].isFinal) finalTranscript += `${transcript} `;
+      else interimTranscript += transcript;
     }
-
-    const existing = $('quickOsProblem').dataset.beforeSpeech || '';
-    const combined = `${existing} ${finalTranscript || interimTranscript}`
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    $('quickOsProblem').value = combined;
-    detectQuickMachineFromText(combined);
+    const combined=`${finalTranscript || interimTranscript}`.replace(/\s+/g,' ').trim();
+    applyQuickOsVoiceCommand(parseQuickOsVoiceCommand(combined));
+    $('quickOsSpeechStatus').textContent='Ouvindo... fale máquina, local, problema e responsável.';
   };
 
   recognition.onerror = event => {
@@ -1055,11 +1100,11 @@ function startQuickOsSpeech() {
 
   recognition.onend = () => {
     state.quickOsListening = false;
-    $('quickOsSpeechBtn').textContent = 'Falar o problema';
+    $('quickOsSpeechBtn').textContent = 'Falar ordem completa';
     $('quickOsProblem').dataset.beforeSpeech = '';
     $('quickOsSpeechStatus').textContent =
-      $('quickOsProblem').value
-        ? 'Áudio convertido em texto. Confira antes de enviar.'
+      state.quickOsVoiceTranscript
+        ? 'Áudio interpretado. Confira os campos e envie a OS.'
         : 'O áudio terminou sem texto reconhecido.';
   };
 
@@ -2718,48 +2763,191 @@ function uniqueMachines(actions, category) {
   return [...new Set(actions.filter(action => action.categories?.includes(category) && /^MK-/.test(action.machine)).map(action => action.machine))];
 }
 
+function efficiencyTrendMessage() {
+  const trend = calculateEfficiencyTrend();
+
+  if (
+    trend.current == null ||
+    trend.previous == null ||
+    trend.delta == null
+  ) {
+    return {
+      line: `Tendência da eficiência: ${trend.arrow || '➜'} sem comparação anterior.`,
+      guidance: trend.phrase ||
+        'Registre o OEE do próximo turno para acompanhar a evolução.'
+    };
+  }
+
+  const current = formatOee(trend.current);
+  const previous = formatOee(trend.previous);
+  const delta = Math.abs(trend.delta)
+    .toFixed(1)
+    .replace('.', ',');
+
+  let movement;
+
+  if (trend.direction === 'up') {
+    movement = `melhora de ${delta} ponto(s)`;
+  } else if (trend.direction === 'down') {
+    movement = `piora de ${delta} ponto(s)`;
+  } else {
+    movement = 'estável';
+  }
+
+  return {
+    line: `Tendência da eficiência: ${trend.arrow} ${movement} (${previous} → ${current}).`,
+    guidance: trend.phrase
+  };
+}
+
+function conciseMaintenanceRepairActions(action) {
+  const analysis =
+    action.sgmanHistoryAnalysis ||
+    analyzeMachineHistoryForAction(action);
+
+  const actions = [];
+
+  if (analysis?.enoughEvidence) {
+    (analysis.patterns || []).slice(0, 3).forEach(pattern => {
+      const text = String(pattern.label || '')
+        .replace(/\s*\(\d+x\)\s*$/i, '')
+        .replace(/[.;]+$/, '')
+        .trim();
+
+      if (text) actions.push(text);
+    });
+
+    if (actions.length < 3) {
+      (analysis.rankedTexts || []).slice(0, 3).forEach(item => {
+        const text = cleanHistoricalResolution(item.text || '')
+          .replace(/[.;]+$/, '')
+          .trim();
+
+        if (
+          text &&
+          !actions.some(existing =>
+            normalizeKey(existing) === normalizeKey(text)
+          )
+        ) {
+          actions.push(text);
+        }
+      });
+    }
+  }
+
+  if (!actions.length) {
+    const suggested = compactSgmanReminders(
+      action.sgmanSuggestedResolution ||
+      suggestedResolutionFromHistory(action),
+      3,
+      210
+    );
+
+    suggested
+      .split(';')
+      .map(item => item.trim())
+      .filter(Boolean)
+      .forEach(item => actions.push(item));
+  }
+
+  const genericHistoryMessage = actions.some(item =>
+    /historico insuficiente|diagnostico no local antes de trocar/i.test(
+      normalizeKey(item)
+    )
+  );
+
+  if (genericHistoryMessage || !actions.length) {
+    return [
+      'confirmar o sintoma e localizar o conjunto com falha',
+      'medir folgas, alinhamento, sinais e condições dos componentes',
+      'corrigir a causa encontrada e testar a estabilidade da máquina'
+    ].join('; ') + '.';
+  }
+
+  return uniqueStrings(actions)
+    .slice(0, 3)
+    .map(item => item.replace(/[.;]+$/, ''))
+    .join('; ') + '.';
+}
+
 function maintenanceMessage() {
   if (!state.analysis) return '';
+
   const approved = state.actions
-    .filter(a => a.approved && a.department === 'maintenance' && a.status !== 'Concluída')
-    .sort((a, b) => (({ Alta: 0, Média: 1, Baixa: 2 })[a.priority] - ({ Alta: 0, Média: 1, Baixa: 2 })[b.priority]) || b.recordedMinutes - a.recordedMinutes);
+    .filter(action =>
+      action.approved &&
+      action.department === 'maintenance' &&
+      action.status !== 'Concluída'
+    )
+    .sort((a, b) =>
+      (({ Alta: 0, Média: 1, Baixa: 2 })[a.priority] -
+       ({ Alta: 0, Média: 1, Baixa: 2 })[b.priority]) ||
+      b.recordedMinutes - a.recordedMinutes
+    );
+
   const shown = approved.slice(0, 5);
   const lowOee = state.analysis.lowOeeMachines || [];
   const recurrence = deriveRecurrenceMachines(state.analysis);
+  const trend = efficiencyTrendMessage();
   const lines = ['*AÇÕES DA MANUTENÇÃO*'];
 
-  if (state.analysis.reportedOee) lines.push(`OEE do turno: ${String(state.analysis.reportedOee).replace('.', ',')}%.`);
-  if (state.analysis.sgmanSummary) lines.push(`SGMan: ${sgmanDailySummaryText(state.analysis.sgmanSummary)}.`);
-  if (state.analysis.reliability3Days) lines.push(`SGMan 3 dias — MTTR: ${formatReliabilityTime(state.analysis.reliability3Days.mttrMinutes)} | MTBF: ${formatReliabilityTime(state.analysis.reliability3Days.mtbfMinutes)} | Confiabilidade 12h: ${formatReliabilityPercent(state.analysis.reliability3Days.reliabilityPercent)} | OS concluídas no turno atual: ${Number(state.analysis.reliability3Days.completedCurrentShift || 0)}.`);
-  if (state.analysis.boardScope?.label) lines.push(`Quadro OEE: ${state.analysis.boardScope.label}.`);
+  if (state.analysis.reportedOee) {
+    lines.push(
+      `OEE do turno: ${String(state.analysis.reportedOee).replace('.', ',')}%.`
+    );
+  }
+
+  lines.push(trend.line);
+  lines.push(`Direção do turno: ${trend.guidance}`);
+
+  if (state.analysis.sgmanSummary) {
+    lines.push(
+      `SGMan: ${sgmanDailySummaryText(state.analysis.sgmanSummary)}.`
+    );
+  }
+
+  if (state.analysis.reliability3Days) {
+    lines.push(
+      `SGMan 3 dias — MTTR: ${formatReliabilityTime(state.analysis.reliability3Days.mttrMinutes)} | ` +
+      `MTBF: ${formatReliabilityTime(state.analysis.reliability3Days.mtbfMinutes)} | ` +
+      `Confiabilidade 12h: ${formatReliabilityPercent(state.analysis.reliability3Days.reliabilityPercent)} | ` +
+      `OS concluídas no turno atual: ${Number(state.analysis.reliability3Days.completedCurrentShift || 0)}.`
+    );
+  }
+
+  if (state.analysis.boardScope?.label) {
+    lines.push(`Quadro OEE: ${state.analysis.boardScope.label}.`);
+  }
+
   const dashboard = getRecentOeeDashboard();
-  if (dashboard.companyAverage != null) lines.push(`OEE geral 3 dias: ${formatOee(dashboard.companyAverage)}.`);
+
+  if (dashboard.companyAverage != null) {
+    lines.push(`OEE geral 3 dias: ${formatOee(dashboard.companyAverage)}.`);
+  }
+
+  lines.push('');
+  lines.push('*AÇÕES PARA CORREÇÃO*');
 
   if (!shown.length) {
     lines.push('Sem ação técnica pendente.');
   } else {
     shown.forEach((action, index) => {
-      lines.push(`${index + 1}. *${action.machine}* — ${action.sgmanSuggestedResolution || suggestedResolutionFromHistory(action)}`);
-
-      if (action.sgmanHistoryAnalysis?.enoughEvidence) {
-        const patterns = action.sgmanHistoryAnalysis.patterns
-          ?.slice(0, 3)
-          .map(pattern => `${pattern.shortLabel} ${pattern.count}x`)
-          .join(', ');
-
-        lines.push(
-          `   Base SGMan: ${action.sgmanHistoryAnalysis.similarOrders}/${action.sgmanHistoryAnalysis.totalMachineOrders} OS semelhantes da árvore completa da ${action.machine}${action.sgmanHistoryAnalysis.treeTagCount ? ` (${action.sgmanHistoryAnalysis.treeTagCount} TAGs)` : ''}${patterns ? ` — ${patterns}` : ''}.`
-        );
-      }
+      lines.push(
+        `${index + 1}. *${action.machine}* — ${conciseMaintenanceRepairActions(action)}`
+      );
     });
   }
 
-  if (lowOee.length) lines.push(`OEE abaixo de 65: ${oeeLowListText(lowOee)}.`);
-  if (recurrence.length) lines.push(`Reincidência: ${recurrence.join(', ')}.`);
-  const priority3Days = dashboardPriorityText(4);
-  if (priority3Days) lines.push(`Prioridades 3 dias: ${priority3Days}.`);
-  lines.push('*Resolver durante o turno.*');
-  lines.push('*SGMan:* apontar OS, causa e conclusão.');
+  if (lowOee.length) {
+    lines.push(`OEE abaixo de 65: ${oeeLowListText(lowOee)}.`);
+  }
+
+  if (recurrence.length) {
+    lines.push(`Reincidência: ${recurrence.join(', ')}.`);
+  }
+
+  lines.push('*Foco:* concluir as correções, testar estabilidade e registrar a causa real no SGMan.');
+
   return lines.join('\n');
 }
 
@@ -2779,6 +2967,9 @@ function productionMessage() {
   const lines = [`*AÇÕES DA PRODUÇÃO — ${responsible}*`];
 
   if (analysis.reportedOee) lines.push(`OEE do turno: ${String(analysis.reportedOee).replace('.', ',')}%.`);
+  const productionTrend = efficiencyTrendMessage();
+  lines.push(productionTrend.line);
+  lines.push(`Direção do turno: ${productionTrend.guidance}`);
   if (analysis.sgmanSummary) lines.push(`SGMan: ${sgmanDailySummaryText(analysis.sgmanSummary)}.`);
   if (analysis.reliability3Days) lines.push(`SGMan 3 dias — MTTR: ${formatReliabilityTime(analysis.reliability3Days.mttrMinutes)} | MTBF: ${formatReliabilityTime(analysis.reliability3Days.mtbfMinutes)} | Confiabilidade 12h: ${formatReliabilityPercent(analysis.reliability3Days.reliabilityPercent)} | OS concluídas no turno atual: ${Number(analysis.reliability3Days.completedCurrentShift || 0)}.`);
   if (analysis.boardScope?.label) lines.push(`Quadro OEE: ${analysis.boardScope.label}.`);
@@ -4222,78 +4413,79 @@ function machineTreeLabel(order = {}) {
 async function fetchSgmanMachineHistory(machine, force = false) {
   const config = getConfig();
   const tag = config.sgmanTagMap?.[machine] || '';
-
-  if (!tag) {
-    return {
-      machine,
-      tag: '',
-      orders: [],
-      error: `TAG não cadastrada para ${machine}.`
-    };
-  }
+  if (!tag) return { machine, tag: '', orders: [], error: `TAG não cadastrada para ${machine}.` };
 
   const cached = state.sgmanMachineHistory?.[machine];
+  if (!force && machineHistoryCacheIsFresh(cached, tag)) return cached;
 
-  if (!force && machineHistoryCacheIsFresh(cached, tag)) {
-    return cached;
-  }
+  const end = new Date();
+  const start = new Date(end);
+  start.setFullYear(start.getFullYear() - 2);
 
-  const response = await fetch('/api/sgman-list', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      data_inicio: '2020-01-01 00:00',
-      data_fim: formatSgmanDateTime(new Date()),
-      tag,
-      calc_custos: 1,
-      limit: 100
-    })
-  });
-
-  const data = await response.json().catch(() => ({}));
-
-  if (!response.ok || data.ok === false) {
-    throw new Error(
-      data.error || `Erro HTTP ${response.status} ao consultar ${machine}`
-    );
-  }
-
-  const returnedOrders = (Array.isArray(data.orders)
-    ? data.orders
-    : []
-  ).map(order => ({
-    ...order,
-    _returnedFromTreeQuery: true,
-    rootMachine: machine,
-    rootTag: tag
-  }));
-
-  const orders = returnedOrders
-    .filter(order =>
-      orderBelongsToMachineTree(order, machine, tag)
-    )
-    .slice(0, 100);
-
-  const childTags = uniqueStrings(
-    orders.map(order => machineTreeLabel(order))
-  ).slice(0, 50);
-
-  const entry = {
-    machine,
-    tag,
-    loadedAt: new Date().toISOString(),
-    orders,
-    childTags,
-    treeMode: true,
-    diagnostic: data.diagnostic || {},
-    returnedCount: orders.length
+  const requestList = async body => {
+    const response = await fetch('/api/sgman-list', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) throw new Error(data.error || `Erro HTTP ${response.status}`);
+    return data;
   };
 
+  const collected = [];
+  const diagnostics = [];
+  const add = (orders, source) => (orders || []).forEach(order => collected.push({
+    ...order, _historySource: source, _returnedFromTreeQuery: source === 'tag',
+    rootMachine: machine, rootTag: tag
+  }));
+
+  try {
+    const byTag = await requestList({
+      data_inicio: formatSgmanDateTime(start), data_fim: formatSgmanDateTime(end),
+      tag, calc_custos: 1, limit: 300
+    });
+    add(byTag.orders, 'tag');
+    diagnostics.push({ mode: 'tag', count: Number(byTag.orders?.length || 0) });
+  } catch (error) { diagnostics.push({ mode: 'tag', count: 0, error: error.message }); }
+
+  if (collected.length < 20) {
+    await waitMilliseconds(900);
+    try {
+      const general = await requestList({
+        data_inicio: formatSgmanDateTime(start), data_fim: formatSgmanDateTime(end),
+        calc_custos: 0, limit: 500
+      });
+      add(general.orders, 'general');
+      diagnostics.push({ mode: 'general', count: Number(general.orders?.length || 0) });
+    } catch (error) { diagnostics.push({ mode: 'general', count: 0, error: error.message }); }
+  }
+
+  const number = machine.replace(/\D/g, '');
+  const numberPattern = new RegExp(`(^|[^0-9])0*${number}([^0-9]|$)`);
+  const rootTagKey = normalizeSgmanTagTreeValue(tag);
+  const filtered = collected.filter(order => {
+    if (orderBelongsToMachineTree(order, machine, tag)) return true;
+    const text = normalizeKey([order.machine,order.tag,order.local,order.description,order.comment,order.solution].filter(Boolean).join(' '));
+    const tagKey = normalizeSgmanTagTreeValue(order.tag || '');
+    const localKey = normalizeSgmanTagTreeValue(order.local || '');
+    return numberPattern.test(text) || (rootTagKey && tagKey.includes(rootTagKey)) || (rootTagKey && localKey.includes(rootTagKey));
+  });
+
+  const seen = new Set();
+  const orders = filtered.sort((a,b)=>String(b.endDate||b.startDate).localeCompare(String(a.endDate||a.startDate)))
+    .filter(order => {
+      const key=[order.id,order.tag,order.startDate,order.endDate,order.description].join('|');
+      if (seen.has(key)) return false; seen.add(key); return true;
+    }).slice(0,100);
+
+  const entry = {
+    machine, tag, loadedAt: new Date().toISOString(), orders,
+    childTags: uniqueStrings(orders.map(machineTreeLabel)).slice(0,50), treeMode: true,
+    diagnostic: { diagnostics, totalReceived: collected.length, totalMatched: filtered.length, totalUsed: orders.length },
+    returnedCount: orders.length
+  };
   state.sgmanMachineHistory[machine] = entry;
   saveSgmanMachineHistory();
-
   return entry;
 }
 
@@ -6376,7 +6568,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=41.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=43.0.0');
         registration.update();
       } catch {}
     });

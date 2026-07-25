@@ -1,3 +1,5 @@
-# TurnoSmart V41
+# TurnoSmart V43
 
-Inclui Painel do Gestor e Mecânico Virtual baseado em até 100 OS da árvore completa da máquina.
+Busca OS pela TAG raiz e, quando vierem poucas, faz busca geral e filtra pela árvore da máquina.
+
+Exemplo de áudio: “MK 179, aplicação no camme, problema variando altura, mandar para Roberto”.

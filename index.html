@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=41.0.0" />
+  <link rel="stylesheet" href="style.css?v=43.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -19,7 +19,7 @@
       <div class="eyebrow">PRODUÇÃO + MANUTENÇÃO</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V41.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V43.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -119,7 +119,7 @@
         <div>
           <span class="badge">FOTO + ÁUDIO + SGMAN</span>
           <h2>Abrir ordem de serviço</h2>
-          <p>Tire uma foto ou fale o problema. O aplicativo identifica a equipe pelo horário e seleciona o líder automaticamente.</p>
+          <p>Fale em uma única frase a máquina, o local de aplicação, o problema e para quem enviar. O aplicativo preenche tudo automaticamente.</p>
         </div>
       </div>
 
@@ -135,6 +135,10 @@
             <select id="quickOsMachine">
               <option value="">Selecione a máquina</option>
             </select>
+          </label>
+
+          <label>Local de aplicação / conjunto
+            <input id="quickOsLocation" type="text" placeholder="Ex.: alimentação faixa, camme, prensa 2" />
           </label>
 
           <label>Responsável no SGMan
@@ -172,10 +176,12 @@
 
           <div class="capture-card">
             <strong>🎙 Falar o problema</strong>
-            <p>O áudio vira texto. Confira a descrição antes de enviar.</p>
-            <button id="quickOsSpeechBtn" class="secondary" type="button">Falar o problema</button>
+            <p>Exemplo: “MK 179, aplicação no camme, problema variando altura, mandar para Roberto”.</p>
+            <button id="quickOsSpeechBtn" class="secondary" type="button">Falar ordem completa</button>
             <small id="quickOsSpeechStatus" class="muted"></small>
           </div>
+
+          <div id="quickOsVoiceReview" class="voice-review-card"></div>
         </div>
 
         <div id="quickOsPhotoWrap" class="hidden image-preview-wrap quick-photo-wrap">
@@ -505,7 +511,7 @@
     <section id="view-config" class="view">
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 41</h2>
+        <h2>Configuração da versão 43</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -625,6 +631,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=41.0.0"></script>
+  <script src="app.js?v=43.0.0"></script>
 </body>
 </html>

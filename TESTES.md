@@ -1,9 +1,10 @@
-# Testes da V40
+# Testes da V42
 
-1. Substitua todos os arquivos pela V40.
-2. Confirme o selo V40.0.0.
-3. Atualize o SGMan.
-4. Durante o dia, confirme o período 06:00 até o horário atual.
-5. Após 18:20, confirme o período 18:20 até o horário atual.
-6. Antes de 06:00, confirme que o início é 18:20 do dia anterior.
-7. Confirme que o MTTF não aparece.
+1. Confirme o selo V42.0.0.
+2. Analise um relatório com OEE atual e histórico anterior.
+3. Confira a linha de tendência: melhora, piora ou estável.
+4. Confira a frase de direção do turno.
+5. Verifique que as ações não repetem o problema.
+6. Verifique no máximo três ações de correção por máquina.
+7. Confirme que a Base SGMan extensa não aparece na mensagem.
+8. Confira que a análise detalhada continua no painel.
