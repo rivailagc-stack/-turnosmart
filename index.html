@@ -10,16 +10,17 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=49.0.0" />
+  <link rel="stylesheet" href="style.css?v=50.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
   <header class="topbar">
     <div>
-      <div class="eyebrow">PRODUÇÃO + MANUTENÇÃO</div>
+      <div id="organizationBrandContext" class="eyebrow">Indaiatuba • Manutenção</div>
+      <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V49.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V50.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -659,9 +660,97 @@
     </section>
 
     <section id="view-config" class="view">
+
+      <div class="card organization-config-card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">EMPRESA E PRODUTO</span>
+            <h2>Ecopack agora, outras empresas depois</h2>
+          </div>
+        </div>
+
+        <p class="muted">
+          O aplicativo continua configurado para a Ecopack. Estes campos deixam a estrutura preparada para copiar a configuração para outra indústria sem alterar o código.
+        </p>
+
+        <div class="grid two">
+          <label>Empresa
+            <input id="organizationCompanyName" type="text" value="Ecopack Brasil" />
+          </label>
+
+          <label>Unidade
+            <input id="organizationUnitName" type="text" value="Indaiatuba" />
+          </label>
+
+          <label>Departamento
+            <input id="organizationDepartmentName" type="text" value="Manutenção" />
+          </label>
+
+          <label>Setor principal
+            <input id="organizationSectorName" type="text" value="Produção" />
+          </label>
+
+          <label>Fuso horário
+            <select id="organizationTimezone">
+              <option value="America/Sao_Paulo">São Paulo / Brasília</option>
+            </select>
+          </label>
+        </div>
+
+        <h3>Metas da manutenção</h3>
+
+        <div class="grid three">
+          <label>Meta de OEE (%)
+            <input id="targetOee" type="number" min="0" max="100" step="0.1" value="70" />
+          </label>
+
+          <label>Meta de MTTR (min)
+            <input id="targetMttrMinutes" type="number" min="1" value="60" />
+          </label>
+
+          <label>Meta de MTBF (horas)
+            <input id="targetMtbfHours" type="number" min="1" step="0.5" value="12" />
+          </label>
+
+          <label>Meta de confiabilidade (%)
+            <input id="targetReliability" type="number" min="0" max="100" step="0.1" value="55" />
+          </label>
+
+          <label>Máximo de OS atrasadas
+            <input id="targetMaxOverdue" type="number" min="0" value="20" />
+          </label>
+
+          <label>Máximo de máquinas reincidentes
+            <input id="targetMaxRecurrence" type="number" min="0" value="2" />
+          </label>
+        </div>
+
+        <h3>Conteúdo dos relatórios</h3>
+
+        <div class="report-module-grid">
+          <label><input id="reportModule-efficiencyTrend" type="checkbox" checked /> Tendência da eficiência</label>
+          <label><input id="reportModule-sgmanSummary" type="checkbox" checked /> Resumo do SGMan</label>
+          <label><input id="reportModule-reliability" type="checkbox" checked /> MTTR, MTBF e confiabilidade</label>
+          <label><input id="reportModule-priorities" type="checkbox" checked /> Máquinas prioritárias</label>
+          <label><input id="reportModule-accountability" type="checkbox" checked /> Cobranças obrigatórias</label>
+          <label><input id="reportModule-people" type="checkbox" checked /> Gestão das pessoas</label>
+          <label><input id="reportModule-preventive" type="checkbox" checked /> Plano preventivo</label>
+          <label><input id="reportModule-oeeSupport" type="checkbox" checked /> OEE como apoio</label>
+        </div>
+
+        <div class="button-row">
+          <button id="saveOrganizationBtn" class="primary" type="button">Salvar empresa e metas</button>
+          <button id="exportOrganizationBtn" class="secondary" type="button">Exportar configuração</button>
+          <label class="file-action">
+            Importar configuração
+            <input id="importOrganizationInput" type="file" accept="application/json,.json" />
+          </label>
+        </div>
+      </div>
+
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 49</h2>
+        <h2>Configuração da versão 50</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -782,6 +871,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=49.0.0"></script>
+  <script src="app.js?v=50.0.0"></script>
 </body>
 </html>

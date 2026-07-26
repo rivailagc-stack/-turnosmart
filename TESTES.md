@@ -1,11 +1,11 @@
-# Testes da V49
+# Testes da V50
 
-1. Confirme V49.0.0.
-2. Analise um relatório.
-3. Abra Análise.
-4. Confira Gestão da Manutenção.
-5. Atualize a gestão.
-6. Confira a nota de eficiência.
-7. Confira cobranças, compromissos e equipe.
-8. Toque em Copiar cobrança.
-9. Confirme que as outras páginas continuam funcionando.
+1. Confirme V50.0.0.
+2. Abra Configuração.
+3. Confira Ecopack Brasil e Unidade Indaiatuba.
+4. Altere uma meta e salve.
+5. Gere a cobrança e confira a nova meta.
+6. Desative um módulo de relatório.
+7. Exporte a configuração.
+8. Importe o arquivo exportado.
+9. Confirme máquinas, TAGs, escalas e páginas anteriores.

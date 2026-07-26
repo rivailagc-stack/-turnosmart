@@ -194,14 +194,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '49.0.0';
+const APP_VERSION = '50.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v49.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v50.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -571,6 +571,32 @@ function boardScopeForReport(operationalDate, shift) {
 
 function getConfig() {
   const defaults = {
+    organization: {
+      companyName: 'Ecopack Brasil',
+      unitName: 'Indaiatuba',
+      departmentName: 'Manutenção',
+      sectorName: 'Produção',
+      timezone: 'America/Sao_Paulo',
+      productMode: 'ecopack'
+    },
+    targets: {
+      oee: 70,
+      mttrMinutes: 60,
+      mtbfHours: 12,
+      reliabilityPercent: 55,
+      maxOverdueOrders: 20,
+      maxRecurrenceMachines: 2
+    },
+    reportModules: {
+      efficiencyTrend: true,
+      sgmanSummary: true,
+      reliability: true,
+      priorities: true,
+      accountability: true,
+      people: true,
+      preventive: true,
+      oeeSupport: true
+    },
     referenceDate: '2026-07-20',
     referenceLetter: 'A',
     sgmanExecutante: '',
@@ -585,7 +611,22 @@ function getConfig() {
     return {
       ...defaults,
       ...saved,
-      sgmanTagMap: { ...defaults.sgmanTagMap, ...(saved.sgmanTagMap || {}) }
+      organization: {
+        ...defaults.organization,
+        ...(saved.organization || {})
+      },
+      targets: {
+        ...defaults.targets,
+        ...(saved.targets || {})
+      },
+      reportModules: {
+        ...defaults.reportModules,
+        ...(saved.reportModules || {})
+      },
+      sgmanTagMap: {
+        ...defaults.sgmanTagMap,
+        ...(saved.sgmanTagMap || {})
+      }
     };
   }
   catch { return defaults; }
@@ -593,6 +634,225 @@ function getConfig() {
 
 function saveConfig(config) {
   safeStorageSet(STORAGE.config, JSON.stringify(config));
+}
+
+
+function organizationProfile() {
+  return getConfig().organization || {};
+}
+
+function companyDisplayName() {
+  return organizationProfile().companyName || 'Ecopack Brasil';
+}
+
+function organizationContextText() {
+  const profile = organizationProfile();
+
+  return uniqueStrings([
+    profile.companyName,
+    profile.unitName,
+    profile.departmentName
+  ]).join(' • ');
+}
+
+function updateOrganizationBrand() {
+  const profile = organizationProfile();
+
+  const company = $('organizationBrandCompany');
+  const context = $('organizationBrandContext');
+
+  if (company) {
+    company.textContent = profile.companyName || 'Ecopack Brasil';
+  }
+
+  if (context) {
+    context.textContent = uniqueStrings([
+      profile.unitName,
+      profile.departmentName
+    ]).join(' • ');
+  }
+
+  document.title =
+    `${profile.companyName || 'Ecopack Brasil'} — TurnoSmart`;
+}
+
+function reportModuleEnabled(name) {
+  return getConfig().reportModules?.[name] !== false;
+}
+
+function maintenanceTargets() {
+  return getConfig().targets || {};
+}
+
+function exportOrganizationProfile() {
+  const config = getConfig();
+
+  downloadJson(
+    `turnosmart-config-${normalizeKey(
+      config.organization?.companyName || 'empresa'
+    ).replace(/\s+/g, '-')}-${todayISO()}.json`,
+    {
+      format: 'turnosmart-company-profile',
+      version: APP_VERSION,
+      exportedAt: new Date().toISOString(),
+      organization: config.organization,
+      targets: config.targets,
+      reportModules: config.reportModules,
+      referenceDate: config.referenceDate,
+      referenceLetter: config.referenceLetter,
+      sgmanTipoServico: config.sgmanTipoServico,
+      sgmanTipoManutencao: config.sgmanTipoManutencao,
+      sgmanDuracaoEstimada: config.sgmanDuracaoEstimada,
+      sgmanTagMap: config.sgmanTagMap,
+      scale: getScale()
+    }
+  );
+}
+
+async function importOrganizationProfileFile(file) {
+  const text = await file.text();
+  const imported = JSON.parse(text);
+
+  if (
+    imported.format !== 'turnosmart-company-profile' ||
+    !imported.organization
+  ) {
+    throw new Error('Arquivo de configuração inválido.');
+  }
+
+  const current = getConfig();
+
+  saveConfig({
+    ...current,
+    organization: {
+      ...current.organization,
+      ...imported.organization
+    },
+    targets: {
+      ...current.targets,
+      ...(imported.targets || {})
+    },
+    reportModules: {
+      ...current.reportModules,
+      ...(imported.reportModules || {})
+    },
+    referenceDate:
+      imported.referenceDate || current.referenceDate,
+    referenceLetter:
+      imported.referenceLetter || current.referenceLetter,
+    sgmanTipoServico:
+      imported.sgmanTipoServico || current.sgmanTipoServico,
+    sgmanTipoManutencao:
+      imported.sgmanTipoManutencao || current.sgmanTipoManutencao,
+    sgmanDuracaoEstimada:
+      imported.sgmanDuracaoEstimada || current.sgmanDuracaoEstimada,
+    sgmanTagMap: {
+      ...current.sgmanTagMap,
+      ...(imported.sgmanTagMap || {})
+    }
+  });
+
+  if (Array.isArray(imported.scale)) {
+    saveScale(imported.scale);
+  }
+
+  return getConfig();
+}
+
+function fillOrganizationForm() {
+  const config = getConfig();
+  const profile = config.organization || {};
+  const targets = config.targets || {};
+  const modules = config.reportModules || {};
+
+  const values = {
+    organizationCompanyName: profile.companyName,
+    organizationUnitName: profile.unitName,
+    organizationDepartmentName: profile.departmentName,
+    organizationSectorName: profile.sectorName,
+    organizationTimezone: profile.timezone,
+    targetOee: targets.oee,
+    targetMttrMinutes: targets.mttrMinutes,
+    targetMtbfHours: targets.mtbfHours,
+    targetReliability: targets.reliabilityPercent,
+    targetMaxOverdue: targets.maxOverdueOrders,
+    targetMaxRecurrence: targets.maxRecurrenceMachines
+  };
+
+  Object.entries(values).forEach(([id, value]) => {
+    const element = $(id);
+    if (element) element.value = value ?? '';
+  });
+
+  Object.entries(modules).forEach(([name, checked]) => {
+    const input = $(`reportModule-${name}`);
+    if (input) input.checked = checked !== false;
+  });
+
+  updateOrganizationBrand();
+}
+
+function saveOrganizationSettings() {
+  const current = getConfig();
+
+  const moduleNames = [
+    'efficiencyTrend',
+    'sgmanSummary',
+    'reliability',
+    'priorities',
+    'accountability',
+    'people',
+    'preventive',
+    'oeeSupport'
+  ];
+
+  const reportModules = {};
+  moduleNames.forEach(name => {
+    const input = $(`reportModule-${name}`);
+    reportModules[name] = input ? input.checked : true;
+  });
+
+  saveConfig({
+    ...current,
+    organization: {
+      ...current.organization,
+      companyName:
+        $('organizationCompanyName')?.value.trim() ||
+        'Ecopack Brasil',
+      unitName:
+        $('organizationUnitName')?.value.trim() ||
+        'Indaiatuba',
+      departmentName:
+        $('organizationDepartmentName')?.value.trim() ||
+        'Manutenção',
+      sectorName:
+        $('organizationSectorName')?.value.trim() ||
+        'Produção',
+      timezone:
+        $('organizationTimezone')?.value ||
+        'America/Sao_Paulo',
+      productMode: 'ecopack'
+    },
+    targets: {
+      oee: Number($('targetOee')?.value || 70),
+      mttrMinutes: Number($('targetMttrMinutes')?.value || 60),
+      mtbfHours: Number($('targetMtbfHours')?.value || 12),
+      reliabilityPercent: Number(
+        $('targetReliability')?.value || 55
+      ),
+      maxOverdueOrders: Number(
+        $('targetMaxOverdue')?.value || 20
+      ),
+      maxRecurrenceMachines: Number(
+        $('targetMaxRecurrence')?.value || 2
+      )
+    },
+    reportModules
+  });
+
+  fillOrganizationForm();
+  renderMaintenanceAccountabilityPanel();
+  showToast('Empresa, metas e relatório salvos.');
 }
 
 function migrateSgmanConfig() {
@@ -3020,7 +3280,30 @@ function maintenanceAccountabilityReport() {
   const demands = maintenanceDemandItems(metrics);
   const commitments = maintenanceShiftCommitments(metrics);
   const people = maintenancePeopleAccountability();
-  const lines = ['*GESTÃO DA MANUTENÇÃO — COBRANÇA DO TURNO*','',`Nível da manutenção: *${level.level}* — ${level.score}/100.`,trend.line,`Direção: ${trend.guidance}`,'',`Indicadores: MTTR ${formatReliabilityTime(metrics.mttrMinutes)} | MTBF ${formatReliabilityTime(metrics.mtbfMinutes)} | Confiabilidade 12h ${formatReliabilityPercent(metrics.reliabilityPercent)} | OS concluídas no turno ${Number(metrics.completedCurrentShift || 0)}.`,'','*COBRANÇAS OBRIGATÓRIAS*'];
+  const lines = [
+    `*${companyDisplayName().toUpperCase()} — GESTÃO DA MANUTENÇÃO*`,
+    organizationContextText(),
+    '',
+    `Nível da manutenção: *${level.level}* — ${level.score}/100.`
+  ];
+
+  if (reportModuleEnabled('efficiencyTrend')) {
+    lines.push(trend.line);
+    lines.push(`Direção: ${trend.guidance}`);
+  }
+
+  if (reportModuleEnabled('reliability')) {
+    lines.push('');
+    lines.push(
+      `Indicadores: MTTR ${formatReliabilityTime(metrics.mttrMinutes)} | ` +
+      `MTBF ${formatReliabilityTime(metrics.mtbfMinutes)} | ` +
+      `Confiabilidade 12h ${formatReliabilityPercent(metrics.reliabilityPercent)} | ` +
+      `OS concluídas no turno ${Number(metrics.completedCurrentShift || 0)}.`
+    );
+  }
+
+  lines.push('');
+  lines.push('*COBRANÇAS OBRIGATÓRIAS*');
   demands.forEach((item,index)=>lines.push(`${index+1}. ${item}`));
   lines.push('','*COMPROMISSOS DAS MÁQUINAS*');
   commitments.length ? commitments.forEach(item=>lines.push(`${item.priority}. *${item.machine}* — ${item.target}; ${item.validation}.`)) : lines.push('Atualizar o SGMan e definir três máquinas prioritárias.');
@@ -7299,6 +7582,7 @@ function init() {
   populateSgmanUserSelect('scaleSgmanMechanic2');
   populateSgmanUserSelect('scaleSgmanMechanic3');
   const config = migrateSgmanConfig();
+  fillOrganizationForm();
   $('referenceDate').value = config.referenceDate;
   $('referenceLetter').value = config.referenceLetter;
   $('sgmanExecutante').value = config.sgmanExecutante || '';
@@ -7650,6 +7934,36 @@ function init() {
     }
   });
 
+  $('saveOrganizationBtn')?.addEventListener(
+    'click',
+    saveOrganizationSettings
+  );
+
+  $('exportOrganizationBtn')?.addEventListener(
+    'click',
+    exportOrganizationProfile
+  );
+
+  $('importOrganizationInput')?.addEventListener(
+    'change',
+    async event => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      try {
+        await importOrganizationProfileFile(file);
+        fillOrganizationForm();
+        renderScale();
+        populateQuickOsMachineSelect();
+        showToast('Configuração da empresa importada.');
+      } catch (error) {
+        showToast(`Falha ao importar: ${error.message}`);
+      } finally {
+        event.target.value = '';
+      }
+    }
+  );
+
   $('saveSgmanConfigBtn').addEventListener('click', () => {
     const current = getConfig();
     const tagMap = parseSgmanTagMap($('sgmanTagMap').value);
@@ -7717,7 +8031,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=49.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=50.0.0');
         registration.update();
       } catch {}
     });

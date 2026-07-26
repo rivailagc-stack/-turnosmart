@@ -1,9 +1,7 @@
-TurnoSmart V49.0.0
-Adiciona relatório de cobrança da manutenção.
-Calcula nível de eficiência da manutenção de 0 a 100.
-Cobra redução de MTTR, aumento de MTBF e retirada de OS do atraso.
-Cobra causa raiz nas reincidências.
-Cobra teste e estabilidade antes da liberação.
-Cria compromissos para as três máquinas prioritárias.
-Cria acompanhamento dos mecânicos que estão no turno.
-Mantém todas as páginas e funções da V48.
+TurnoSmart V50.0.0
+Mantém foco total na Ecopack Brasil.
+Adiciona perfil de empresa, unidade, departamento e setor.
+Adiciona metas configuráveis de OEE, MTTR, MTBF, confiabilidade, OS atrasadas e reincidências.
+Permite escolher quais módulos entram no relatório.
+Permite exportar e importar a configuração da empresa.
+Prepara o aplicativo para replicação futura sem remover recursos atuais.
