@@ -1,13 +1,11 @@
-# Testes da V48
+# Testes da V49
 
-1. Confirme V48.0.0.
-2. Abra Novo.
-3. Abra OS e teste áudio.
-4. Abra Mecânico.
-5. Abra Análise.
-6. Abra Ações.
-7. Abra OEE 3 dias.
-8. Abra Escala.
-9. Abra Histórico e Configuração.
-10. Por último, abra Inteligência.
-11. Mesmo que a Inteligência mostre erro, confirme que as outras páginas continuam abrindo.
+1. Confirme V49.0.0.
+2. Analise um relatório.
+3. Abra Análise.
+4. Confira Gestão da Manutenção.
+5. Atualize a gestão.
+6. Confira a nota de eficiência.
+7. Confira cobranças, compromissos e equipe.
+8. Toque em Copiar cobrança.
+9. Confirme que as outras páginas continuam funcionando.

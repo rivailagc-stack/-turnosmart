@@ -1,6 +1,9 @@
-TurnoSmart V48.0.0
-Corrige as outras páginas que não abriam.
-A navegação agora funciona de forma independente.
-A Inteligência do Turno só inicia quando a aba é aberta.
-Falhas da Inteligência não travam o restante do aplicativo.
-Novo, Abrir OS, Mecânico, Análise, Ações, OEE, Escala, Histórico e Configuração foram preservados.
+TurnoSmart V49.0.0
+Adiciona relatório de cobrança da manutenção.
+Calcula nível de eficiência da manutenção de 0 a 100.
+Cobra redução de MTTR, aumento de MTBF e retirada de OS do atraso.
+Cobra causa raiz nas reincidências.
+Cobra teste e estabilidade antes da liberação.
+Cria compromissos para as três máquinas prioritárias.
+Cria acompanhamento dos mecânicos que estão no turno.
+Mantém todas as páginas e funções da V48.

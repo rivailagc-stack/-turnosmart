@@ -1,12 +1,5 @@
-# TurnoSmart V48 — Módulos independentes
+# TurnoSmart V49 — Gestão e cobrança da manutenção
 
-O problema da V47 era que a nova Inteligência ainda iniciava junto com o aplicativo. Caso alguma consulta, histórico ou elemento da nova página falhasse, o JavaScript podia parar antes de concluir a inicialização das outras funções.
+Na página Análise foi adicionada a área **Gestão da Manutenção**.
 
-## Correção
-
-- navegação independente;
-- aplicação inicia sempre em Novo;
-- Inteligência inicia somente ao abrir sua aba;
-- erros da Inteligência ficam restritos à própria aba;
-- banner informa erros sem bloquear o aplicativo;
-- listeners de navegação não dependem do restante do init.
+O relatório cobra recuperação da eficiência, redução do MTTR, aumento do MTBF, retirada de OS do atraso, eliminação das reincidências, teste antes da liberação e preenchimento completo do SGMan.

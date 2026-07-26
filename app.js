@@ -194,14 +194,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '48.0.0';
+const APP_VERSION = '49.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v48.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v49.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2936,6 +2936,99 @@ function conciseMaintenanceRepairActions(action) {
     .join('; ') + '.';
 }
 
+function maintenanceEfficiencyLevel(metrics = state.reliability3Days || {}) {
+  const mttr = Number(metrics.mttrMinutes);
+  const mtbf = Number(metrics.mtbfMinutes);
+  const reliability = Number(metrics.reliabilityPercent);
+  const overdue = Number(state.sgmanHistory?.summary?.overdue || 0);
+  const open = Number(state.sgmanHistory?.summary?.open || 0);
+  const recurrence = Number(metrics.recurrentMachines || 0);
+  let score = 100;
+  if (Number.isFinite(mttr)) score -= mttr > 180 ? 30 : mttr > 120 ? 20 : mttr > 60 ? 10 : 0;
+  if (Number.isFinite(mtbf)) score -= mtbf < 360 ? 30 : mtbf < 600 ? 20 : mtbf < 960 ? 10 : 0;
+  if (Number.isFinite(reliability)) score -= reliability < 35 ? 20 : reliability < 55 ? 10 : 0;
+  score -= overdue >= 50 ? 15 : overdue >= 20 ? 10 : overdue > 0 ? 5 : 0;
+  score -= open >= 400 ? 10 : open >= 200 ? 5 : 0;
+  score -= recurrence >= 5 ? 15 : recurrence >= 3 ? 10 : recurrence > 0 ? 5 : 0;
+  score = Math.max(0, Math.min(100, score));
+  if (score < 55) return { score, level: 'Crítico', status: 'red' };
+  if (score < 75) return { score, level: 'Atenção', status: 'orange' };
+  if (score < 90) return { score, level: 'Controlado', status: 'yellow' };
+  return { score, level: 'Alto', status: 'green' };
+}
+
+function maintenanceDemandItems(metrics = state.reliability3Days || {}) {
+  const demands = [];
+  const summary = state.sgmanHistory?.summary || {};
+  const trend = calculateEfficiencyTrend();
+  if (trend.direction === 'down') demands.push('A eficiência caiu. O líder deve apresentar recuperação ainda durante o turno.');
+  if (Number(metrics.mttrMinutes || 0) > 90) demands.push(`Reduzir o MTTR atual de ${formatReliabilityTime(metrics.mttrMinutes)} com diagnóstico, peças e ferramentas preparados antes da intervenção.`);
+  if (Number.isFinite(Number(metrics.mtbfMinutes)) && Number(metrics.mtbfMinutes) < 720) demands.push(`O MTBF está em ${formatReliabilityTime(metrics.mtbfMinutes)}. Eliminar as falhas repetitivas das máquinas prioritárias.`);
+  if (Number(summary.overdue || 0) > 0) demands.push(`Retirar OS do atraso: existem ${Number(summary.overdue || 0)} ordem(ns) atrasada(s). Cada líder deve definir responsável e prazo.`);
+  if (Number(metrics.recurrentMachines || 0) > 0) demands.push(`Existem ${Number(metrics.recurrentMachines || 0)} máquina(s) reincidente(s). Não aceitar regulagem temporária sem causa raiz.`);
+  if (Number(metrics.completedCurrentShift || 0) === 0) demands.push('Nenhuma OS foi concluída no turno. Cobrar atualização e encerramento das intervenções executadas.');
+  demands.push('Nenhuma máquina deve ser liberada sem teste, acompanhamento e confirmação de estabilidade.');
+  demands.push('Toda OS deve conter problema, causa real, serviço executado e resultado do teste.');
+  return uniqueStrings(demands).slice(0, 6);
+}
+
+function maintenanceShiftCommitments(metrics = state.reliability3Days || {}) {
+  return (metrics.dailyPlan || []).slice(0, 3).map((row, index) => ({
+    priority: index + 1,
+    machine: row.machine,
+    target: row.mttrMinutes && row.mttrMinutes > 90 ? `reduzir MTTR abaixo de ${formatReliabilityTime(row.mttrMinutes * 0.75)}` : 'eliminar reincidência e manter estabilidade',
+    validation: 'testar, acompanhar produção e registrar a conclusão no SGMan'
+  }));
+}
+
+function maintenancePeopleAccountability() {
+  const metrics = state.reliability3Days || calculateReliability3Days();
+  const team = calculateTeamPerformance();
+  const working = detectWorkingCrew(new Date());
+  const active = new Set((working.roster || []).map(user => String(user).toLocaleLowerCase('pt-BR')));
+  return team.filter(row => !active.size || active.has(String(row.executante).toLocaleLowerCase('pt-BR'))).slice(0, 8).map(row => {
+    const accountability = [];
+    if (row.needsTraining) accountability.push(`executar treinamento prático em ${row.trainingCategory || 'diagnóstico e apontamento'}`);
+    if (!row.bestCategory) accountability.push('melhorar o preenchimento das conclusões para permitir avaliação técnica');
+    if (Number.isFinite(Number(row.mttrMinutes)) && Number.isFinite(Number(metrics.mttrMinutes)) && row.mttrMinutes > metrics.mttrMinutes * 1.25) accountability.push('acompanhar intervenção com referência técnica para reduzir tempo de diagnóstico');
+    if (!accountability.length) accountability.push('manter padrão de execução, teste e registro da solução');
+    return { ...row, accountability: accountability.slice(0, 2) };
+  });
+}
+
+function renderMaintenanceAccountabilityPanel() {
+  const target = $('maintenanceAccountabilityPanel');
+  if (!target) return;
+  const metrics = state.reliability3Days || calculateReliability3Days();
+  const level = maintenanceEfficiencyLevel(metrics);
+  const demands = maintenanceDemandItems(metrics);
+  const commitments = maintenanceShiftCommitments(metrics);
+  const people = maintenancePeopleAccountability();
+  target.innerHTML = `
+    <div class="maintenance-level maintenance-level-${escapeHtml(level.status)}"><div><span>Nível de eficiência da manutenção</span><strong>${escapeHtml(level.level)}</strong></div><b>${level.score}/100</b></div>
+    <div class="maintenance-accountability-grid">
+      <section><h3>Cobranças obrigatórias do turno</h3><ol>${demands.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ol></section>
+      <section><h3>Compromissos das máquinas prioritárias</h3>${commitments.length ? commitments.map(item => `<article class="maintenance-commitment"><strong>${item.priority}. ${escapeHtml(item.machine)}</strong><span>Meta: ${escapeHtml(item.target)}</span><small>Validação: ${escapeHtml(item.validation)}</small></article>`).join('') : '<p class="muted">Atualize o SGMan para definir compromissos por máquina.</p>'}</section>
+    </div>
+    <section class="maintenance-people-accountability"><h3>Acompanhamento da equipe do turno</h3>${people.length ? people.map(row => `<article><div><strong>${escapeHtml(row.label || row.executante)}</strong><span>${row.completed} OS • MTTR ${escapeHtml(formatReliabilityTime(row.mttrMinutes, '-'))}</span></div><ul>${row.accountability.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></article>`).join('') : '<p class="muted">Sem dados suficientes dos mecânicos da escala.</p>'}</section>`;
+}
+
+function maintenanceAccountabilityReport() {
+  const metrics = state.reliability3Days || calculateReliability3Days();
+  const trend = efficiencyTrendMessage();
+  const level = maintenanceEfficiencyLevel(metrics);
+  const demands = maintenanceDemandItems(metrics);
+  const commitments = maintenanceShiftCommitments(metrics);
+  const people = maintenancePeopleAccountability();
+  const lines = ['*GESTÃO DA MANUTENÇÃO — COBRANÇA DO TURNO*','',`Nível da manutenção: *${level.level}* — ${level.score}/100.`,trend.line,`Direção: ${trend.guidance}`,'',`Indicadores: MTTR ${formatReliabilityTime(metrics.mttrMinutes)} | MTBF ${formatReliabilityTime(metrics.mtbfMinutes)} | Confiabilidade 12h ${formatReliabilityPercent(metrics.reliabilityPercent)} | OS concluídas no turno ${Number(metrics.completedCurrentShift || 0)}.`,'','*COBRANÇAS OBRIGATÓRIAS*'];
+  demands.forEach((item,index)=>lines.push(`${index+1}. ${item}`));
+  lines.push('','*COMPROMISSOS DAS MÁQUINAS*');
+  commitments.length ? commitments.forEach(item=>lines.push(`${item.priority}. *${item.machine}* — ${item.target}; ${item.validation}.`)) : lines.push('Atualizar o SGMan e definir três máquinas prioritárias.');
+  if (people.length) { lines.push('','*ACOMPANHAMENTO DA EQUIPE*'); people.slice(0,5).forEach(row=>lines.push(`• *${row.label || row.executante}* — ${row.accountability.join('; ')}.`)); }
+  lines.push('','*Resultado esperado:* entregar máquinas estáveis, reduzir reincidência, concluir OS e manter o padrão de eficiência da manutenção.');
+  return lines.join('\n');
+}
+
 function maintenanceMessage() {
   if (!state.analysis) return '';
 
@@ -4275,6 +4368,7 @@ function renderReliability3Days() {
   renderEfficiencyTrendAndPlan(metrics);
   renderManagerDashboard(metrics);
   renderPeopleAndPreventivePanels(metrics);
+  renderMaintenanceAccountabilityPanel();
 
   if (cards) {
     cards.innerHTML = `
@@ -7390,6 +7484,22 @@ function init() {
   });
 
   $('copySummaryBtn').addEventListener('click', () => copyText(managementSummaryText(state.analysis), 'Resumo copiado.'));
+  $('copyMaintenanceAccountabilityBtn')?.addEventListener('click', () => copyText(maintenanceAccountabilityReport(), 'Relatório de cobrança copiado.'));
+  $('refreshMaintenanceAccountabilityBtn')?.addEventListener('click', async () => {
+    const button = $('refreshMaintenanceAccountabilityBtn');
+    button.disabled = true;
+    button.textContent = 'Atualizando...';
+    try {
+      await refreshSgmanHistory(true);
+      state.reliability3Days = calculateReliability3Days();
+      renderMaintenanceAccountabilityPanel();
+      showToast('Gestão da manutenção atualizada.');
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Atualizar gestão';
+    }
+  });
+
   $('copyMaintenanceBtn').addEventListener('click', () => copyText(maintenanceMessage(), 'Mensagem da manutenção copiada.'));
   $('copyProductionBtn').addEventListener('click', () => copyText(productionMessage(), 'Mensagem da produção copiada.'));
   $('shareMaintenanceBtn').addEventListener('click', async () => {
@@ -7607,7 +7717,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=48.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=49.0.0');
         registration.update();
       } catch {}
     });
