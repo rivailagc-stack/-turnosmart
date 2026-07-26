@@ -1,12 +1,1 @@
-module.exports = (req, res) =>
-  res.status(200).json({
-    ok: true,
-    app: 'TurnoSmart',
-    version: '48.0.0',
-    isolated_navigation_enabled: true,
-    lazy_intelligence_initialization: true,
-    runtime_error_guard_enabled: true,
-    original_pages_enabled: true,
-    turn_intelligence_enabled: true,
-    sgman_configured: Boolean(process.env.SGMAN_TOKEN)
-  });
+module.exports=(req,res)=>res.status(200).json({ok:true,app:'TurnoSmart',version:'49.0.0',maintenance_accountability_report_enabled:true,maintenance_efficiency_score_enabled:true,shift_commitments_enabled:true,people_accountability_enabled:true,isolated_navigation_enabled:true,sgman_configured:Boolean(process.env.SGMAN_TOKEN)});
