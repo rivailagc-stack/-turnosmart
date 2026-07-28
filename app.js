@@ -194,14 +194,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '50.0.0';
+const APP_VERSION = '51.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v50.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v51.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -3964,103 +3964,54 @@ function currentOperationalShiftWindow(reference = new Date()) {
   const now = new Date(reference);
 
   if (Number.isNaN(now.getTime())) {
+    const fallback = new Date();
     return {
-      start: new Date(),
-      end: new Date(),
-      effectiveEnd: new Date(),
+      start: fallback,
+      end: fallback,
+      effectiveEnd: fallback,
       label: 'Horário inválido',
       shiftName: 'Turno'
     };
   }
 
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  const dayStartMinutes = 6 * 60;
-  const dayEndMinutes = 18 * 60 + 20;
+  const morningStartMinutes = 6 * 60;
+  const nightStartMinutes = 18 * 60;
+  const nightEndMinutes = 6 * 60 + 20;
 
   let start;
   let scheduledEnd;
   let shiftName;
 
-  if (
-    currentMinutes >= dayStartMinutes &&
-    currentMinutes < dayEndMinutes
-  ) {
-    start = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      6, 0, 0, 0
-    );
-
-    scheduledEnd = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      18, 20, 0, 0
-    );
-
-    shiftName = 'Turno diurno';
-  } else if (currentMinutes >= dayEndMinutes) {
-    start = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      18, 20, 0, 0
-    );
-
-    scheduledEnd = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + 1,
-      6, 0, 0, 0
-    );
-
-    shiftName = 'Turno noturno';
+  if (currentMinutes >= morningStartMinutes && currentMinutes < nightStartMinutes) {
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 6, 0, 0, 0);
+    scheduledEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 20, 0, 0);
+    shiftName = 'Turno da manhã';
+  } else if (currentMinutes >= nightStartMinutes) {
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 0, 0, 0);
+    scheduledEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 6, 20, 0, 0);
+    shiftName = 'Turno da noite';
+  } else if (currentMinutes < nightEndMinutes) {
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 18, 0, 0, 0);
+    scheduledEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 6, 20, 0, 0);
+    shiftName = 'Turno da noite';
   } else {
-    start = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() - 1,
-      18, 20, 0, 0
-    );
-
-    scheduledEnd = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-      6, 0, 0, 0
-    );
-
-    shiftName = 'Turno noturno';
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 6, 0, 0, 0);
+    scheduledEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 18, 20, 0, 0);
+    shiftName = 'Turno da manhã';
   }
 
-  const effectiveEnd = new Date(
-    Math.min(now.getTime(), scheduledEnd.getTime())
-  );
-
-  const timeLabel = date => date.toLocaleTimeString('pt-BR', {
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-
-  const dateLabel = date => date.toLocaleDateString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit'
-  });
-
-  const crossesDate =
-    start.getFullYear() !== effectiveEnd.getFullYear() ||
-    start.getMonth() !== effectiveEnd.getMonth() ||
-    start.getDate() !== effectiveEnd.getDate();
-
+  const timeLabel = date => date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const dateLabel = date => date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  const crossesDate = start.getFullYear() !== scheduledEnd.getFullYear() || start.getMonth() !== scheduledEnd.getMonth() || start.getDate() !== scheduledEnd.getDate();
   const label = crossesDate
-    ? `${dateLabel(start)} ${timeLabel(start)} até ${dateLabel(effectiveEnd)} ${timeLabel(effectiveEnd)}`
-    : `${timeLabel(start)} até ${timeLabel(effectiveEnd)}`;
+    ? `${dateLabel(start)} ${timeLabel(start)} até ${dateLabel(scheduledEnd)} ${timeLabel(scheduledEnd)}`
+    : `${timeLabel(start)} até ${timeLabel(scheduledEnd)}`;
 
   return {
     start,
     end: scheduledEnd,
-    effectiveEnd,
+    effectiveEnd: new Date(Math.min(now.getTime(), scheduledEnd.getTime())),
     label,
     shiftName
   };
@@ -8031,7 +7982,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=50.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=51.0.0');
         registration.update();
       } catch {}
     });

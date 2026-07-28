@@ -1,7 +1,5 @@
-TurnoSmart V50.0.0
-Mantém foco total na Ecopack Brasil.
-Adiciona perfil de empresa, unidade, departamento e setor.
-Adiciona metas configuráveis de OEE, MTTR, MTBF, confiabilidade, OS atrasadas e reincidências.
-Permite escolher quais módulos entram no relatório.
-Permite exportar e importar a configuração da empresa.
-Prepara o aplicativo para replicação futura sem remover recursos atuais.
+TurnoSmart V51.0.0
+Turno da manhã: 06:00 até 18:20.
+Turno da noite: 18:00 até 06:20 do dia seguinte.
+O cartão mostra o período completo do turno.
+A contagem considera as OS concluídas dentro do turno até o horário atual.
