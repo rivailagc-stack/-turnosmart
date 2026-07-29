@@ -1,10 +1,1 @@
-module.exports = (req, res) =>
-  res.status(200).json({
-    ok: true,
-    app: 'TurnoSmart',
-    version: '51.0.0',
-    morning_shift: '06:00-18:20',
-    night_shift: '18:00-06:20',
-    full_shift_label_enabled: true,
-    sgman_configured: Boolean(process.env.SGMAN_TOKEN)
-  });
+module.exports=(req,res)=>res.status(200).json({ok:true,app:'TurnoSmart',version:'52.0.0',training_module_enabled:true,procedures_enabled:true,checklists_enabled:true,training_progress_enabled:true,supabase_training_ready:Boolean(process.env.SUPABASE_URL&&process.env.SUPABASE_SERVICE_ROLE_KEY),sgman_configured:Boolean(process.env.SGMAN_TOKEN)});
