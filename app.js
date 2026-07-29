@@ -8,7 +8,9 @@ const STORAGE = {
   sgmanConfirmed: 'turnosmart_sgman_confirmed_v1',
   sgmanLastResult: 'turnosmart_sgman_last_result_v1',
   sgmanHistory: 'turnosmart_sgman_history_v1',
-  sgmanMachineHistory: 'turnosmart_sgman_machine_history_v1'
+  sgmanMachineHistory: 'turnosmart_sgman_machine_history_v1',
+  training: 'turnosmart_training_v1',
+  trainingProgress: 'turnosmart_training_progress_v1'
 };
 
 
@@ -194,14 +196,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '51.0.0';
+const APP_VERSION = '52.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v51.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v52.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -455,7 +457,11 @@ const state = {
   intelligenceOeeRows: [],
   intelligencePhotoName: '',
   intelligenceSeed: null,
-  intelligenceReport: null
+  intelligenceReport: null,
+  trainingItems: [],
+  trainingProgress: [],
+  trainingCloudAvailable: false,
+  trainingEditingId: ''
 };
 
 const $ = id => document.getElementById(id);
@@ -517,6 +523,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (viewName === 'inteligencia') {
       initializeIntelligenceOnlyWhenNeeded();
+    }
+
+    if (viewName === 'treinamentos') {
+      const root = $('view-treinamentos');
+      if (root && root.dataset.initialized !== 'true') {
+        root.dataset.initialized = 'true';
+        initTrainingModule().catch(error => {
+          root.dataset.initialized = 'false';
+          console.error('Falha no módulo Treinamentos:', error);
+          showToast(`Falha ao iniciar treinamentos: ${error.message}`);
+        });
+      }
     }
   });
 
@@ -7358,6 +7376,28 @@ async function initTurnIntelligence() {
   });
 }
 
+
+function trainingLocalItems(){try{return JSON.parse(localStorage.getItem(STORAGE.training)||'[]')||[]}catch{return[]}}
+function trainingLocalProgress(){try{return JSON.parse(localStorage.getItem(STORAGE.trainingProgress)||'[]')||[]}catch{return[]}}
+function saveTrainingLocal(){safeStorageSet(STORAGE.training,JSON.stringify(state.trainingItems.slice(0,500)),{removeOnFailure:true})}
+function saveTrainingProgressLocal(){safeStorageSet(STORAGE.trainingProgress,JSON.stringify(state.trainingProgress.slice(0,2000)),{removeOnFailure:true})}
+async function trainingApiRequest(method='GET',payload=null){const options={method,headers:{'Content-Type':'application/json'}};if(payload!==null)options.body=JSON.stringify(payload);const response=await fetch('/api/training',options);const data=await response.json().catch(()=>({}));if(!response.ok||data.ok===false)throw new Error(data.error||`Erro HTTP ${response.status}`);return data}
+function trainingStatusLabel(status=''){return({draft:'Rascunho',active:'Ativo',review:'Em revisão',archived:'Arquivado'})[status]||status||'Ativo'}
+function trainingProgressFor(id){return state.trainingProgress.filter(x=>String(x.trainingId)===String(id)&&x.status==='completed')}
+function trainingMachines(){return configuredMachineCodes().sort((a,b)=>a.localeCompare(b,'pt-BR',{numeric:true}))}
+function populateTrainingSelectors(){const machines=trainingMachines();for(const id of ['trainingMachine','trainingFilterMachine']){const el=$(id);if(!el)continue;const current=el.value;el.innerHTML=`<option value="">${id==='trainingMachine'?'Geral / todas as máquinas':'Todas as máquinas'}</option>${machines.map(m=>`<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('')}`;if(machines.includes(current))el.value=current}const mechanic=$('trainingProgressMechanic');if(mechanic){const current=mechanic.value;const users=typeof scaleExecutantesOnly==='function'?scaleExecutantesOnly():[];mechanic.innerHTML=`<option value="">Selecione o colaborador</option>${users.map(u=>`<option value="${escapeHtml(u.username)}">${escapeHtml(u.label)} — ${escapeHtml(u.crew)}</option>`).join('')}`;if([...mechanic.options].some(o=>o.value===current))mechanic.value=current}}
+function filteredTrainingItems(){const search=normalizeKey($('trainingSearch')?.value||'');const type=$('trainingFilterType')?.value||'';const machine=$('trainingFilterMachine')?.value||'';const status=$('trainingFilterStatus')?.value||'';return state.trainingItems.filter(x=>!type||x.type===type).filter(x=>!machine||x.machine===machine).filter(x=>!status||x.status===status).filter(x=>!search||normalizeKey([x.title,x.description,x.machine,x.category,x.audience,x.steps,x.responsible].filter(Boolean).join(' ')).includes(search)).sort((a,b)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')))}
+function renderTrainingDashboard(){const t=$('trainingDashboard');if(!t)return;const active=state.trainingItems.filter(x=>x.status==='active').length;const procedures=state.trainingItems.filter(x=>x.type==='procedure').length;const completed=state.trainingProgress.filter(x=>x.status==='completed').length;const people=uniqueStrings(state.trainingProgress.filter(x=>x.status==='completed').map(x=>x.mechanic)).length;t.innerHTML=`<div class="metric"><span>Conteúdos ativos</span><strong>${active}</strong><small>Treinamentos e procedimentos</small></div><div class="metric"><span>Procedimentos</span><strong>${procedures}</strong><small>Padrões documentados</small></div><div class="metric"><span>Conclusões</span><strong>${completed}</strong><small>Capacitações registradas</small></div><div class="metric"><span>Pessoas treinadas</span><strong>${people}</strong><small>Colaboradores diferentes</small></div>`}
+function renderTrainingPage(){renderTrainingDashboard();const cloud=$('trainingCloudStatus');if(cloud){cloud.textContent=state.trainingCloudAvailable?'Nuvem conectada':'Modo local — configure Supabase';cloud.className=`training-cloud-status ${state.trainingCloudAvailable?'connected':'local'}`}const items=filteredTrainingItems();if($('trainingCount'))$('trainingCount').textContent=`${items.length} conteúdo(s)`;const target=$('trainingList');if(!target)return;if(!items.length){target.innerHTML='<div class="empty-state"><strong>Nenhum conteúdo encontrado.</strong><p>Cadastre o primeiro procedimento da manutenção.</p></div>';return}target.innerHTML=items.map(item=>{const steps=String(item.steps||'').split(/\n+/).map(x=>x.replace(/^\s*\d+[.)-]?\s*/,'').trim()).filter(Boolean);const progress=trainingProgressFor(item.id);return `<article class="training-card"><div class="training-card-head"><div><span class="training-type">${item.type==='procedure'?'Procedimento':item.type==='checklist'?'Checklist':'Treinamento'}</span><h3>${escapeHtml(item.title)}</h3></div><span class="training-status training-status-${escapeHtml(item.status||'active')}">${escapeHtml(trainingStatusLabel(item.status))}</span></div><div class="training-meta"><span>Máquina: <strong>${escapeHtml(item.machine||'Geral')}</strong></span><span>Categoria: <strong>${escapeHtml(item.category||'Geral')}</strong></span><span>Público: <strong>${escapeHtml(item.audience||'Manutenção')}</strong></span><span>Periodicidade: <strong>${escapeHtml(item.frequency||'Quando necessário')}</strong></span></div><p>${escapeHtml(item.description||'Sem descrição.')}</p>${steps.length?`<details><summary>Ver passos</summary><ol>${steps.map(s=>`<li>${escapeHtml(s)}</li>`).join('')}</ol></details>`:''}${item.materialUrl?`<a class="training-material-link" href="${escapeHtml(item.materialUrl)}" target="_blank" rel="noopener noreferrer">Abrir material / vídeo</a>`:''}<div class="training-progress-line"><span>${progress.length} conclusão(ões)</span><small>Responsável: ${escapeHtml(item.responsible||'Não informado')}</small></div><div class="button-row compact-buttons"><button class="secondary training-edit-btn" data-training-id="${escapeHtml(String(item.id))}" type="button">Editar</button><button class="primary training-complete-btn" data-training-id="${escapeHtml(String(item.id))}" type="button">Registrar conclusão</button><button class="danger training-delete-btn" data-training-id="${escapeHtml(String(item.id))}" type="button">Excluir</button></div></article>`}).join('');$$('.training-edit-btn').forEach(b=>b.addEventListener('click',()=>editTrainingItem(b.dataset.trainingId)));$$('.training-complete-btn').forEach(b=>b.addEventListener('click',()=>openTrainingCompletion(b.dataset.trainingId)));$$('.training-delete-btn').forEach(b=>b.addEventListener('click',()=>deleteTrainingItem(b.dataset.trainingId)))}
+async function loadTrainingData(force=false){if(!force&&state.trainingItems.length){renderTrainingPage();return}state.trainingItems=trainingLocalItems();state.trainingProgress=trainingLocalProgress();state.trainingCloudAvailable=false;try{const data=await trainingApiRequest('GET');if(Array.isArray(data.items)&&data.items.length){state.trainingItems=data.items;saveTrainingLocal()}if(Array.isArray(data.progress)){state.trainingProgress=data.progress;saveTrainingProgressLocal()}state.trainingCloudAvailable=Boolean(data.cloud)}catch(e){console.warn('Treinamento local:',e.message)}renderTrainingPage()}
+function trainingPayload(){const title=$('trainingTitle')?.value.trim()||'';if(!title)throw new Error('Informe o título.');const existing=state.trainingItems.find(x=>String(x.id)===String(state.trainingEditingId));return{id:state.trainingEditingId||`training-${Date.now()}`,type:$('trainingType')?.value||'training',title,description:$('trainingDescription')?.value.trim()||'',machine:$('trainingMachine')?.value||'',category:$('trainingCategory')?.value.trim()||'Geral',audience:$('trainingAudience')?.value||'Todos da manutenção',frequency:$('trainingFrequency')?.value.trim()||'Quando necessário',responsible:$('trainingResponsible')?.value.trim()||'',materialUrl:$('trainingMaterialUrl')?.value.trim()||'',steps:$('trainingSteps')?.value.trim()||'',status:$('trainingStatus')?.value||'active',createdAt:existing?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()}}
+async function saveTrainingItem(){const btn=$('saveTrainingBtn');btn.disabled=true;btn.textContent='Salvando...';try{const item=trainingPayload();const i=state.trainingItems.findIndex(x=>String(x.id)===String(item.id));if(i>=0)state.trainingItems[i]=item;else state.trainingItems.unshift(item);saveTrainingLocal();try{const data=await trainingApiRequest('POST',{action:'upsert',item});state.trainingCloudAvailable=Boolean(data.cloud)}catch(e){console.warn(e.message)}clearTrainingForm();renderTrainingPage();showToast('Conteúdo salvo.')}catch(e){showToast(e.message)}finally{btn.disabled=false;btn.textContent='Salvar conteúdo'}}
+function editTrainingItem(id){const item=state.trainingItems.find(x=>String(x.id)===String(id));if(!item)return;state.trainingEditingId=String(id);for(const [field,value] of Object.entries({trainingType:item.type,trainingTitle:item.title,trainingDescription:item.description,trainingMachine:item.machine,trainingCategory:item.category,trainingAudience:item.audience,trainingFrequency:item.frequency,trainingResponsible:item.responsible,trainingMaterialUrl:item.materialUrl,trainingSteps:item.steps,trainingStatus:item.status})){if($(field))$(field).value=value||''}$('saveTrainingBtn').textContent='Atualizar conteúdo';$('cancelTrainingEditBtn').classList.remove('hidden');$('trainingFormCard').scrollIntoView({behavior:'smooth',block:'start'})}
+function clearTrainingForm(){state.trainingEditingId='';for(const id of ['trainingTitle','trainingDescription','trainingCategory','trainingFrequency','trainingResponsible','trainingMaterialUrl','trainingSteps'])if($(id))$(id).value='';if($('trainingType'))$('trainingType').value='training';if($('trainingMachine'))$('trainingMachine').value='';if($('trainingAudience'))$('trainingAudience').value='Todos da manutenção';if($('trainingStatus'))$('trainingStatus').value='active';$('saveTrainingBtn').textContent='Salvar conteúdo';$('cancelTrainingEditBtn')?.classList.add('hidden')}
+async function deleteTrainingItem(id){const item=state.trainingItems.find(x=>String(x.id)===String(id));if(!item||!confirm(`Excluir "${item.title}"?`))return;state.trainingItems=state.trainingItems.filter(x=>String(x.id)!==String(id));state.trainingProgress=state.trainingProgress.filter(x=>String(x.trainingId)!==String(id));saveTrainingLocal();saveTrainingProgressLocal();renderTrainingPage();try{await trainingApiRequest('DELETE',{id})}catch(e){console.warn(e.message)}showToast('Conteúdo excluído.')}
+function openTrainingCompletion(id){const item=state.trainingItems.find(x=>String(x.id)===String(id));if(!item)return;$('trainingCompletionId').value=String(id);$('trainingCompletionTitle').textContent=item.title;$('trainingCompletionPanel').classList.remove('hidden');$('trainingCompletionPanel').scrollIntoView({behavior:'smooth',block:'center'})}
+async function saveTrainingCompletion(){const trainingId=$('trainingCompletionId')?.value||'';const mechanic=$('trainingProgressMechanic')?.value||'';if(!trainingId||!mechanic){showToast('Selecione o colaborador.');return}const record={id:`progress-${Date.now()}`,trainingId,mechanic,mechanicLabel:sgmanUserLabel(mechanic),status:'completed',score:Number($('trainingProgressScore')?.value||0),notes:$('trainingProgressNotes')?.value.trim()||'',completedAt:new Date().toISOString()};state.trainingProgress.unshift(record);saveTrainingProgressLocal();try{const data=await trainingApiRequest('POST',{action:'progress',record});state.trainingCloudAvailable=Boolean(data.cloud)}catch(e){console.warn(e.message)}$('trainingCompletionPanel').classList.add('hidden');renderTrainingPage();showToast('Conclusão registrada.')}
+async function initTrainingModule(){populateTrainingSelectors();for(const id of ['trainingSearch','trainingFilterType','trainingFilterMachine','trainingFilterStatus'])$(id)?.addEventListener(id==='trainingSearch'?'input':'change',renderTrainingPage);$('saveTrainingBtn')?.addEventListener('click',saveTrainingItem);$('cancelTrainingEditBtn')?.addEventListener('click',clearTrainingForm);$('saveTrainingCompletionBtn')?.addEventListener('click',saveTrainingCompletion);$('cancelTrainingCompletionBtn')?.addEventListener('click',()=> $('trainingCompletionPanel')?.classList.add('hidden'));$('refreshTrainingBtn')?.addEventListener('click',()=>loadTrainingData(true));await loadTrainingData()}
 const SAMPLE_REPORT = `*Relatório de produção diária*
 - Turno: 3°
 *Lideres* : Adriana 
@@ -7982,7 +8022,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=51.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=52.0.0');
         registration.update();
       } catch {}
     });
