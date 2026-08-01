@@ -1474,3 +1474,23 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
   object-fit: contain;
   border-radius: 8px;
 }
+
+
+.visual-selected-file strong {
+  color: #0f766e;
+}
+
+.visual-selection-preview:not(.hidden) {
+  animation: visualPreviewIn .2s ease-out;
+}
+
+@keyframes visualPreviewIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

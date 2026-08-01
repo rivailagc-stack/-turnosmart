@@ -1,10 +1,12 @@
-# Testes V57
+# Testes da V58
 
-1. Confirme V57.0.0.
+1. Confirme V58.0.0.
 2. Abra Treinamentos.
 3. Toque em Biblioteca.
-4. Escolha uma foto.
-5. Confirme a prévia.
-6. Toque em Criar explicação.
-7. Salve.
-8. Confirme a foto no banco de conhecimento.
+4. Escolha uma foto do iPhone.
+5. Aguarde “Foto adicionada”.
+6. Confirme a prévia.
+7. Toque em Criar explicação.
+8. Salve no banco de conhecimento.
+9. Repita com uma foto grande.
+10. Repita com um vídeo.

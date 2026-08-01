@@ -1,5 +1,8 @@
-TurnoSmart V57.0.0
-Corrige o arquivo escolhido na biblioteca que não era usado.
-A foto ou vídeo fica guardado em memória.
-Mostra prévia antes de criar a explicação.
-O botão Criar explicação usa o arquivo guardado.
+TurnoSmart V58.0.0
+Corrige seleção de fotos no Safari e PWA do iPhone.
+Usa eventos input e change.
+Mantém o arquivo selecionado em memória.
+Mostra confirmação e prévia.
+Converte fotos grandes para JPEG otimizado.
+Aceita fotos de até 25 MB e vídeos de até 40 MB.
+Remove o limite antigo de 8 MB.

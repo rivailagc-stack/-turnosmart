@@ -1,3 +1,16 @@
-# TurnoSmart V55
+# TurnoSmart V58 — Upload no iPhone
 
-Nova criação de treinamento visual por foto/vídeo e painel SGMan ao vivo. A descrição automática local usa título, categoria e observações. Para reconhecimento completo da imagem será necessário conectar uma API de IA no servidor.
+## Correção
+
+A seleção da biblioteca agora:
+
+1. captura o arquivo pelos eventos `input` e `change`;
+2. mantém o arquivo na memória;
+3. converte fotos grandes para JPEG;
+4. mostra confirmação e prévia;
+5. usa a imagem preparada ao criar a explicação.
+
+## Limites
+
+- fotos: até 25 MB antes da otimização;
+- vídeos: até 40 MB.

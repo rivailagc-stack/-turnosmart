@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '57.0.0';
+const APP_VERSION = '58.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v57.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v58.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -7556,7 +7556,7 @@ const f=
   $('visualTrainingCameraFile')?.files?.[0] ||
   $('visualTrainingVideoFile')?.files?.[0] ||
   $('visualTrainingFile')?.files?.[0];
-if(!f)return showToast('Escolha uma foto ou vídeo e aguarde a prévia aparecer.');if(f.size>8*1024*1024)return showToast('Use arquivo de até 8 MB.');const title=$('visualTrainingTitle')?.value.trim()||f.name,cat=$('visualTrainingCategory')?.value.trim()||'Geral',machine=$('visualTrainingMachine')?.value||'',notes=$('visualTrainingNotes')?.value.trim()||'';const gen=visualTrainingTemplate(title,cat,machine,notes);state.visualTrainingDraft={id:`visual-${Date.now()}`,type:f.type.startsWith('video/')?'video':'image',title,category:cat,machine,notes,mediaUrl:await mediaDataUrl(f),...gen,createdAt:new Date().toISOString()};renderVisualTrainingDraft()}
+if(!f)return showToast('Escolha uma foto ou vídeo e aguarde a prévia aparecer.');const title=$('visualTrainingTitle')?.value.trim()||f.name,cat=$('visualTrainingCategory')?.value.trim()||'Geral',machine=$('visualTrainingMachine')?.value||'',notes=$('visualTrainingNotes')?.value.trim()||'';const gen=visualTrainingTemplate(title,cat,machine,notes);state.visualTrainingDraft={id:`visual-${Date.now()}`,type:f.type.startsWith('video/')?'video':'image',title,category:cat,machine,notes,mediaUrl:await mediaDataUrl(f),...gen,createdAt:new Date().toISOString()};renderVisualTrainingDraft()}
 function renderVisualTrainingDraft(){const d=state.visualTrainingDraft,t=$('visualTrainingDraft');if(!t)return;if(!d){t.classList.add('hidden');t.innerHTML='';return}const media=d.type==='video'?`<video controls src="${escapeHtml(d.mediaUrl)}"></video>`:`<img src="${escapeHtml(d.mediaUrl)}" alt="${escapeHtml(d.title)}">`;t.classList.remove('hidden');t.innerHTML=`<div class="visual-media">${media}</div><div class="visual-fields"><label>Título<input id="visualDraftTitle" value="${escapeHtml(d.title)}"></label><label>Resumo<textarea id="visualDraftDescription" rows="3">${escapeHtml(d.description)}</textarea></label><label>Passo a passo<textarea id="visualDraftSteps" rows="9">${escapeHtml(d.steps)}</textarea></label><label>Segurança<textarea id="visualDraftSafety" rows="4">${escapeHtml(d.safety)}</textarea></label><label>Palavras-chave<input id="visualDraftKeywords" value="${escapeHtml(d.keywords.join(', '))}"></label><div class="button-row"><button id="saveVisualTrainingBtn" class="primary">Salvar</button><button id="cancelVisualTrainingBtn" class="secondary">Cancelar</button></div></div>`;$('saveVisualTrainingBtn').onclick=saveVisualTraining;$('cancelVisualTrainingBtn').onclick=()=>{state.visualTrainingDraft=null;renderVisualTrainingDraft()}}
 function saveVisualTraining(){const d=state.visualTrainingDraft;if(!d)return;d.title=$('visualDraftTitle').value.trim();d.description=$('visualDraftDescription').value.trim();d.steps=$('visualDraftSteps').value.trim();d.safety=$('visualDraftSafety').value.trim();d.keywords=uniqueStrings($('visualDraftKeywords').value.split(',').map(x=>x.trim()).filter(Boolean));const items=visualTrainingItems();items.unshift(d);saveVisualTrainingItems(items);state.visualTrainingDraft=null;
 visualTrainingSelectedFileCache=null;
@@ -7576,34 +7576,216 @@ if($('visualTrainingSelectionPreview')){
 }
 renderVisualTrainingDraft();renderVisualTrainingLibrary();showToast('Treinamento visual salvo.')}
 function renderVisualTrainingLibrary(){const t=$('visualTrainingLibrary');if(!t)return;const q=normalizeKey($('visualTrainingSearch')?.value||''),m=$('visualTrainingFilterMachine')?.value||'',ty=$('visualTrainingFilterType')?.value||'';const items=visualTrainingItems().filter(x=>(!m||x.machine===m)&&(!ty||x.type===ty)&&(!q||normalizeKey([x.title,x.category,x.machine,x.description,x.steps,x.safety,...(x.keywords||[])].join(' ')).includes(q)));t.innerHTML=items.length?items.map(x=>{const media=x.type==='video'?`<video controls src="${escapeHtml(x.mediaUrl)}"></video>`:`<img src="${escapeHtml(x.mediaUrl)}" alt="${escapeHtml(x.title)}">`;return `<article class="visual-card"><div class="visual-media">${media}</div><div><span class="training-type">${x.type==='video'?'Vídeo':'Imagem'}</span><h3>${escapeHtml(x.title)}</h3><p>${escapeHtml(x.description||'')}</p><details><summary>Ver passo a passo</summary><pre>${escapeHtml(x.steps||'')}</pre></details><div class="visual-safety"><strong>Segurança</strong><p>${escapeHtml(x.safety||'')}</p></div><div class="visual-tags">${(x.keywords||[]).map(k=>`<span>${escapeHtml(k)}</span>`).join('')}</div></div></article>`}).join(''):'<p class="muted">Nenhum conteúdo encontrado.</p>'}
-function showVisualTrainingSelectedFile(inputId){
-const input=$(inputId),file=input?.files?.[0],target=$('visualTrainingSelectedFile'),preview=$('visualTrainingSelectionPreview');
-if(!file)return;
-if(file.size>8*1024*1024){input.value='';return showToast('Use arquivo de até 8 MB.')}
-visualTrainingSelectedFileCache=file;
-for(const id of ['visualTrainingFile','visualTrainingCameraFile','visualTrainingVideoFile']){
-  if(id!==inputId&&$(id))$(id).value='';
+
+function visualTrainingFileFromEvent(event, inputId){
+  const fromEvent =
+    event?.target?.files?.[0] ||
+    event?.currentTarget?.files?.[0];
+
+  return fromEvent || $(inputId)?.files?.[0] || null;
 }
-if(visualTrainingPreviewUrl){
-  try{URL.revokeObjectURL(visualTrainingPreviewUrl)}catch{}
+
+function loadImageFromFile(file){
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error(
+        'O iPhone selecionou a imagem, mas o navegador não conseguiu abrir este formato.'
+      ));
+    };
+
+    image.src = objectUrl;
+  });
 }
-visualTrainingPreviewUrl=URL.createObjectURL(file);
-const kind=file.type.startsWith('video/')?'Vídeo':'Foto';
-const mb=(file.size/(1024*1024)).toFixed(1).replace('.',',');
-if(target)target.innerHTML=`<strong>${kind} selecionado:</strong> ${escapeHtml(file.name)} • ${mb} MB`;
-if(preview){
-  preview.classList.remove('hidden');
-  preview.innerHTML=file.type.startsWith('video/')
-    ?`<video controls preload="metadata" src="${escapeHtml(visualTrainingPreviewUrl)}"></video>`
-    :`<img src="${escapeHtml(visualTrainingPreviewUrl)}" alt="Prévia do arquivo selecionado">`;
+
+async function optimizeVisualTrainingImage(file){
+  if(!file?.type?.startsWith('image/')){
+    return file;
+  }
+
+  // Arquivos pequenos e formatos comuns podem seguir sem conversão.
+  const commonType = /image\/(jpeg|jpg|png|webp)/i.test(file.type);
+  if(commonType && file.size <= 1.8 * 1024 * 1024){
+    return file;
+  }
+
+  const image = await loadImageFromFile(file);
+  const maxSide = 1800;
+  const originalWidth = image.naturalWidth || image.width;
+  const originalHeight = image.naturalHeight || image.height;
+  const scale = Math.min(
+    1,
+    maxSide / Math.max(originalWidth, originalHeight)
+  );
+
+  const width = Math.max(1, Math.round(originalWidth * scale));
+  const height = Math.max(1, Math.round(originalHeight * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext('2d', {
+    alpha: false
+  });
+
+  context.drawImage(image, 0, 0, width, height);
+
+  const blob = await new Promise((resolve, reject) => {
+    canvas.toBlob(
+      result => result
+        ? resolve(result)
+        : reject(new Error('Não foi possível otimizar a foto.')),
+      'image/jpeg',
+      0.82
+    );
+  });
+
+  const baseName = String(file.name || 'foto')
+    .replace(/\.[^.]+$/, '');
+
+  return new File(
+    [blob],
+    `${baseName}.jpg`,
+    {
+      type: 'image/jpeg',
+      lastModified: Date.now()
+    }
+  );
 }
-if(!$('visualTrainingTitle')?.value.trim()){
-  $('visualTrainingTitle').value=file.name.replace(/\.[^.]+$/,'').replace(/[-_]+/g,' ').trim();
+
+async function prepareVisualTrainingSelectedFile(file){
+  if(!file){
+    throw new Error('Nenhum arquivo foi selecionado.');
+  }
+
+  const isVideo = String(file.type || '').startsWith('video/');
+  const maximum = isVideo
+    ? 40 * 1024 * 1024
+    : 25 * 1024 * 1024;
+
+  if(file.size > maximum){
+    throw new Error(
+      isVideo
+        ? 'O vídeo é muito grande. Use até 40 MB.'
+        : 'A foto é muito grande. Use até 25 MB.'
+    );
+  }
+
+  return isVideo
+    ? file
+    : optimizeVisualTrainingImage(file);
+}
+
+async function showVisualTrainingSelectedFile(inputId,event=null){
+const input=$(inputId);
+const selected=visualTrainingFileFromEvent(event,inputId);
+const target=$('visualTrainingSelectedFile');
+const preview=$('visualTrainingSelectionPreview');
+
+if(!selected){
+  return;
+}
+
+if(target){
+  target.innerHTML='<strong>Preparando arquivo...</strong>';
+}
+
+try{
+  const file=await prepareVisualTrainingSelectedFile(selected);
+  visualTrainingSelectedFileCache=file;
+
+  for(const id of [
+    'visualTrainingFile',
+    'visualTrainingCameraFile',
+    'visualTrainingVideoFile'
+  ]){
+    if(id!==inputId&&$(id)){
+      $(id).value='';
+    }
+  }
+
+  if(visualTrainingPreviewUrl){
+    try{URL.revokeObjectURL(visualTrainingPreviewUrl)}catch{}
+  }
+
+  visualTrainingPreviewUrl=URL.createObjectURL(file);
+
+  const kind=file.type.startsWith('video/')?'Vídeo':'Foto';
+  const mb=(file.size/(1024*1024)).toFixed(1).replace('.',',');
+
+  if(target){
+    target.innerHTML=
+      `<strong>${kind} adicionado:</strong> `+
+      `${escapeHtml(file.name)} • ${mb} MB`;
+  }
+
+  if(preview){
+    preview.classList.remove('hidden');
+    preview.innerHTML=file.type.startsWith('video/')
+      ? `<video controls playsinline preload="metadata" src="${escapeHtml(visualTrainingPreviewUrl)}"></video>`
+      : `<img src="${escapeHtml(visualTrainingPreviewUrl)}" alt="Prévia da foto selecionada">`;
+  }
+
+  if(!$('visualTrainingTitle')?.value.trim()){
+    $('visualTrainingTitle').value=String(file.name||'')
+      .replace(/\.[^.]+$/,'')
+      .replace(/[-_]+/g,' ')
+      .trim();
+  }
+
+  showToast(`${kind} adicionada com sucesso.`);
+}catch(error){
+  visualTrainingSelectedFileCache=null;
+
+  if(input){
+    input.value='';
+  }
+
+  if(target){
+    target.textContent='Nenhum arquivo selecionado.';
+  }
+
+  if(preview){
+    preview.classList.add('hidden');
+    preview.innerHTML='';
+  }
+
+  showToast(error.message);
 }
 }
-function initVisualTraining(){const machines=trainingMachineOptions();for(const id of ['visualTrainingMachine','visualTrainingFilterMachine']){const e=$(id);if(e)e.innerHTML=`<option value="">${id.includes('Filter')?'Todas as máquinas':'Geral / todas'}</option>`+machines.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join('')}for(const id of ['visualTrainingFile','visualTrainingCameraFile','visualTrainingVideoFile']){
-  $(id)?.addEventListener('change',()=>showVisualTrainingSelectedFile(id));
+function initVisualTraining(){const machines=trainingMachineOptions();for(const id of ['visualTrainingMachine','visualTrainingFilterMachine']){const e=$(id);if(e)e.innerHTML=`<option value="">${id.includes('Filter')?'Todas as máquinas':'Geral / todas'}</option>`+machines.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join('')}for(const id of [
+  'visualTrainingFile',
+  'visualTrainingCameraFile',
+  'visualTrainingVideoFile'
+]){
+  const mediaInput=$(id);
+  if(!mediaInput)continue;
+
+  let processing=false;
+
+  const handleSelection=async event=>{
+    if(processing)return;
+    processing=true;
+
+    try{
+      await showVisualTrainingSelectedFile(id,event);
+    }finally{
+      setTimeout(()=>{processing=false},200);
+    }
+  };
+
+  mediaInput.addEventListener('input',handleSelection);
+  mediaInput.addEventListener('change',handleSelection);
 }
+
 $('createVisualTrainingBtn')?.addEventListener('click',createVisualTraining);
 for(const id of ['visualTrainingSearch','visualTrainingFilterMachine','visualTrainingFilterType'])$(id)?.addEventListener(id==='visualTrainingSearch'?'input':'change',renderVisualTrainingLibrary);renderVisualTrainingLibrary()}
 function liveHistory(){try{const a=JSON.parse(localStorage.getItem(STORAGE.liveDashboardHistory)||'[]');return Array.isArray(a)?a:[]}catch{return []}}
@@ -8237,7 +8419,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=57.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=58.0.0');
         registration.update();
       } catch {}
     });
