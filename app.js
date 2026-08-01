@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '61.0.0';
+const APP_VERSION = '62.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v61.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v62.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -523,25 +523,7 @@ document.addEventListener('DOMContentLoaded', () => {
     event.preventDefault();
 
     const viewName = button.dataset.view;
-    safeSwitchView(viewName);
-
-    if (viewName === 'inteligencia') {
-      initializeIntelligenceOnlyWhenNeeded();
-    }
-
-    if(viewName==='aovivo'){const r=$('view-aovivo');if(r&&r.dataset.initialized!=='true'){r.dataset.initialized='true';initLiveDashboard()}}
-
-    if (viewName === 'treinamentos') {
-      const root = $('view-treinamentos');
-      if (root && root.dataset.initialized !== 'true') {
-        root.dataset.initialized = 'true';
-        initTrainingModule().catch(error => {
-          root.dataset.initialized = 'false';
-          console.error('Falha no módulo Treinamentos:', error);
-          showToast(`Falha ao iniciar treinamentos: ${error.message}`);
-        });
-      }
-    }
+    switchView(viewName);
   });
 
   // A aplicação sempre começa no relatório original.
@@ -3078,8 +3060,50 @@ function showToast(message) {
   showToast.timer = setTimeout(() => toast.classList.remove('show'), 2200);
 }
 
+function initializeViewModule(name) {
+  if (name === 'treinamentos') {
+    const root = $('view-treinamentos');
+
+    if (root && root.dataset.initialized !== 'true') {
+      root.dataset.initialized = 'true';
+
+      initTrainingModule().catch(error => {
+        root.dataset.initialized = 'false';
+        console.error('Falha no módulo Treinamentos:', error);
+        showToast(`Falha ao iniciar treinamentos: ${error.message}`);
+      });
+    }
+  }
+
+  if (name === 'aovivo') {
+    const root = $('view-aovivo');
+
+    if (root && root.dataset.initialized !== 'true') {
+      root.dataset.initialized = 'true';
+
+      try {
+        initLiveDashboard();
+      } catch (error) {
+        root.dataset.initialized = 'false';
+        console.error('Falha no painel ao vivo:', error);
+        showToast(`Falha ao iniciar painel ao vivo: ${error.message}`);
+      }
+    }
+  }
+
+  if (name === 'inteligencia') {
+    initializeIntelligenceOnlyWhenNeeded();
+  }
+}
+
 function switchView(name) {
-  return safeSwitchView(name);
+  const opened = safeSwitchView(name);
+
+  if (opened) {
+    initializeViewModule(name);
+  }
+
+  return opened;
 }
 
 function managementSummaryText(analysis) {
@@ -7542,7 +7566,28 @@ function renderMaintenanceManagerHome(){
   </div>`;
 }
 async function refreshMaintenanceManagerHome(){const b=$('refreshManagerHomeBtn'); if(b){b.disabled=true;b.textContent='Atualizando...';} try{await refreshSgmanHistory(true);state.reliability3Days=calculateReliability3Days();renderMaintenanceManagerHome();showToast('Painel do gestor atualizado.');}finally{if(b){b.disabled=false;b.textContent='Atualizar painel';}}}
-function initMaintenanceManagerHome(){renderMaintenanceManagerHome();$('refreshManagerHomeBtn')?.addEventListener('click',refreshMaintenanceManagerHome);$('copyDailyReportHomeBtn')?.addEventListener('click',()=>copyText(maintenanceAccountabilityReport(),'Relatório diário copiado.'));$$('.manager-shortcut[data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));}
+function initMaintenanceManagerHome(){
+  renderMaintenanceManagerHome();
+
+  $('refreshManagerHomeBtn')?.addEventListener(
+    'click',
+    refreshMaintenanceManagerHome
+  );
+
+  $('copyDailyReportHomeBtn')?.addEventListener(
+    'click',
+    () => copyText(
+      maintenanceAccountabilityReport(),
+      'Relatório diário copiado.'
+    )
+  );
+
+  $$('.manager-shortcut[data-view]').forEach(button => {
+    button.addEventListener('click', () => {
+      switchView(button.dataset.view);
+    });
+  });
+}
 
 let visualTrainingSelectedFileCache=null;
 let visualTrainingPreviewUrl='';
@@ -8435,7 +8480,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=61.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=62.0.0');
         registration.update();
       } catch {}
     });

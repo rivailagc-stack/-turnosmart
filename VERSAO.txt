@@ -1,5 +1,11 @@
-TurnoSmart V61.0.0
-Troca os seletores sobrepostos por botões reais.
-O botão Biblioteca chama diretamente o seletor nativo do iPhone.
-Os inputs ficam separados e fora da tela.
-Mantém prévia, otimização de imagem e criação da explicação.
+TurnoSmart V62.0.0
+
+Correção principal:
+A página Treinamentos abria pelo atalho do Painel, mas o JavaScript do módulo não era iniciado.
+
+Agora:
+- entrada pelo Painel inicializa Treinamentos;
+- entrada pela barra inferior inicializa Treinamentos;
+- entrada por qualquer atalho inicializa Treinamentos;
+- os botões Câmera, Biblioteca e Vídeo recebem os eventos corretamente;
+- mantém seletor nativo, prévia e otimização de imagem.
