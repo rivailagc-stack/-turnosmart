@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=52.0.0" />
+  <link rel="stylesheet" href="style.css?v=54.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -20,13 +20,20 @@
       <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V52.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V54.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
   </header>
 
   <main class="app-shell">
+
+    <section id="view-painel" class="view active">
+      <div class="hero card manager-home-hero"><div><span class="badge">GESTOR DE MANUTENÇÃO</span><h2>Visão diária da operação</h2><p>Indicadores, prioridades, metas, preventivas e acompanhamento da equipe em uma única página.</p></div><div class="button-row manager-home-actions"><button id="refreshManagerHomeBtn" class="secondary" type="button">Atualizar painel</button><button id="copyDailyReportHomeBtn" class="primary" type="button">Copiar relatório diário</button></div></div>
+      <div class="card"><div class="manager-shortcuts"><button class="manager-shortcut" data-view="osrapida" type="button"><span>📷</span><strong>Abrir OS</strong><small>Foto, áudio ou texto</small></button><button class="manager-shortcut" data-view="analise" type="button"><span>▦</span><strong>Análise</strong><small>Indicadores e cobranças</small></button><button class="manager-shortcut" data-view="treinamentos" type="button"><span>🎓</span><strong>Treinamentos</strong><small>Procedimentos e capacitação</small></button><button class="manager-shortcut" data-view="inteligencia" type="button"><span>📈</span><strong>Inteligência</strong><small>OEE, grupo e SGMan</small></button></div></div>
+      <div id="managerHomeContent"></div>
+    </section>
+
 
     <section id="view-inteligencia" class="view focused-management-page">
       <div class="hero card focused-hero">
@@ -162,7 +169,7 @@
       </div>
     </section>
 
-    <section id="view-novo" class="view active">
+    <section id="view-novo" class="view">
       <div class="hero card">
         <div>
           <span class="badge">V33 • Análise corrigida</span>
@@ -362,13 +369,13 @@
 
         <div class="card maintenance-accountability-card">
           <div class="section-head">
-            <div><span class="eyebrow">GESTÃO DA MANUTENÇÃO</span><h2>Cobrança de eficiência do turno</h2></div>
+            <div><span class="eyebrow">RELATÓRIO DIÁRIO</span><h2>Gestão e eficiência do turno</h2></div>
             <div class="button-row compact-buttons">
               <button id="refreshMaintenanceAccountabilityBtn" class="secondary" type="button">Atualizar gestão</button>
-              <button id="copyMaintenanceAccountabilityBtn" class="primary" type="button">Copiar cobrança</button>
+              <button id="copyMaintenanceAccountabilityBtn" class="primary" type="button">Copiar relatório</button>
             </div>
           </div>
-          <p class="muted">O relatório cobra resultado, prazo, estabilidade, causa raiz e qualidade do apontamento no SGMan.</p>
+          <p class="muted">O relatório mostra indicadores, metas, prioridades e cobranças para manter alto nível de eficiência.</p>
           <div id="maintenanceAccountabilityPanel"></div>
         </div>
         <div class="card manager-panel-card">
@@ -762,7 +769,7 @@
 
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 52</h2>
+        <h2>Configuração da versão 53</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -868,7 +875,8 @@
   </main>
 
   <nav class="bottom-nav" aria-label="Navegação principal">
-    <button class="nav-btn active" data-view="novo"><span>＋</span>Novo</button>
+    <button class="nav-btn active" data-view="painel"><span>🏠</span>Painel</button>
+    <button class="nav-btn" data-view="novo"><span>＋</span>Novo</button>
     <button class="nav-btn quick-nav" data-view="osrapida"><span>📷</span>Abrir OS</button>
     <button class="nav-btn" data-view="mecanico"><span>🧠</span>Mecânico</button>
     <button class="nav-btn" data-view="analise"><span>▦</span>Análise</button>
@@ -884,6 +892,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=52.0.0"></script>
+  <script src="app.js?v=54.0.0"></script>
 </body>
 </html>

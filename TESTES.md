@@ -1,6 +1,8 @@
-# Testes V52
+# Testes da V53
 
-1. Abra Treinamentos.
-2. Cadastre um procedimento.
-3. Registre conclusão.
-4. Execute setup_training.sql e configure o Supabase.
+1. Confirme V53.0.0.
+2. Analise um relatório.
+3. Confira RELATÓRIO DIÁRIO.
+4. Confira Índice de gestão.
+5. Confira indicadores e metas.
+6. Confirme as outras páginas.

@@ -1,3 +1,3 @@
-# TurnoSmart V52
+# TurnoSmart V53 — Relatório Diário
 
-Execute `setup_training.sql` no Supabase e configure `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` na Vercel. Sem isso, a aba funciona em modo local.
+O relatório executivo agora mostra índice de gestão, tendência, indicadores, metas, prioridades, cobranças e acompanhamento da equipe.

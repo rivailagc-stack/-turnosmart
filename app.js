@@ -196,14 +196,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '52.0.0';
+const APP_VERSION = '54.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v52.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v54.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -539,7 +539,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // A aplicação sempre começa no relatório original.
-  safeSwitchView('novo');
+  safeSwitchView('painel');
 }, { once: true });
 
 const $$ = selector => Array.from(document.querySelectorAll(selector));
@@ -3283,51 +3283,133 @@ function renderMaintenanceAccountabilityPanel() {
   const commitments = maintenanceShiftCommitments(metrics);
   const people = maintenancePeopleAccountability();
   target.innerHTML = `
-    <div class="maintenance-level maintenance-level-${escapeHtml(level.status)}"><div><span>Nível de eficiência da manutenção</span><strong>${escapeHtml(level.level)}</strong></div><b>${level.score}/100</b></div>
+    <div class="maintenance-level maintenance-level-${escapeHtml(level.status)}"><div><span>Índice de gestão</span><strong>${escapeHtml(level.level)}</strong></div><b>${level.score}/100</b></div>
     <div class="maintenance-accountability-grid">
-      <section><h3>Cobranças obrigatórias do turno</h3><ol>${demands.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ol></section>
+      <section><h3>Cobranças do turno</h3><ol>${demands.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ol></section>
       <section><h3>Compromissos das máquinas prioritárias</h3>${commitments.length ? commitments.map(item => `<article class="maintenance-commitment"><strong>${item.priority}. ${escapeHtml(item.machine)}</strong><span>Meta: ${escapeHtml(item.target)}</span><small>Validação: ${escapeHtml(item.validation)}</small></article>`).join('') : '<p class="muted">Atualize o SGMan para definir compromissos por máquina.</p>'}</section>
     </div>
     <section class="maintenance-people-accountability"><h3>Acompanhamento da equipe do turno</h3>${people.length ? people.map(row => `<article><div><strong>${escapeHtml(row.label || row.executante)}</strong><span>${row.completed} OS • MTTR ${escapeHtml(formatReliabilityTime(row.mttrMinutes, '-'))}</span></div><ul>${row.accountability.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul></article>`).join('') : '<p class="muted">Sem dados suficientes dos mecânicos da escala.</p>'}</section>`;
 }
 
 function maintenanceAccountabilityReport() {
-  const metrics = state.reliability3Days || calculateReliability3Days();
+  const metrics =
+    state.reliability3Days || calculateReliability3Days();
+
   const trend = efficiencyTrendMessage();
   const level = maintenanceEfficiencyLevel(metrics);
   const demands = maintenanceDemandItems(metrics);
   const commitments = maintenanceShiftCommitments(metrics);
   const people = maintenancePeopleAccountability();
+  const targets = maintenanceTargets();
+  const summary = state.sgmanHistory?.summary || {};
+
+  const currentOee =
+    calculateEfficiencyTrend()?.current ??
+    getRecentOeeDashboard()?.companyAverage ??
+    null;
+
+  const goalLines = [
+    {
+      label: 'OEE',
+      target: `≥ ${Number(targets.oee || 70).toFixed(0)}%`,
+      current: currentOee == null ? '-' : formatOee(currentOee),
+      ok: currentOee != null && currentOee >= Number(targets.oee || 70)
+    },
+    {
+      label: 'MTTR',
+      target: `≤ ${formatReliabilityTime(Number(targets.mttrMinutes || 60))}`,
+      current: formatReliabilityTime(metrics.mttrMinutes),
+      ok: Number.isFinite(Number(metrics.mttrMinutes)) &&
+        Number(metrics.mttrMinutes) <= Number(targets.mttrMinutes || 60)
+    },
+    {
+      label: 'MTBF',
+      target: `≥ ${formatReliabilityTime(Number(targets.mtbfHours || 12) * 60)}`,
+      current: formatReliabilityTime(metrics.mtbfMinutes),
+      ok: Number.isFinite(Number(metrics.mtbfMinutes)) &&
+        Number(metrics.mtbfMinutes) >= Number(targets.mtbfHours || 12) * 60
+    },
+    {
+      label: 'Confiabilidade',
+      target: `≥ ${Number(targets.reliabilityPercent || 55).toFixed(0)}%`,
+      current: formatReliabilityPercent(metrics.reliabilityPercent),
+      ok: Number.isFinite(Number(metrics.reliabilityPercent)) &&
+        Number(metrics.reliabilityPercent) >= Number(targets.reliabilityPercent || 55)
+    },
+    {
+      label: 'OS atrasadas',
+      target: `≤ ${Number(targets.maxOverdueOrders || 20)}`,
+      current: String(Number(summary.overdue || 0)),
+      ok: Number(summary.overdue || 0) <= Number(targets.maxOverdueOrders || 20)
+    },
+    {
+      label: 'Reincidências',
+      target: `≤ ${Number(targets.maxRecurrenceMachines || 2)}`,
+      current: String(Number(metrics.recurrentMachines || 0)),
+      ok: Number(metrics.recurrentMachines || 0) <= Number(targets.maxRecurrenceMachines || 2)
+    }
+  ];
+
   const lines = [
-    `*${companyDisplayName().toUpperCase()} — GESTÃO DA MANUTENÇÃO*`,
+    '*RELATÓRIO DIÁRIO*',
     organizationContextText(),
     '',
-    `Nível da manutenção: *${level.level}* — ${level.score}/100.`
+    `Índice de gestão: *${level.level}* — ${level.score}/100.`
   ];
 
   if (reportModuleEnabled('efficiencyTrend')) {
     lines.push(trend.line);
-    lines.push(`Direção: ${trend.guidance}`);
+    lines.push(`Situação: ${trend.guidance}`);
   }
 
   if (reportModuleEnabled('reliability')) {
     lines.push('');
-    lines.push(
-      `Indicadores: MTTR ${formatReliabilityTime(metrics.mttrMinutes)} | ` +
-      `MTBF ${formatReliabilityTime(metrics.mtbfMinutes)} | ` +
-      `Confiabilidade 12h ${formatReliabilityPercent(metrics.reliabilityPercent)} | ` +
-      `OS concluídas no turno ${Number(metrics.completedCurrentShift || 0)}.`
-    );
+    lines.push('*INDICADORES*');
+    lines.push(`OEE: ${currentOee == null ? '-' : formatOee(currentOee)}`);
+    lines.push(`MTTR: ${formatReliabilityTime(metrics.mttrMinutes)}`);
+    lines.push(`MTBF: ${formatReliabilityTime(metrics.mtbfMinutes)}`);
+    lines.push(`Confiabilidade 12h: ${formatReliabilityPercent(metrics.reliabilityPercent)}`);
+    lines.push(`OS concluídas no turno: ${Number(metrics.completedCurrentShift || 0)}`);
+    lines.push(`OS em atraso: ${Number(summary.overdue || 0)}`);
+    lines.push(`Reincidências: ${Number(metrics.recurrentMachines || 0)}`);
+
+    lines.push('');
+    lines.push('*METAS DO TURNO*');
+    goalLines.forEach(goal => {
+      lines.push(`${goal.ok ? '✅' : '❌'} ${goal.label}: meta ${goal.target} | atual ${goal.current}`);
+    });
+  }
+
+  if (reportModuleEnabled('priorities')) {
+    lines.push('');
+    lines.push('*PRIORIDADES DO TURNO*');
+    if (commitments.length) {
+      commitments.forEach(item => {
+        lines.push(`${item.priority}. *${item.machine}* — ${item.target}; ${item.validation}.`);
+      });
+    } else {
+      lines.push('Atualizar o SGMan e definir três máquinas prioritárias.');
+    }
+  }
+
+  if (reportModuleEnabled('accountability')) {
+    lines.push('');
+    lines.push('*COBRANÇAS DO TURNO*');
+    demands.forEach((item, index) => lines.push(`${index + 1}. ${item}`));
+  }
+
+  if (reportModuleEnabled('people') && people.length) {
+    lines.push('');
+    lines.push('*ACOMPANHAMENTO DA EQUIPE*');
+    people.slice(0, 5).forEach(row => {
+      lines.push(`• *${row.label || row.executante}* — ${row.accountability.join('; ')}.`);
+    });
   }
 
   lines.push('');
-  lines.push('*COBRANÇAS OBRIGATÓRIAS*');
-  demands.forEach((item,index)=>lines.push(`${index+1}. ${item}`));
-  lines.push('','*COMPROMISSOS DAS MÁQUINAS*');
-  commitments.length ? commitments.forEach(item=>lines.push(`${item.priority}. *${item.machine}* — ${item.target}; ${item.validation}.`)) : lines.push('Atualizar o SGMan e definir três máquinas prioritárias.');
-  if (people.length) { lines.push('','*ACOMPANHAMENTO DA EQUIPE*'); people.slice(0,5).forEach(row=>lines.push(`• *${row.label || row.executante}* — ${row.accountability.join('; ')}.`)); }
-  lines.push('','*Resultado esperado:* entregar máquinas estáveis, reduzir reincidência, concluir OS e manter o padrão de eficiência da manutenção.');
-  return lines.join('\n');
+  lines.push('*Objetivo do turno:* entregar máquinas estáveis, reduzir reincidências, concluir as ordens e manter alto nível de eficiência.');
+
+  return lines.join('\\n');
 }
 
 function maintenanceMessage() {
@@ -7398,6 +7480,63 @@ async function deleteTrainingItem(id){const item=state.trainingItems.find(x=>Str
 function openTrainingCompletion(id){const item=state.trainingItems.find(x=>String(x.id)===String(id));if(!item)return;$('trainingCompletionId').value=String(id);$('trainingCompletionTitle').textContent=item.title;$('trainingCompletionPanel').classList.remove('hidden');$('trainingCompletionPanel').scrollIntoView({behavior:'smooth',block:'center'})}
 async function saveTrainingCompletion(){const trainingId=$('trainingCompletionId')?.value||'';const mechanic=$('trainingProgressMechanic')?.value||'';if(!trainingId||!mechanic){showToast('Selecione o colaborador.');return}const record={id:`progress-${Date.now()}`,trainingId,mechanic,mechanicLabel:sgmanUserLabel(mechanic),status:'completed',score:Number($('trainingProgressScore')?.value||0),notes:$('trainingProgressNotes')?.value.trim()||'',completedAt:new Date().toISOString()};state.trainingProgress.unshift(record);saveTrainingProgressLocal();try{const data=await trainingApiRequest('POST',{action:'progress',record});state.trainingCloudAvailable=Boolean(data.cloud)}catch(e){console.warn(e.message)}$('trainingCompletionPanel').classList.add('hidden');renderTrainingPage();showToast('Conclusão registrada.')}
 async function initTrainingModule(){populateTrainingSelectors();for(const id of ['trainingSearch','trainingFilterType','trainingFilterMachine','trainingFilterStatus'])$(id)?.addEventListener(id==='trainingSearch'?'input':'change',renderTrainingPage);$('saveTrainingBtn')?.addEventListener('click',saveTrainingItem);$('cancelTrainingEditBtn')?.addEventListener('click',clearTrainingForm);$('saveTrainingCompletionBtn')?.addEventListener('click',saveTrainingCompletion);$('cancelTrainingCompletionBtn')?.addEventListener('click',()=> $('trainingCompletionPanel')?.classList.add('hidden'));$('refreshTrainingBtn')?.addEventListener('click',()=>loadTrainingData(true));await loadTrainingData()}
+
+function maintenanceManagerSnapshot() {
+  const metrics = state.reliability3Days || calculateReliability3Days();
+  const summary = state.sgmanHistory?.summary || {};
+  const trend = calculateEfficiencyTrend();
+  const level = maintenanceEfficiencyLevel(metrics);
+  const targets = maintenanceTargets();
+  const shift = currentOperationalShiftWindow(new Date());
+  const plan = maintenanceShiftCommitments(metrics);
+  const preventive = buildPreventivePlan(metrics).slice(0, 5);
+  const people = maintenancePeopleAccountability().slice(0, 6);
+  const oee = trend.current ?? getRecentOeeDashboard()?.companyAverage ?? null;
+  const goals = [
+    {label:'OEE',target:`≥ ${Number(targets.oee||70).toFixed(0)}%`,current:oee==null?'-':formatOee(oee),ok:oee!=null&&oee>=Number(targets.oee||70)},
+    {label:'MTTR',target:`≤ ${formatReliabilityTime(Number(targets.mttrMinutes||60))}`,current:formatReliabilityTime(metrics.mttrMinutes),ok:Number.isFinite(Number(metrics.mttrMinutes))&&Number(metrics.mttrMinutes)<=Number(targets.mttrMinutes||60)},
+    {label:'MTBF',target:`≥ ${formatReliabilityTime(Number(targets.mtbfHours||12)*60)}`,current:formatReliabilityTime(metrics.mtbfMinutes),ok:Number.isFinite(Number(metrics.mtbfMinutes))&&Number(metrics.mtbfMinutes)>=Number(targets.mtbfHours||12)*60},
+    {label:'Confiabilidade',target:`≥ ${Number(targets.reliabilityPercent||55).toFixed(0)}%`,current:formatReliabilityPercent(metrics.reliabilityPercent),ok:Number.isFinite(Number(metrics.reliabilityPercent))&&Number(metrics.reliabilityPercent)>=Number(targets.reliabilityPercent||55)},
+    {label:'OS em atraso',target:`≤ ${Number(targets.maxOverdueOrders||20)}`,current:String(Number(summary.overdue||0)),ok:Number(summary.overdue||0)<=Number(targets.maxOverdueOrders||20)},
+    {label:'Reincidências',target:`≤ ${Number(targets.maxRecurrenceMachines||2)}`,current:String(Number(metrics.recurrentMachines||0)),ok:Number(metrics.recurrentMachines||0)<=Number(targets.maxRecurrenceMachines||2)}
+  ];
+  return {metrics,summary,trend,level,shift,oee,plan,preventive,people,goals};
+}
+function managerReliabilityExplanation(percent){
+  const v=Number(percent);
+  if(!Number.isFinite(v)) return {status:'Sem dados',color:'gray',text:'Atualize o SGMan para estimar a chance de operar 12 horas sem nova falha.'};
+  if(v>=80) return {status:'Excelente',color:'green',text:'Alta probabilidade de concluir as próximas 12 horas sem nova falha.'};
+  if(v>=60) return {status:'Boa',color:'yellow',text:'Boa estabilidade, mas as reincidências ainda precisam ser controladas.'};
+  if(v>=40) return {status:'Atenção',color:'orange',text:'Risco moderado de nova parada. Priorize as máquinas reincidentes.'};
+  return {status:'Alto risco',color:'red',text:'Existe alto risco de uma nova falha nas próximas 12 horas. Foco total em causa raiz, teste e estabilidade.'};
+}
+function renderMaintenanceManagerHome(){
+  const target=$('managerHomeContent'); if(!target) return;
+  const s=maintenanceManagerSnapshot();
+  const r=managerReliabilityExplanation(s.metrics.reliabilityPercent);
+  const trendText=s.trend.delta==null?'Sem comparação anterior':s.trend.direction==='up'?`Melhora de ${Math.abs(s.trend.delta).toFixed(1).replace('.',',')} ponto(s)`:s.trend.direction==='down'?`Piora de ${Math.abs(s.trend.delta).toFixed(1).replace('.',',')} ponto(s)`:'Eficiência estável';
+  target.innerHTML=`
+  <div class="manager-home-level manager-home-level-${escapeHtml(s.level.status)}"><div><span>Índice de gestão</span><strong>${escapeHtml(s.level.level)}</strong><small>${escapeHtml(trendText)}</small></div><b>${s.level.score}/100</b></div>
+  <div class="manager-home-kpis">
+   <div class="metric"><span>OEE</span><strong>${s.oee==null?'-':escapeHtml(formatOee(s.oee))}</strong><small>${escapeHtml(s.trend.arrow||'➜')} tendência</small></div>
+   <div class="metric"><span>MTTR</span><strong>${escapeHtml(formatReliabilityTime(s.metrics.mttrMinutes,'-'))}</strong><small>Tempo médio de reparo</small></div>
+   <div class="metric"><span>MTBF</span><strong>${escapeHtml(formatReliabilityTime(s.metrics.mtbfMinutes,'-'))}</strong><small>Tempo médio entre falhas</small></div>
+   <div class="metric"><span>OS concluídas</span><strong>${Number(s.metrics.completedCurrentShift||0)}</strong><small>${escapeHtml(s.shift.label)}</small></div>
+   <div class="metric"><span>OS em atraso</span><strong>${Number(s.summary.overdue||0)}</strong><small>Exigem responsável e prazo</small></div>
+   <div class="metric"><span>Reincidências</span><strong>${Number(s.metrics.recurrentMachines||0)}</strong><small>Máquinas com 2+ falhas</small></div>
+  </div>
+  <div class="manager-reliability-card manager-reliability-${escapeHtml(r.color)}"><div><span>Confiabilidade para as próximas 12 horas</span><strong>${escapeHtml(formatReliabilityPercent(s.metrics.reliabilityPercent,'-'))} — ${escapeHtml(r.status)}</strong></div><p>${escapeHtml(r.text)}</p></div>
+  <div class="manager-home-grid">
+   <section class="manager-home-section"><span class="eyebrow">PRIORIDADES DO TURNO</span><h3>Fila de ataque</h3><div class="manager-priority-list">${s.plan.length?s.plan.map(i=>`<article><span class="priority-number">${i.priority}</span><div><strong>${escapeHtml(i.machine)}</strong><p>${escapeHtml(i.target)}</p><small>${escapeHtml(i.validation)}</small></div></article>`).join(''):'<p class="muted">Atualize o SGMan para definir as três prioridades.</p>'}</div></section>
+   <section class="manager-home-section"><span class="eyebrow">METAS DO TURNO</span><h3>Situação atual</h3><div class="manager-goals-list">${s.goals.map(g=>`<div class="manager-goal ${g.ok?'goal-ok':'goal-fail'}"><span>${g.ok?'✅':'❌'} ${escapeHtml(g.label)}</span><strong>${escapeHtml(g.current)}</strong><small>Meta ${escapeHtml(g.target)}</small></div>`).join('')}</div></section>
+  </div>
+  <div class="manager-home-grid">
+   <section class="manager-home-section"><span class="eyebrow">PREVENTIVAS SUGERIDAS</span><h3>Próximas ações</h3><div class="manager-preventive-list">${s.preventive.length?s.preventive.map(i=>`<article><div><strong>${escapeHtml(i.machine)}</strong><span>${escapeHtml(i.frequency)}</span></div><ul>${i.actions.slice(0,3).map(a=>`<li>${escapeHtml(a)}</li>`).join('')}</ul></article>`).join(''):'<p class="muted">Sem dados suficientes para sugerir preventivas.</p>'}</div></section>
+   <section class="manager-home-section"><span class="eyebrow">EQUIPE DO TURNO</span><h3>Acompanhamento</h3><div class="manager-team-list">${s.people.length?s.people.map(row=>`<article><div><strong>${escapeHtml(row.label||row.executante)}</strong><span>${row.completed} OS • MTTR ${escapeHtml(formatReliabilityTime(row.mttrMinutes,'-'))}</span></div><small>${escapeHtml(row.accountability.join('; '))}</small></article>`).join(''):'<p class="muted">Sem dados suficientes dos mecânicos da escala.</p>'}</div></section>
+  </div>`;
+}
+async function refreshMaintenanceManagerHome(){const b=$('refreshManagerHomeBtn'); if(b){b.disabled=true;b.textContent='Atualizando...';} try{await refreshSgmanHistory(true);state.reliability3Days=calculateReliability3Days();renderMaintenanceManagerHome();showToast('Painel do gestor atualizado.');}finally{if(b){b.disabled=false;b.textContent='Atualizar painel';}}}
+function initMaintenanceManagerHome(){renderMaintenanceManagerHome();$('refreshManagerHomeBtn')?.addEventListener('click',refreshMaintenanceManagerHome);$('copyDailyReportHomeBtn')?.addEventListener('click',()=>copyText(maintenanceAccountabilityReport(),'Relatório diário copiado.'));$$('.manager-shortcut[data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));}
 const SAMPLE_REPORT = `*Relatório de produção diária*
 - Turno: 3°
 *Lideres* : Adriana 
@@ -8022,7 +8161,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=52.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=54.0.0');
         registration.update();
       } catch {}
     });
@@ -8033,6 +8172,7 @@ function init() {
   renderScale();
   renderHistory();
   renderOeeDashboard();
+  initMaintenanceManagerHome();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
