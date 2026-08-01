@@ -1,6 +1,7 @@
-TurnoSmart V59.0.0
-Corrige definitivamente o evento da biblioteca no iPhone.
-Remove o evento input que chegava antes do arquivo.
-Usa somente change para receber a foto.
-Remove o bloqueio que ignorava a seleção.
-Melhora detecção de HEIC, HEIF, MOV e arquivos com MIME vazio.
+TurnoSmart V60.0.0
+Corrige o botão Biblioteca que não abria no iPhone.
+O input de arquivo agora cobre todo o botão.
+Remove pointer-events none.
+Mantém o seletor invisível, porém clicável.
+Permite selecionar novamente a mesma foto.
+Mantém prévia, otimização e leitura HEIC.

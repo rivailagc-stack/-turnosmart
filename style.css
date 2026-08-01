@@ -1430,10 +1430,16 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
 
 .visual-source-button input {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  inset: 0;
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   opacity: 0;
-  pointer-events: none;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .visual-selected-file {
@@ -1493,4 +1499,20 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+
+.visual-source-button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.visual-source-button > span,
+.visual-source-button > strong,
+.visual-source-button > small {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
 }

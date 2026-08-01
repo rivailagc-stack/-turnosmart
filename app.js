@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '59.0.0';
+const APP_VERSION = '60.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v59.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v60.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -7788,8 +7788,12 @@ function initVisualTraining(){const machines=trainingMachineOptions();for(const 
   const mediaInput=$(id);
   if(!mediaInput)continue;
 
-  // No Safari/iPhone, o evento input pode ocorrer antes de files estar pronto.
-  // O evento change é o evento confiável para receber a foto escolhida.
+  // Permite selecionar novamente a mesma foto.
+  mediaInput.addEventListener('click',()=>{
+    mediaInput.value='';
+  });
+
+  // No Safari/iPhone, change é o evento confiável após o usuário escolher.
   mediaInput.addEventListener('change',async event=>{
     await showVisualTrainingSelectedFile(id,event);
   });
@@ -8428,7 +8432,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=59.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=60.0.0');
         registration.update();
       } catch {}
     });
