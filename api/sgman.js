@@ -1,4 +1,21 @@
-const LIST_ENDPOINT = 'https://api.sgman.com.br/os/listar';
+const DEFAULT_ENDPOINT = 'https://api.sgman.com.br/os/criar';
+
+const ALLOWED_FIELDS = new Set([
+  'regiao', 'local', 'tag', 'data_programada', 'data_inicio', 'data_fim',
+  'duracao_estimada', 'qtd_executantes', 'tipo_servico',
+  'tipo_manutencao', 'executante', 'prioridade', 'id_ext', 'pendente',
+  'descricao', 'comentario', 'maquina_parada', 'parametros', 'fotos'
+]);
+
+function sanitizeOrder(input) {
+  const output = {};
+  for (const [key, value] of Object.entries(input || {})) {
+    if (!ALLOWED_FIELDS.has(key)) continue;
+    if (value === undefined || value === null || value === '') continue;
+    output[key] = value;
+  }
+  return output;
+}
 
 function parseBody(body) {
   if (!body) return {};
@@ -7,8 +24,21 @@ function parseBody(body) {
   catch { return {}; }
 }
 
-function sleep(milliseconds) {
-  return new Promise(resolve => setTimeout(resolve, milliseconds));
+function flattenEntries(value, path = '', entries = []) {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => flattenEntries(item, `${path}[${index}]`, entries));
+    return entries;
+  }
+
+  if (value && typeof value === 'object') {
+    Object.entries(value).forEach(([key, item]) => {
+      const nextPath = path ? `${path}.${key}` : key;
+      entries.push({ key, path: nextPath, value: item });
+      flattenEntries(item, nextPath, entries);
+    });
+  }
+
+  return entries;
 }
 
 function textOf(value) {
@@ -17,631 +47,178 @@ function textOf(value) {
   catch { return String(value ?? ''); }
 }
 
-function isRateLimited(data, raw = '', status = 0) {
-  const text = `${textOf(data)} ${raw}`.toLowerCase();
+function sleep(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+function isRateLimitResponse(data, raw = '', status = 0) {
+  const text = `${textOf(data)} ${raw || ''}`.toLowerCase();
+
   return (
     status === 429 ||
     /requisi[cç][oõ]es simult[aâ]neas/.test(text) ||
-    /2 requisi[cç][oõ]es por segundo/.test(text) ||
+    /m[aá]ximo de 2 requisi[cç][oõ]es por segundo/.test(text) ||
     /too many requests/.test(text) ||
     /rate limit/.test(text)
   );
 }
 
-function parseEmbeddedJson(value) {
-  if (typeof value !== 'string') return value;
-  const trimmed = value.trim();
+function inspectSgmanResponse(data, raw, httpOk) {
+  const entries = flattenEntries(data);
+  const allText = `${textOf(data)} ${raw || ''}`.toLowerCase();
 
-  if (!trimmed || !['{', '['].includes(trimmed[0])) return value;
-
-  try { return JSON.parse(trimmed); }
-  catch { return value; }
-}
-
-function expandEmbeddedJson(value) {
-  if (Array.isArray(value)) {
-    return value.map(item => expandEmbeddedJson(parseEmbeddedJson(item)));
-  }
-
-  if (value && typeof value === 'object') {
-    const output = {};
-    for (const [key, item] of Object.entries(value)) {
-      output[key] = expandEmbeddedJson(parseEmbeddedJson(item));
-    }
-    return output;
-  }
-
-  return parseEmbeddedJson(value);
-}
-
-function primitiveCount(object) {
-  if (!object || typeof object !== 'object' || Array.isArray(object)) return 0;
-  return Object.values(object).filter(value =>
-    value === null ||
-    ['string', 'number', 'boolean'].includes(typeof value)
-  ).length;
-}
-
-function normalizedKeys(object) {
-  return Object.keys(object || {}).map(key =>
-    String(key)
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '')
-  );
-}
-
-function looksLikeOrder(object, insideArray = false) {
-  if (!object || typeof object !== 'object' || Array.isArray(object)) return false;
-
-  const keys = normalizedKeys(object);
-  const joined = keys.join(' ');
-
-  const patterns = [
-    /(^| )(id|idos|ordem|numeroos|codigoos)( |$)/,
-    /status|situacao|estado/,
-    /descricao|problema|atividade|servico|solicitacao/,
-    /tag|maquina|equipamento|ativo|local/,
-    /datainicio|datafim|dataconclusao|dataprogramada|dtinicio|dtfim/,
-    /executante|usuario|responsavel/,
-    /tiposervico|tipomanutencao/,
-    /comentario|observacao|solucao|conclusao/
-  ];
-
-  const evidence = patterns.filter(pattern => pattern.test(joined)).length;
-
-  if (evidence >= 2) return true;
-
-  // Algumas respostas do SGMan usam nomes abreviados. Objetos de uma lista,
-  // com ID e mais campos primitivos, também são tratados como uma OS.
-  const hasIdLike = keys.some(key =>
-    /^(id|idos|osid|numero|numeroos|codigo|codigos)$/.test(key)
+  const negativeBoolean = entries.some(entry =>
+    /^(ok|success|sucesso|status)$/i.test(entry.key) && entry.value === false
   );
 
-  return insideArray && hasIdLike && primitiveCount(object) >= 3;
-}
-
-function collectOrderObjects(value, output = [], seen = new Set(), insideArray = false) {
-  const expanded = parseEmbeddedJson(value);
-
-  if (Array.isArray(expanded)) {
-    expanded.forEach(item => collectOrderObjects(item, output, seen, true));
-    return output;
-  }
-
-  if (!expanded || typeof expanded !== 'object') return output;
-
-  if (looksLikeOrder(expanded, insideArray)) {
-    const signature = textOf(expanded);
-    if (!seen.has(signature)) {
-      seen.add(signature);
-      output.push(expanded);
-    }
-  }
-
-  Object.values(expanded).forEach(item =>
-    collectOrderObjects(item, output, seen, Array.isArray(item))
+  const positiveBoolean = entries.some(entry =>
+    /^(ok|success|sucesso|status)$/i.test(entry.key) && entry.value === true
   );
 
-  return output;
-}
-
-function flattenObject(value, prefix = '', output = []) {
-  const expanded = parseEmbeddedJson(value);
-
-  if (Array.isArray(expanded)) {
-    expanded.forEach((item, index) =>
-      flattenObject(item, `${prefix}[${index}]`, output)
-    );
-    return output;
-  }
-
-  if (expanded && typeof expanded === 'object') {
-    Object.entries(expanded).forEach(([key, item]) => {
-      const normalizedKey = String(key)
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '');
-
-      const path = prefix ? `${prefix}.${key}` : key;
-      output.push({ key: normalizedKey, originalKey: key, path, value: item });
-      flattenObject(item, path, output);
-    });
-  }
-
-  return output;
-}
-
-function valueToText(value) {
-  if (value === null || value === undefined) return '';
-  if (['string', 'number', 'boolean'].includes(typeof value)) return String(value);
-
-  if (Array.isArray(value)) {
-    return value.map(valueToText).filter(Boolean).join(', ');
-  }
-
-  if (typeof value === 'object') {
-    const preferred = [
-      'nome', 'descricao', 'descrição', 'status', 'situacao',
-      'situação', 'usuario', 'usuário', 'tag', 'codigo', 'id'
-    ];
-
-    for (const key of preferred) {
-      if (value[key] !== undefined && value[key] !== null) {
-        const result = valueToText(value[key]);
-        if (result) return result;
-      }
-    }
-
-    return textOf(value);
-  }
-
-  return String(value);
-}
-
-
-function parseDateCandidate(value) {
-  if (value === null || value === undefined || value === '') return null;
-
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    const milliseconds = value < 100000000000
-      ? value * 1000
-      : value;
-
-    const date = new Date(milliseconds);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  const text = valueToText(value).trim();
-  if (!text) return null;
-
-  const dotNet = text.match(/\/Date\((\d+)(?:[+-]\d+)?\)\//i);
-  if (dotNet) {
-    const date = new Date(Number(dotNet[1]));
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  if (/^\d{10,13}$/.test(text)) {
-    const numeric = Number(text);
-    const milliseconds = text.length === 10
-      ? numeric * 1000
-      : numeric;
-
-    const date = new Date(milliseconds);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  const iso = text.match(
-    /(\d{4})[-/](\d{2})[-/](\d{2})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?/
+  const errorField = entries.find(entry =>
+    /^(erro|error|errors|erros|falha|failure)$/i.test(entry.key) &&
+    entry.value &&
+    textOf(entry.value).trim() !== ''
   );
 
-  if (iso) {
-    const date = new Date(
-      Number(iso[1]),
-      Number(iso[2]) - 1,
-      Number(iso[3]),
-      Number(iso[4] || 0),
-      Number(iso[5] || 0),
-      Number(iso[6] || 0)
-    );
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
+  const failureText = /\b(erro|falha|recusad|inv[aá]lid|n[aã]o encontrado|não encontrado|token incorreto|token inv[aá]lido)\b/i.test(allText);
+  const successText = /\b(sucesso|criad[ao]|cadastrad[ao]|inserid[ao]|ordem criada|os criada)\b/i.test(allText);
 
-  const brazilian = text.match(
-    /(\d{2})\/(\d{2})\/(\d{4})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/
-  );
-
-  if (brazilian) {
-    const date = new Date(
-      Number(brazilian[3]),
-      Number(brazilian[2]) - 1,
-      Number(brazilian[1]),
-      Number(brazilian[4] || 0),
-      Number(brazilian[5] || 0),
-      Number(brazilian[6] || 0)
-    );
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  const nativeDate = new Date(text);
-  return Number.isNaN(nativeDate.getTime()) ? null : nativeDate;
-}
-
-function findDateByKeyPatterns(object, patterns = []) {
-  const entries = flattenObject(object);
-  const valid = [];
-
-  entries.forEach(entry => {
-    if (!patterns.some(pattern => pattern.test(entry.key))) return;
-
-    const date = parseDateCandidate(entry.value);
-    if (!date) return;
-
-    valid.push({
-      path: entry.path,
-      key: entry.key,
-      value: valueToText(entry.value),
-      date
-    });
+  const idEntry = entries.find(entry => {
+    if (/id_ext/i.test(entry.key)) return false;
+    return /^(id|id_os|os_id|numero|numero_os|n_os|codigo|cod_os)$/i.test(entry.key) &&
+      ['string', 'number'].includes(typeof entry.value) &&
+      String(entry.value).trim() !== '';
   });
 
-  valid.sort((a, b) => b.date.getTime() - a.date.getTime());
-  return valid[0] || null;
-}
+  const orderNumber = idEntry ? idEntry.value : null;
 
-function findCompletionDate(object) {
-  const exact = pickValue(object, [
-    'data_fim', 'datafim', 'dt_fim', 'dtfim',
-    'data_conclusao', 'dataconclusao', 'dt_conclusao', 'dtconclusao',
-    'concluido_em', 'concluidoem', 'finalizado_em', 'finalizadoem',
-    'data_encerramento', 'dataencerramento',
-    'data_fechamento', 'datafechamento',
-    'data_finalizacao', 'datafinalizacao',
-    'data_execucao', 'dataexecucao',
-    'data_realizacao', 'datarealizacao',
-    'fim_execucao', 'fimexecucao',
-    'termino', 'data_termino', 'datatermino',
-    'fechado_em', 'fechadoem',
-    'encerrado_em', 'encerradoem',
-    'executado_em', 'executadoem',
-    'ultima_atualizacao', 'ultimaatualizacao',
-    'atualizado_em', 'atualizadoem',
-    'modified_at', 'modifiedat',
-    'updated_at', 'updatedat'
-  ]);
-
-  if (parseDateCandidate(exact)) {
+  if (!httpOk || negativeBoolean || errorField || failureText) {
     return {
-      value: exact,
-      source: 'campo conhecido'
+      status: 'failed',
+      reason: errorField
+        ? textOf(errorField.value)
+        : (!httpOk ? 'O endpoint respondeu com erro HTTP.' : 'A resposta do SGMan indica erro.')
     };
   }
 
-  const discovered = findDateByKeyPatterns(object, [
-    /conclus/,
-    /finaliz/,
-    /encerr/,
-    /fech/,
-    /termin/,
-    /fim/,
-    /executad/,
-    /realiz/,
-    /baixad/,
-    /updated/,
-    /modified/,
-    /ultima.*atualiz/
-  ]);
-
-  return discovered
-    ? {
-        value: discovered.value,
-        source: discovered.path
-      }
-    : {
-        value: '',
-        source: ''
-      };
-}
-
-function pickValue(object, candidates) {
-  const entries = flattenObject(object);
-  const normalizedCandidates = candidates.map(candidate =>
-    String(candidate)
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '')
-  );
-
-  for (const candidate of normalizedCandidates) {
-    const exact = entries.find(entry => entry.key === candidate);
-    if (exact && exact.value !== null && exact.value !== '') {
-      return valueToText(exact.value);
-    }
+  if (orderNumber != null) {
+    return {
+      status: 'confirmed',
+      reason: 'O SGMan retornou um identificador de ordem.',
+      orderNumber
+    };
   }
 
-  // Fallback para nomes com prefixos/sufixos, como nm_status ou ds_descricao.
-  for (const candidate of normalizedCandidates) {
-    const partial = entries.find(entry =>
-      entry.key.endsWith(candidate) || entry.key.startsWith(candidate)
-    );
-    if (partial && partial.value !== null && partial.value !== '') {
-      return valueToText(partial.value);
-    }
+  if (positiveBoolean || successText) {
+    return {
+      status: 'confirmed',
+      reason: 'O SGMan confirmou a criação na resposta.',
+      orderNumber: null
+    };
   }
-
-  return '';
-}
-
-function normalizeMachine(value = '') {
-  const explicit = String(value).match(/\bmk\s*[-:]?\s*(\d{1,3})\b/i)?.[1];
-  if (explicit) return `MK-${String(Number(explicit)).padStart(2, '0')}`;
-
-  return '';
-}
-
-function normalizeStatus(value = '') {
-  const text = String(value)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-
-  if (/conclu|finaliz|fechad|encerrad|executad/.test(text)) return 'completed';
-  if (/atras|vencid/.test(text)) return 'overdue';
-  if (/abert|pendente|aguard|programad|andamento|execucao/.test(text)) return 'open';
-
-  return 'other';
-}
-
-function normalizeDate(value = '') {
-  const text = String(value || '').trim();
-  if (!text) return '';
-
-  const iso = text.match(/(\d{4})[-/](\d{2})[-/](\d{2})/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
-
-  const brazilian = text.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-  if (brazilian) return `${brazilian[3]}-${brazilian[2]}-${brazilian[1]}`;
-
-  return '';
-}
-
-function normalizeOrder(order) {
-  const id = pickValue(order, [
-    'id', 'id_os', 'idos', 'os_id', 'osid', 'numero_os',
-    'numeroos', 'numero', 'codigo_os', 'codigoos', 'codigo'
-  ]);
-
-  const status = pickValue(order, [
-    'status', 'status_os', 'statusos', 'situacao', 'situacao_os',
-    'situacaoos', 'estado', 'nome_status', 'nomestatus'
-  ]);
-
-  const tag = pickValue(order, [
-    'tag', 'tag_nome', 'tagnome', 'nome_tag', 'nometag',
-    'tag_codigo', 'tagcodigo', 'equipamento', 'ativo', 'maquina'
-  ]);
-
-  const local = pickValue(order, [
-    'local', 'local_nome', 'localnome', 'nome_local', 'nomelocal'
-  ]);
-
-  const description = pickValue(order, [
-    'descricao', 'descricao_os', 'descricaoos', 'ds_descricao',
-    'dsdescricao', 'titulo', 'servico', 'servico_solicitado',
-    'servicosolicitado', 'solicitacao', 'atividade', 'problema'
-  ]);
-
-  const comment = pickValue(order, [
-    'comentario', 'comentario_os', 'comentarioos', 'observacao',
-    'observacao_os', 'observacaoos', 'obs'
-  ]);
-
-  const solution = pickValue(order, [
-    'solucao', 'servico_realizado', 'servicorealizado',
-    'descricao_conclusao', 'descricaoconclusao',
-    'comentario_conclusao', 'comentarioconclusao',
-    'observacao_conclusao', 'observacaoconclusao',
-    'acao_realizada', 'acaorealizada',
-    'resolucao', 'resolucao_os', 'resolucaoos'
-  ]);
-
-  const startDate = pickValue(order, [
-    'data_inicio', 'datainicio', 'dt_inicio', 'dtinicio',
-    'data_abertura', 'dataabertura', 'criado_em', 'criadoem',
-    'data_programada', 'dataprogramada'
-  ]);
-
-  const completionDate = findCompletionDate(order);
-  const endDate = completionDate.value;
-
-  const duration = pickValue(order, [
-    'duracao', 'duracao_real', 'duracaoreal',
-    'tempo_execucao', 'tempoexecucao',
-    'tempo_servico', 'temposervico',
-    'tempo_parada', 'tempoparada',
-    'horas_trabalhadas', 'horastrabalhadas'
-  ]);
-
-  const machineStopped = pickValue(order, [
-    'maquina_parada', 'maquinaparada',
-    'equipamento_parado', 'equipamentoparado',
-    'parada_maquina', 'paradamaquina',
-    'machine_stopped', 'machinestopped'
-  ]);
-
-  const combined = `${tag} ${local} ${description} ${comment}`;
 
   return {
-    id: String(id || ''),
-    status: String(status || ''),
-    statusKey: normalizeStatus(status),
-    tag: String(tag || ''),
-    local: String(local || ''),
-    machine: normalizeMachine(combined),
-    description: String(description || ''),
-    comment: String(comment || ''),
-    solution: String(solution || ''),
-    startDate: String(startDate || ''),
-    endDate: String(endDate || ''),
-    endDateISO: normalizeDate(endDate),
-    endDateSource: completionDate.source || '',
-    duration: String(duration || ''),
-    machineStopped,
-    executante: String(pickValue(order, [
-      'executante', 'executante_nome', 'executantenome',
-      'usuario', 'usuario_nome', 'usuarionome', 'responsavel'
-    ]) || ''),
-    typeService: String(pickValue(order, [
-      'tipo_servico', 'tiposervico', 'servico_tipo', 'servicotipo'
-    ]) || ''),
-    typeMaintenance: String(pickValue(order, [
-      'tipo_manutencao', 'tipomanutencao',
-      'manutencao_tipo', 'manutencaotipo'
-    ]) || '')
+    status: 'unknown',
+    reason: 'A requisição chegou ao SGMan, mas a resposta não confirmou que a OS foi criada.',
+    orderNumber: null
   };
 }
 
-function summarize(orders) {
-  const now = new Date();
-  const localToday = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, '0'),
-    String(now.getDate()).padStart(2, '0')
-  ].join('-');
-
-  const completed = orders.filter(order => order.statusKey === 'completed');
-  const datedCompleted = completed.filter(order => order.endDateISO);
-
-  return {
-    completedToday: datedCompleted.filter(order => order.endDateISO === localToday).length,
-    completedPeriod: completed.length,
-    completedWithDate: datedCompleted.length,
-    completedWithoutDate: Math.max(0, completed.length - datedCompleted.length),
-    overdue: orders.filter(order => order.statusKey === 'overdue').length,
-    open: orders.filter(order => order.statusKey === 'open').length,
-    other: orders.filter(order => order.statusKey === 'other').length,
-    total: orders.length,
-    hasCompletionDates: datedCompleted.length > 0
-  };
-}
-
-function collectArrays(value, output = []) {
-  const expanded = parseEmbeddedJson(value);
-
-  if (Array.isArray(expanded)) {
-    output.push(expanded);
-    expanded.forEach(item => collectArrays(item, output));
-    return output;
-  }
-
-  if (expanded && typeof expanded === 'object') {
-    Object.values(expanded).forEach(item => collectArrays(item, output));
-  }
-
-  return output;
-}
-
-function diagnosticOf(raw, candidates, orders, queryMode) {
-  const expanded = expandEmbeddedJson(raw);
-  const arrays = collectArrays(expanded);
-  const firstCandidate = candidates[0] || null;
-
-  return {
-    queryMode,
-    responseType: Array.isArray(expanded) ? 'array' : typeof expanded,
-    topLevelKeys:
-      expanded && typeof expanded === 'object' && !Array.isArray(expanded)
-        ? Object.keys(expanded).slice(0, 20)
-        : [],
-    arrayCount: arrays.length,
-    largestArrayLength: arrays.reduce(
-      (max, array) => Math.max(max, array.length),
-      0
-    ),
-    candidateCount: candidates.length,
-    interpretedCount: orders.length,
-    firstCandidateKeys:
-      firstCandidate && typeof firstCandidate === 'object'
-        ? Object.keys(firstCandidate).slice(0, 30)
-        : []
-  };
-}
-
-async function requestList(token, filters) {
+async function sendSingleOrder(endpoint, token, order) {
   const maxAttempts = 4;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const response = await fetch(LIST_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify({ token, ...filters })
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 25000);
 
-    const rawText = await response.text();
-    let data;
+    try {
+      const upstream = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          token,
+          os: [order]
+        }),
+        signal: controller.signal
+      });
 
-    try { data = rawText ? JSON.parse(rawText) : null; }
-    catch { data = rawText; }
+      const raw = await upstream.text();
+      let data;
 
-    if (isRateLimited(data, rawText, response.status) && attempt < maxAttempts) {
-      await sleep(700 + attempt * 1000);
-      continue;
+      try {
+        data = raw ? JSON.parse(raw) : null;
+      } catch {
+        data = raw;
+      }
+
+      const rateLimited = isRateLimitResponse(data, raw, upstream.status);
+
+      if (rateLimited && attempt < maxAttempts) {
+        await sleep(500 + attempt * 1000);
+        continue;
+      }
+
+      const inspection = inspectSgmanResponse(data, raw, upstream.ok);
+
+      return {
+        id_ext: order.id_ext || '',
+        machine: String(order.descricao || '').split(' - ')[0] || '',
+        tag: order.tag || order.local || '',
+        executante: order.executante || '',
+        http_status: upstream.status,
+        status: rateLimited ? 'failed' : inspection.status,
+        reason: rateLimited
+          ? 'O SGMan manteve o bloqueio por limite de requisições após novas tentativas.'
+          : inspection.reason,
+        order_number: inspection.orderNumber || null,
+        attempts: attempt,
+        response: data
+      };
+    } catch (error) {
+      if (attempt < maxAttempts && error?.name !== 'AbortError') {
+        await sleep(500 + attempt * 1000);
+        continue;
+      }
+
+      return {
+        id_ext: order.id_ext || '',
+        machine: String(order.descricao || '').split(' - ')[0] || '',
+        tag: order.tag || order.local || '',
+        executante: order.executante || '',
+        http_status: 0,
+        status: 'failed',
+        reason: error?.name === 'AbortError'
+          ? 'Tempo limite ao conectar com o SGMan.'
+          : `Falha de comunicação: ${error.message}`,
+        order_number: null,
+        attempts: attempt,
+        response: null
+      };
+    } finally {
+      clearTimeout(timeout);
     }
-
-    if (!response.ok) {
-      throw new Error(
-        `SGMan respondeu HTTP ${response.status}: ${textOf(data).slice(0, 500)}`
-      );
-    }
-
-    const errorText = textOf(data).toLowerCase();
-    if (
-      /"status"\s*:\s*"erro"/.test(errorText) ||
-      /"resultado"\s*:\s*"erro"/.test(errorText)
-    ) {
-      throw new Error(textOf(data).slice(0, 600));
-    }
-
-    return expandEmbeddedJson(data);
   }
-
-  throw new Error('Limite de requisições do SGMan não liberado.');
-}
-
-async function fetchAndInterpret(
-  token,
-  filters,
-  queryMode,
-  limit = null
-) {
-  const raw = await requestList(token, filters);
-  const candidates = collectOrderObjects(raw);
-
-  const interpretedOrders = candidates
-    .map(normalizeOrder)
-    .filter(order =>
-      order.id ||
-      order.status ||
-      order.tag ||
-      order.description ||
-      order.startDate ||
-      order.endDate
-    )
-    .sort((a, b) =>
-      String(b.endDate || b.startDate)
-        .localeCompare(String(a.endDate || a.startDate))
-    );
-
-  const orders = Number.isFinite(limit)
-    ? interpretedOrders.slice(0, limit)
-    : interpretedOrders;
-
-  return {
-    raw,
-    orders,
-    diagnostic: {
-      ...diagnosticOf(raw, candidates, interpretedOrders, queryMode),
-      returnedCount: orders.length,
-      requestedLimit: Number.isFinite(limit) ? limit : null
-    }
-  };
 }
 
 module.exports = async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({
-      ok: false,
-      error: 'Método não permitido.'
+  const token = process.env.SGMAN_TOKEN;
+  const endpoint = process.env.SGMAN_API_URL || DEFAULT_ENDPOINT;
+
+  if (req.method === 'GET') {
+    return res.status(200).json({
+      ok: true,
+      configured: Boolean(token),
+      endpoint: endpoint.replace(/\/os\/criar.*$/i, '/os/criar')
     });
   }
 
-  const token = process.env.SGMAN_TOKEN;
+  if (req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'Método não permitido.' });
+  }
 
   if (!token) {
     return res.status(503).json({
@@ -651,79 +228,49 @@ module.exports = async function handler(req, res) {
   }
 
   const body = parseBody(req.body);
+  const incomingOrders = Array.isArray(body.orders) ? body.orders : [];
 
-  if (!body.data_inicio) {
-    return res.status(400).json({
-      ok: false,
-      error: 'data_inicio é obrigatório.'
-    });
+  if (!incomingOrders.length) {
+    return res.status(400).json({ ok: false, error: 'Nenhuma ordem recebida.' });
   }
 
-  try {
-    const requestedLimit = body.limit === undefined
-      ? null
-      : Math.max(1, Math.min(500, Number(body.limit) || 100));
+  if (incomingOrders.length > 30) {
+    return res.status(400).json({ ok: false, error: 'Limite de 30 ordens por envio.' });
+  }
 
-    // Primeira consulta: sem filtro de status, para não esconder registros
-    // caso os nomes dos status sejam diferentes no cadastro da empresa.
-    const primaryFilters = {
-      data_inicio: body.data_inicio,
-      calc_custos: Number(body.calc_custos ?? 1)
-    };
+  const orders = incomingOrders.map(sanitizeOrder);
 
-    if (body.data_fim) primaryFilters.data_fim = body.data_fim;
-    if (body.tipo_servico) primaryFilters.tipo_servico = body.tipo_servico;
-    if (body.tipo_manutencao) primaryFilters.tipo_manutencao = body.tipo_manutencao;
-    if (body.executante) primaryFilters.executante = body.executante;
-    if (body.tag) primaryFilters.tag = body.tag;
-
-    let result = await fetchAndInterpret(
-      token,
-      primaryFilters,
-      'periodo-sem-filtro-status',
-      requestedLimit
-    );
-
-    // Segunda tentativa: formato simples, somente data de início.
-    // Algumas versões da API ignoram ou rejeitam data_fim/calc_custos.
-    if (!result.orders.length) {
-      await sleep(900);
-
-      const dateOnly = String(body.data_inicio).slice(0, 10);
-      const fallbackFilters = {
-        data_inicio: dateOnly
-      };
-
-      if (body.tag) fallbackFilters.tag = body.tag;
-      if (body.executante) fallbackFilters.executante = body.executante;
-      if (body.tipo_servico) fallbackFilters.tipo_servico = body.tipo_servico;
-      if (body.tipo_manutencao) fallbackFilters.tipo_manutencao = body.tipo_manutencao;
-
-      result = await fetchAndInterpret(
-        token,
-        fallbackFilters,
-        body.tag
-          ? 'somente-data-inicio-com-tag'
-          : 'somente-data-inicio',
-        requestedLimit
-      );
+  for (const order of orders) {
+    if (!order.tag && !order.local) {
+      return res.status(400).json({ ok: false, error: 'Cada OS precisa ter tag ou local.' });
     }
-
-    return res.status(200).json({
-      ok: true,
-      orders: result.orders,
-      summary: summarize(result.orders),
-      diagnostic: {
-        ...result.diagnostic,
-        tagFilter: body.tag || '',
-        treeQueryRequested: Boolean(body.tag)
-      },
-      queryStart: body.data_inicio
-    });
-  } catch (error) {
-    return res.status(502).json({
-      ok: false,
-      error: `Falha ao listar OS no SGMan: ${error.message}`
-    });
+    if (!order.descricao) {
+      return res.status(400).json({ ok: false, error: 'Cada OS precisa ter descrição.' });
+    }
   }
+
+  const results = [];
+
+  for (let index = 0; index < orders.length; index++) {
+    const order = orders[index];
+
+    // A API aceita no máximo duas solicitações por segundo.
+    // O intervalo de 900 ms cria uma margem segura.
+    if (index > 0) await sleep(900);
+
+    results.push(await sendSingleOrder(endpoint, token, order));
+  }
+
+  const confirmed = results.filter(result => result.status === 'confirmed').length;
+  const failed = results.filter(result => result.status === 'failed').length;
+  const unknown = results.filter(result => result.status === 'unknown').length;
+
+  return res.status(200).json({
+    ok: failed === 0 && unknown === 0 && confirmed === results.length,
+    requested: orders.length,
+    confirmed,
+    failed,
+    unknown,
+    results
+  });
 };
