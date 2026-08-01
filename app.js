@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '55.0.0';
+const APP_VERSION = '56.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v55.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v56.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -7548,11 +7548,40 @@ function visualTrainingItems(){try{const a=JSON.parse(localStorage.getItem(STORA
 function saveVisualTrainingItems(items){safeStorageSet(STORAGE.trainingMedia,JSON.stringify(items.slice(0,150)),{removeOnFailure:true})}
 function mediaDataUrl(file){return new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result||''));r.onerror=()=>no(r.error||new Error('Falha ao ler arquivo'));r.readAsDataURL(file)})}
 function visualTrainingTemplate(title,category,machine,notes){const t=normalizeKey(`${title} ${category} ${notes}`);let p=[];if(t.includes('valvula')||t.includes('pneumat'))p=['Identifique alimentação, saídas e escapes.','Confira a posição central e o tipo de centro.','Acione avanço, pausa e retorno.','Verifique vazamentos, pressão, bobinas e conectores.'];else if(t.includes('faca'))p=['Bloqueie a máquina.','Confira posição, alinhamento e aperto da faca.','Verifique contrafaca, folga, calços e desgaste.','Teste em baixa velocidade e acompanhe a produção.'];else if(t.includes('sensor'))p=['Confirme alimentação e LED.','Limpe e alinhe o sensor.','Teste o sinal no CLP ou multímetro.','Acompanhe após o ajuste.'];else p=['Identifique o componente e sua função.','Confira entradas, saídas e pontos de ajuste.','Verifique fixação, desgaste, sujeira, folgas e vazamentos.','Faça teste funcional e registre o resultado no SGMan.'];if(notes)p.push(`Observação informada: ${notes}`);return{description:`${title||'Conteúdo técnico'} explicado de forma simples para consulta da equipe.`,steps:p.map((x,i)=>`${i+1}. ${x}`).join('\n'),safety:'Aplicar bloqueio e etiquetagem, eliminar energias residuais e seguir o procedimento de segurança antes da intervenção.',keywords:uniqueStrings([...title.split(/\s+/),...category.split(/\s+/),machine].filter(x=>x&&x.length>2)).slice(0,15)}}
-async function createVisualTraining(){const f=$('visualTrainingFile')?.files?.[0];if(!f)return showToast('Escolha uma foto ou vídeo.');if(f.size>8*1024*1024)return showToast('Use arquivo de até 8 MB.');const title=$('visualTrainingTitle')?.value.trim()||f.name,cat=$('visualTrainingCategory')?.value.trim()||'Geral',machine=$('visualTrainingMachine')?.value||'',notes=$('visualTrainingNotes')?.value.trim()||'';const gen=visualTrainingTemplate(title,cat,machine,notes);state.visualTrainingDraft={id:`visual-${Date.now()}`,type:f.type.startsWith('video/')?'video':'image',title,category:cat,machine,notes,mediaUrl:await mediaDataUrl(f),...gen,createdAt:new Date().toISOString()};renderVisualTrainingDraft()}
+async function createVisualTraining(){
+const f=
+  $('visualTrainingCameraFile')?.files?.[0] ||
+  $('visualTrainingVideoFile')?.files?.[0] ||
+  $('visualTrainingFile')?.files?.[0];
+if(!f)return showToast('Escolha uma foto ou vídeo.');if(f.size>8*1024*1024)return showToast('Use arquivo de até 8 MB.');const title=$('visualTrainingTitle')?.value.trim()||f.name,cat=$('visualTrainingCategory')?.value.trim()||'Geral',machine=$('visualTrainingMachine')?.value||'',notes=$('visualTrainingNotes')?.value.trim()||'';const gen=visualTrainingTemplate(title,cat,machine,notes);state.visualTrainingDraft={id:`visual-${Date.now()}`,type:f.type.startsWith('video/')?'video':'image',title,category:cat,machine,notes,mediaUrl:await mediaDataUrl(f),...gen,createdAt:new Date().toISOString()};renderVisualTrainingDraft()}
 function renderVisualTrainingDraft(){const d=state.visualTrainingDraft,t=$('visualTrainingDraft');if(!t)return;if(!d){t.classList.add('hidden');t.innerHTML='';return}const media=d.type==='video'?`<video controls src="${escapeHtml(d.mediaUrl)}"></video>`:`<img src="${escapeHtml(d.mediaUrl)}" alt="${escapeHtml(d.title)}">`;t.classList.remove('hidden');t.innerHTML=`<div class="visual-media">${media}</div><div class="visual-fields"><label>Título<input id="visualDraftTitle" value="${escapeHtml(d.title)}"></label><label>Resumo<textarea id="visualDraftDescription" rows="3">${escapeHtml(d.description)}</textarea></label><label>Passo a passo<textarea id="visualDraftSteps" rows="9">${escapeHtml(d.steps)}</textarea></label><label>Segurança<textarea id="visualDraftSafety" rows="4">${escapeHtml(d.safety)}</textarea></label><label>Palavras-chave<input id="visualDraftKeywords" value="${escapeHtml(d.keywords.join(', '))}"></label><div class="button-row"><button id="saveVisualTrainingBtn" class="primary">Salvar</button><button id="cancelVisualTrainingBtn" class="secondary">Cancelar</button></div></div>`;$('saveVisualTrainingBtn').onclick=saveVisualTraining;$('cancelVisualTrainingBtn').onclick=()=>{state.visualTrainingDraft=null;renderVisualTrainingDraft()}}
-function saveVisualTraining(){const d=state.visualTrainingDraft;if(!d)return;d.title=$('visualDraftTitle').value.trim();d.description=$('visualDraftDescription').value.trim();d.steps=$('visualDraftSteps').value.trim();d.safety=$('visualDraftSafety').value.trim();d.keywords=uniqueStrings($('visualDraftKeywords').value.split(',').map(x=>x.trim()).filter(Boolean));const items=visualTrainingItems();items.unshift(d);saveVisualTrainingItems(items);state.visualTrainingDraft=null;$('visualTrainingFile').value='';renderVisualTrainingDraft();renderVisualTrainingLibrary();showToast('Treinamento visual salvo.')}
+function saveVisualTraining(){const d=state.visualTrainingDraft;if(!d)return;d.title=$('visualDraftTitle').value.trim();d.description=$('visualDraftDescription').value.trim();d.steps=$('visualDraftSteps').value.trim();d.safety=$('visualDraftSafety').value.trim();d.keywords=uniqueStrings($('visualDraftKeywords').value.split(',').map(x=>x.trim()).filter(Boolean));const items=visualTrainingItems();items.unshift(d);saveVisualTrainingItems(items);state.visualTrainingDraft=null;
+for(const id of ['visualTrainingFile','visualTrainingCameraFile','visualTrainingVideoFile']){
+  if($(id))$(id).value='';
+}
+if($('visualTrainingSelectedFile')){
+  $('visualTrainingSelectedFile').textContent='Nenhum arquivo selecionado.';
+}
+renderVisualTrainingDraft();renderVisualTrainingLibrary();showToast('Treinamento visual salvo.')}
 function renderVisualTrainingLibrary(){const t=$('visualTrainingLibrary');if(!t)return;const q=normalizeKey($('visualTrainingSearch')?.value||''),m=$('visualTrainingFilterMachine')?.value||'',ty=$('visualTrainingFilterType')?.value||'';const items=visualTrainingItems().filter(x=>(!m||x.machine===m)&&(!ty||x.type===ty)&&(!q||normalizeKey([x.title,x.category,x.machine,x.description,x.steps,x.safety,...(x.keywords||[])].join(' ')).includes(q)));t.innerHTML=items.length?items.map(x=>{const media=x.type==='video'?`<video controls src="${escapeHtml(x.mediaUrl)}"></video>`:`<img src="${escapeHtml(x.mediaUrl)}" alt="${escapeHtml(x.title)}">`;return `<article class="visual-card"><div class="visual-media">${media}</div><div><span class="training-type">${x.type==='video'?'Vídeo':'Imagem'}</span><h3>${escapeHtml(x.title)}</h3><p>${escapeHtml(x.description||'')}</p><details><summary>Ver passo a passo</summary><pre>${escapeHtml(x.steps||'')}</pre></details><div class="visual-safety"><strong>Segurança</strong><p>${escapeHtml(x.safety||'')}</p></div><div class="visual-tags">${(x.keywords||[]).map(k=>`<span>${escapeHtml(k)}</span>`).join('')}</div></div></article>`}).join(''):'<p class="muted">Nenhum conteúdo encontrado.</p>'}
-function initVisualTraining(){const machines=trainingMachineOptions();for(const id of ['visualTrainingMachine','visualTrainingFilterMachine']){const e=$(id);if(e)e.innerHTML=`<option value="">${id.includes('Filter')?'Todas as máquinas':'Geral / todas'}</option>`+machines.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join('')}$('createVisualTrainingBtn')?.addEventListener('click',createVisualTraining);for(const id of ['visualTrainingSearch','visualTrainingFilterMachine','visualTrainingFilterType'])$(id)?.addEventListener(id==='visualTrainingSearch'?'input':'change',renderVisualTrainingLibrary);renderVisualTrainingLibrary()}
+function showVisualTrainingSelectedFile(inputId){
+const input=$(inputId),file=input?.files?.[0],target=$('visualTrainingSelectedFile');
+if(!file||!target)return;
+for(const id of ['visualTrainingFile','visualTrainingCameraFile','visualTrainingVideoFile']){
+  if(id!==inputId&&$(id))$(id).value='';
+}
+const kind=file.type.startsWith('video/')?'Vídeo':'Foto';
+const mb=(file.size/(1024*1024)).toFixed(1).replace('.',',');
+target.innerHTML=`<strong>${kind} selecionado:</strong> ${escapeHtml(file.name)} • ${mb} MB`;
+if(!$('visualTrainingTitle')?.value.trim()){
+  $('visualTrainingTitle').value=file.name.replace(/\.[^.]+$/,'').replace(/[-_]+/g,' ').trim();
+}
+}
+function initVisualTraining(){const machines=trainingMachineOptions();for(const id of ['visualTrainingMachine','visualTrainingFilterMachine']){const e=$(id);if(e)e.innerHTML=`<option value="">${id.includes('Filter')?'Todas as máquinas':'Geral / todas'}</option>`+machines.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join('')}for(const id of ['visualTrainingFile','visualTrainingCameraFile','visualTrainingVideoFile']){
+  $(id)?.addEventListener('change',()=>showVisualTrainingSelectedFile(id));
+}
+$('createVisualTrainingBtn')?.addEventListener('click',createVisualTraining);
+for(const id of ['visualTrainingSearch','visualTrainingFilterMachine','visualTrainingFilterType'])$(id)?.addEventListener(id==='visualTrainingSearch'?'input':'change',renderVisualTrainingLibrary);renderVisualTrainingLibrary()}
 function liveHistory(){try{const a=JSON.parse(localStorage.getItem(STORAGE.liveDashboardHistory)||'[]');return Array.isArray(a)?a:[]}catch{return []}}
 function liveSnapshot(){const m=state.reliability3Days||calculateReliability3Days(),s=state.sgmanHistory?.summary||{},rows=(m.rows||[]).filter(x=>x.machine).sort((a,b)=>(b.failureCount||0)-(a.failureCount||0)).slice(0,10);const stopped=rows.reduce((z,x)=>z+(Number(x.mttrMinutes||0)*Number(x.failureCount||0))/60,0);return{at:new Date().toISOString(),open:Number(s.open||0),overdue:Number(s.overdue||0),completed:Number(m.completedCurrentShift||0),mttr:m.mttrMinutes,mtbf:m.mtbfMinutes,reliability:m.reliabilityPercent,availability:Math.max(0,Math.min(100,((72-stopped)/72)*100)),recurrence:Number(m.recurrentMachines||0),rows}}
 function saveLivePoint(x){const h=liveHistory();h.unshift({at:x.at,overdue:x.overdue,mttr:x.mttr,open:x.open,availability:x.availability});safeStorageSet(STORAGE.liveDashboardHistory,JSON.stringify(h.slice(0,100)),{removeOnFailure:true})}
@@ -8184,7 +8213,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=55.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=56.0.0');
         registration.update();
       } catch {}
     });
