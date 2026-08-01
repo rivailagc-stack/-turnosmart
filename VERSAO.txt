@@ -1,7 +1,5 @@
-TurnoSmart V60.0.0
-Corrige o botão Biblioteca que não abria no iPhone.
-O input de arquivo agora cobre todo o botão.
-Remove pointer-events none.
-Mantém o seletor invisível, porém clicável.
-Permite selecionar novamente a mesma foto.
-Mantém prévia, otimização e leitura HEIC.
+TurnoSmart V61.0.0
+Troca os seletores sobrepostos por botões reais.
+O botão Biblioteca chama diretamente o seletor nativo do iPhone.
+Os inputs ficam separados e fora da tela.
+Mantém prévia, otimização de imagem e criação da explicação.

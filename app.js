@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '60.0.0';
+const APP_VERSION = '61.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v60.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v61.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -7780,22 +7780,25 @@ try{
   showToast(error.message);
 }
 }
-function initVisualTraining(){const machines=trainingMachineOptions();for(const id of ['visualTrainingMachine','visualTrainingFilterMachine']){const e=$(id);if(e)e.innerHTML=`<option value="">${id.includes('Filter')?'Todas as máquinas':'Geral / todas'}</option>`+machines.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join('')}for(const id of [
-  'visualTrainingFile',
-  'visualTrainingCameraFile',
-  'visualTrainingVideoFile'
-]){
-  const mediaInput=$(id);
-  if(!mediaInput)continue;
+function initVisualTraining(){const machines=trainingMachineOptions();for(const id of ['visualTrainingMachine','visualTrainingFilterMachine']){const e=$(id);if(e)e.innerHTML=`<option value="">${id.includes('Filter')?'Todas as máquinas':'Geral / todas'}</option>`+machines.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join('')}const visualMediaOpeners=[
+  ['openVisualTrainingCameraBtn','visualTrainingCameraFile'],
+  ['openVisualTrainingLibraryBtn','visualTrainingFile'],
+  ['openVisualTrainingVideoBtn','visualTrainingVideoFile']
+];
 
-  // Permite selecionar novamente a mesma foto.
-  mediaInput.addEventListener('click',()=>{
-    mediaInput.value='';
+for(const [buttonId,inputId] of visualMediaOpeners){
+  const button=$(buttonId);
+  const input=$(inputId);
+
+  if(!button||!input)continue;
+
+  button.addEventListener('click',()=>{
+    input.value='';
+    input.click();
   });
 
-  // No Safari/iPhone, change é o evento confiável após o usuário escolher.
-  mediaInput.addEventListener('change',async event=>{
-    await showVisualTrainingSelectedFile(id,event);
+  input.addEventListener('change',async event=>{
+    await showVisualTrainingSelectedFile(inputId,event);
   });
 }
 
@@ -8432,7 +8435,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=60.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=61.0.0');
         registration.update();
       } catch {}
     });
