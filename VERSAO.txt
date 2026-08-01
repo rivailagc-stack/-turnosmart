@@ -1,11 +1,11 @@
-TurnoSmart V62.0.0
+TurnoSmart V63.0.0
 
-Correção principal:
-A página Treinamentos abria pelo atalho do Painel, mas o JavaScript do módulo não era iniciado.
+Correção:
+A Biblioteca não usa mais botão personalizado nem input.click().
 
 Agora:
-- entrada pelo Painel inicializa Treinamentos;
-- entrada pela barra inferior inicializa Treinamentos;
-- entrada por qualquer atalho inicializa Treinamentos;
-- os botões Câmera, Biblioteca e Vídeo recebem os eventos corretamente;
-- mantém seletor nativo, prévia e otimização de imagem.
+- o campo nativo de arquivo fica visível;
+- o próprio Safari/iPhone controla a abertura;
+- Biblioteca aceita foto e vídeo;
+- Câmera e vídeo também usam campos nativos;
+- mantém prévia, otimização e criação da explicação.

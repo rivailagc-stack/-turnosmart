@@ -1,12 +1,11 @@
-# Testes V62
+# Testes V63
 
-1. Confirme V62.0.0.
-2. Feche completamente o app.
-3. Abra novamente.
-4. No Painel, entre em Treinamentos pelo atalho.
-5. Toque em Biblioteca.
-6. Escolha uma foto.
-7. Confirme a mensagem e a prévia.
-8. Volte ao Painel.
-9. Entre novamente em Treinamentos.
-10. Repita o teste pela barra inferior.
+1. Confirme V63.0.0.
+2. Feche e abra novamente o aplicativo.
+3. Abra Treinamentos.
+4. Na caixa Biblioteca, toque em Escolher Arquivo.
+5. Escolha Fototeca/Fotos/Arquivos.
+6. Selecione uma imagem.
+7. Confira o nome do arquivo e a prévia.
+8. Toque em Criar explicação.
+9. Salve.

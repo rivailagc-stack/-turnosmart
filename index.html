@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=62.0.0" />
+  <link rel="stylesheet" href="style.css?v=63.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -20,7 +20,7 @@
       <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V62.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V63.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -672,32 +672,60 @@
       <div id="trainingDashboard" class="training-dashboard"></div>
       <div class="card visual-builder"><div class="section-head"><div><span class="eyebrow">FOTO OU VÍDEO</span><h2>Criar treinamento visual</h2></div></div><p class="muted">Envie uma foto ou vídeo, informe o assunto e o aplicativo cria uma explicação organizada para você revisar e salvar.</p><div class="grid two"><label>Título<input id="visualTrainingTitle" placeholder="Ex.: Como funciona a válvula 5/3"></label><label>Máquina<select id="visualTrainingMachine"><option value="">Geral / todas</option></select></label><label>Categoria<input id="visualTrainingCategory" placeholder="Pneumática, elétrica, faca..."></label><div class="span-two visual-media-source">
   <span class="field-label">Adicionar foto ou vídeo</span>
-  <div class="visual-media-source-buttons">
-    <button id="openVisualTrainingCameraBtn" class="visual-source-button" type="button">
-      <span>📷</span>
-      <strong>Tirar foto</strong>
-      <small>Abrir a câmera traseira</small>
-    </button>
+  <div class="visual-native-pickers">
+    <div class="visual-native-picker">
+      <div class="visual-native-picker-title">
+        <span>📷</span>
+        <div>
+          <strong>Tirar foto</strong>
+          <small>Abrir a câmera traseira</small>
+        </div>
+      </div>
+      <input
+        id="visualTrainingCameraFile"
+        class="visual-native-file-input"
+        type="file"
+        accept="image/*"
+        capture="environment"
+      >
+    </div>
 
-    <button id="openVisualTrainingLibraryBtn" class="visual-source-button visual-source-library" type="button">
-      <span>🖼️</span>
-      <strong>Biblioteca</strong>
-      <small>Escolher foto ou vídeo já salvo</small>
-    </button>
+    <div class="visual-native-picker visual-native-picker-library">
+      <div class="visual-native-picker-title">
+        <span>🖼️</span>
+        <div>
+          <strong>Biblioteca</strong>
+          <small>Escolher foto ou vídeo já salvo</small>
+        </div>
+      </div>
+      <input
+        id="visualTrainingFile"
+        class="visual-native-file-input"
+        type="file"
+        accept="image/*,video/*"
+      >
+    </div>
 
-    <button id="openVisualTrainingVideoBtn" class="visual-source-button" type="button">
-      <span>🎥</span>
-      <strong>Gravar vídeo</strong>
-      <small>Abrir a câmera em modo vídeo</small>
-    </button>
+    <div class="visual-native-picker">
+      <div class="visual-native-picker-title">
+        <span>🎥</span>
+        <div>
+          <strong>Gravar vídeo</strong>
+          <small>Abrir a câmera em modo vídeo</small>
+        </div>
+      </div>
+      <input
+        id="visualTrainingVideoFile"
+        class="visual-native-file-input"
+        type="file"
+        accept="video/*"
+        capture="environment"
+      >
+    </div>
   </div>
 
-  <input id="visualTrainingCameraFile" class="native-media-input" type="file" accept="image/*" capture="environment">
-  <input id="visualTrainingFile" class="native-media-input" type="file" accept="image/*,video/*">
-  <input id="visualTrainingVideoFile" class="native-media-input" type="file" accept="video/*" capture="environment">
-
   <div id="visualTrainingSelectedFile" class="visual-selected-file">
-    Toque em Biblioteca, escolha a foto e aguarde a prévia. O módulo agora funciona entrando pelo Painel ou pela barra inferior.
+    Na área Biblioteca, toque no botão nativo “Escolher Arquivo”. Depois selecione Fotos, Fototeca ou Arquivos no iPhone.
   </div>
   <div id="visualTrainingSelectionPreview" class="visual-selection-preview hidden"></div>
 </div><label class="span-two">Observações<textarea id="visualTrainingNotes" rows="3" placeholder="Explique o que aparece e os cuidados importantes..."></textarea></label></div><button id="createVisualTrainingBtn" class="primary">Criar explicação</button><div id="visualTrainingDraft" class="visual-draft hidden"></div></div>
@@ -803,7 +831,7 @@
 
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 62</h2>
+        <h2>Configuração da versão 63</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -927,6 +955,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=62.0.0"></script>
+  <script src="app.js?v=63.0.0"></script>
 </body>
 </html>

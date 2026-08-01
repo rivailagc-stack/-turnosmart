@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '62.0.0';
+const APP_VERSION = '63.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v62.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v63.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -7825,29 +7825,23 @@ try{
   showToast(error.message);
 }
 }
-function initVisualTraining(){const machines=trainingMachineOptions();for(const id of ['visualTrainingMachine','visualTrainingFilterMachine']){const e=$(id);if(e)e.innerHTML=`<option value="">${id.includes('Filter')?'Todas as máquinas':'Geral / todas'}</option>`+machines.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join('')}const visualMediaOpeners=[
-  ['openVisualTrainingCameraBtn','visualTrainingCameraFile'],
-  ['openVisualTrainingLibraryBtn','visualTrainingFile'],
-  ['openVisualTrainingVideoBtn','visualTrainingVideoFile']
-];
-
-for(const [buttonId,inputId] of visualMediaOpeners){
-  const button=$(buttonId);
+function initVisualTraining(){const machines=trainingMachineOptions();for(const id of ['visualTrainingMachine','visualTrainingFilterMachine']){const e=$(id);if(e)e.innerHTML=`<option value="">${id.includes('Filter')?'Todas as máquinas':'Geral / todas'}</option>`+machines.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join('')}for(const inputId of [
+  'visualTrainingCameraFile',
+  'visualTrainingFile',
+  'visualTrainingVideoFile'
+]){
   const input=$(inputId);
-
-  if(!button||!input)continue;
-
-  button.addEventListener('click',()=>{
-    input.value='';
-    input.click();
-  });
+  if(!input)continue;
 
   input.addEventListener('change',async event=>{
     await showVisualTrainingSelectedFile(inputId,event);
   });
 }
 
-$('createVisualTrainingBtn')?.addEventListener('click',createVisualTraining);
+$('createVisualTrainingBtn')?.addEventListener(
+  'click',
+  createVisualTraining
+);
 for(const id of ['visualTrainingSearch','visualTrainingFilterMachine','visualTrainingFilterType'])$(id)?.addEventListener(id==='visualTrainingSearch'?'input':'change',renderVisualTrainingLibrary);renderVisualTrainingLibrary()}
 function liveHistory(){try{const a=JSON.parse(localStorage.getItem(STORAGE.liveDashboardHistory)||'[]');return Array.isArray(a)?a:[]}catch{return []}}
 function liveSnapshot(){const m=state.reliability3Days||calculateReliability3Days(),s=state.sgmanHistory?.summary||{},rows=(m.rows||[]).filter(x=>x.machine).sort((a,b)=>(b.failureCount||0)-(a.failureCount||0)).slice(0,10);const stopped=rows.reduce((z,x)=>z+(Number(x.mttrMinutes||0)*Number(x.failureCount||0))/60,0);return{at:new Date().toISOString(),open:Number(s.open||0),overdue:Number(s.overdue||0),completed:Number(m.completedCurrentShift||0),mttr:m.mttrMinutes,mtbf:m.mtbfMinutes,reliability:m.reliabilityPercent,availability:Math.max(0,Math.min(100,((72-stopped)/72)*100)),recurrence:Number(m.recurrentMachines||0),rows}}
@@ -8480,7 +8474,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=62.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=63.0.0');
         registration.update();
       } catch {}
     });

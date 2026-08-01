@@ -1506,14 +1506,7 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
 }
 
 
-.native-media-input {
-  position: fixed !important;
-  left: -10000px !important;
-  top: -10000px !important;
-  width: 1px !important;
-  height: 1px !important;
-  opacity: 0 !important;
-}
+
 
 .visual-source-button {
   width: 100%;
@@ -1526,4 +1519,82 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
 .visual-source-library {
   border-color: #14b8a6;
   background: #ecfdf5;
+}
+
+
+.visual-native-pickers {
+  display: grid;
+  gap: 12px;
+}
+
+.visual-native-picker {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #f8fafc;
+}
+
+.visual-native-picker-library {
+  border-color: #14b8a6;
+  background: #ecfdf5;
+}
+
+.visual-native-picker-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.visual-native-picker-title > span {
+  font-size: 2rem;
+}
+
+.visual-native-picker-title > div {
+  display: grid;
+  gap: 3px;
+}
+
+.visual-native-picker-title strong {
+  font-size: 1.08rem;
+}
+
+.visual-native-picker-title small {
+  color: var(--muted);
+}
+
+.visual-native-file-input {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+}
+
+.visual-native-file-input::file-selector-button {
+  min-height: 40px;
+  margin-right: 10px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 9px;
+  background: #0f766e;
+  color: #fff;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.visual-native-file-input::-webkit-file-upload-button {
+  min-height: 40px;
+  margin-right: 10px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 9px;
+  background: #0f766e;
+  color: #fff;
+  font-weight: 850;
 }
