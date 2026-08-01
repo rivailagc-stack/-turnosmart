@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=54.0.0" />
+  <link rel="stylesheet" href="style.css?v=55.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -20,7 +20,7 @@
       <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V54.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V55.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -670,6 +670,8 @@
     <section id="view-treinamentos" class="view">
       <div class="hero card training-hero"><div><span class="badge">TREINAMENTOS E PROCEDIMENTOS</span><h2>Conhecimento da manutenção</h2><p>Cadastre padrões, checklists e treinamentos. Funciona localmente e pode sincronizar com Supabase.</p></div><button id="refreshTrainingBtn" class="secondary" type="button">Atualizar nuvem</button></div>
       <div id="trainingDashboard" class="training-dashboard"></div>
+      <div class="card visual-builder"><div class="section-head"><div><span class="eyebrow">FOTO OU VÍDEO</span><h2>Criar treinamento visual</h2></div></div><p class="muted">Envie uma foto ou vídeo, informe o assunto e o aplicativo cria uma explicação organizada para você revisar e salvar.</p><div class="grid two"><label>Título<input id="visualTrainingTitle" placeholder="Ex.: Como funciona a válvula 5/3"></label><label>Máquina<select id="visualTrainingMachine"><option value="">Geral / todas</option></select></label><label>Categoria<input id="visualTrainingCategory" placeholder="Pneumática, elétrica, faca..."></label><label>Foto ou vídeo<input id="visualTrainingFile" type="file" accept="image/*,video/*" capture="environment"></label><label class="span-two">Observações<textarea id="visualTrainingNotes" rows="3" placeholder="Explique o que aparece e os cuidados importantes..."></textarea></label></div><button id="createVisualTrainingBtn" class="primary">Criar explicação</button><div id="visualTrainingDraft" class="visual-draft hidden"></div></div>
+      <div class="card"><div class="section-head"><div><span class="eyebrow">PESQUISA VISUAL</span><h2>Fotos e vídeos explicativos</h2></div></div><div class="training-filters"><input id="visualTrainingSearch" type="search" placeholder="Pesquisar válvula, sensor, motor..."><select id="visualTrainingFilterMachine"><option value="">Todas as máquinas</option></select><select id="visualTrainingFilterType"><option value="">Foto e vídeo</option><option value="image">Fotos</option><option value="video">Vídeos</option></select></div><div id="visualTrainingLibrary" class="visual-library"></div></div>
       <div id="trainingFormCard" class="card form-card"><div class="section-head"><div><span class="eyebrow">CADASTRO</span><h2>Novo conteúdo técnico</h2></div><span id="trainingCloudStatus" class="training-cloud-status local">Modo local</span></div>
         <div class="grid two"><label>Tipo<select id="trainingType"><option value="training">Treinamento</option><option value="procedure">Procedimento</option><option value="checklist">Checklist</option></select></label><label>Status<select id="trainingStatus"><option value="active">Ativo</option><option value="draft">Rascunho</option><option value="review">Em revisão</option><option value="archived">Arquivado</option></select></label><label>Título<input id="trainingTitle" type="text" placeholder="Ex.: Regulagem da faca da MK-173"></label><label>Máquina<select id="trainingMachine"><option value="">Geral / todas as máquinas</option></select></label><label>Categoria<input id="trainingCategory" type="text" placeholder="Faca, elétrica, pneumática..."></label><label>Público<select id="trainingAudience"><option>Todos da manutenção</option><option>Líderes</option><option>Mecânicos</option><option>Eletricistas</option><option>Preventiva</option><option>Lubrificação</option></select></label><label>Periodicidade<input id="trainingFrequency" type="text" placeholder="Admissional, anual..."></label><label>Responsável<input id="trainingResponsible" type="text" placeholder="Rivail Cardoso"></label><label class="span-two">Descrição<textarea id="trainingDescription" rows="4"></textarea></label><label class="span-two">Passos do procedimento<textarea id="trainingSteps" rows="8" placeholder="1. Bloquear a máquina&#10;2. Confirmar ausência de energia&#10;3. Verificar..."></textarea></label><label class="span-two">Link de vídeo ou documento<input id="trainingMaterialUrl" type="url" placeholder="https://..."></label></div>
         <div class="button-row"><button id="saveTrainingBtn" class="primary" type="button">Salvar conteúdo</button><button id="cancelTrainingEditBtn" class="secondary hidden" type="button">Cancelar edição</button></div>
@@ -677,6 +679,8 @@
       <div id="trainingCompletionPanel" class="card hidden"><span class="eyebrow">REGISTRAR CONCLUSÃO</span><h2 id="trainingCompletionTitle">Treinamento</h2><input id="trainingCompletionId" type="hidden"><div class="grid two"><label>Colaborador<select id="trainingProgressMechanic"><option value="">Selecione o colaborador</option></select></label><label>Nota<input id="trainingProgressScore" type="number" min="0" max="100"></label><label class="span-two">Observações<textarea id="trainingProgressNotes" rows="3"></textarea></label></div><div class="button-row"><button id="saveTrainingCompletionBtn" class="primary" type="button">Confirmar conclusão</button><button id="cancelTrainingCompletionBtn" class="secondary" type="button">Cancelar</button></div></div>
       <div class="card"><div class="section-head"><div><span class="eyebrow">BANCO DE CONHECIMENTO</span><h2>Treinamentos e procedimentos</h2></div><span id="trainingCount" class="muted">0 conteúdos</span></div><div class="training-filters"><input id="trainingSearch" type="search" placeholder="Pesquisar..."><select id="trainingFilterType"><option value="">Todos os tipos</option><option value="training">Treinamentos</option><option value="procedure">Procedimentos</option><option value="checklist">Checklists</option></select><select id="trainingFilterMachine"><option value="">Todas as máquinas</option></select><select id="trainingFilterStatus"><option value="">Todos os status</option><option value="active">Ativos</option><option value="draft">Rascunhos</option><option value="review">Em revisão</option><option value="archived">Arquivados</option></select></div><div id="trainingList" class="training-list"></div></div>
     </section>
+
+    <section id="view-aovivo" class="view"><div class="hero card live-hero"><div><span class="badge">SGMAN AO VIVO</span><h2>Painel operacional</h2><p>Ordens, MTTR, MTBF, disponibilidade, confiabilidade e máquinas críticas.</p></div><div class="button-row"><select id="liveInterval"><option value="30">30 segundos</option><option value="60" selected>1 minuto</option><option value="300">5 minutos</option></select><button id="startLiveSgmanBtn" class="primary">Iniciar</button><button id="stopLiveSgmanBtn" class="secondary">Pausar</button><button id="refreshLiveSgmanBtn" class="secondary">Atualizar agora</button></div></div><div id="liveSgmanContent"></div><div class="card reference-box"><strong>Disponibilidade estimada</strong><p>Calculada pelas paradas registradas no SGMan. Quando as horas reais do Power BI forem integradas, o cálculo usará o tempo real de operação.</p></div></section>
 
     <section id="view-config" class="view">
 
@@ -769,7 +773,7 @@
 
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 53</h2>
+        <h2>Configuração da versão 55</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -886,12 +890,13 @@
     <button class="nav-btn" data-view="escala"><span>◷</span>Escala</button>
     <button class="nav-btn" data-view="historico"><span>≡</span>Histórico</button>
     <button class="nav-btn" data-view="treinamentos"><span>🎓</span>Treinamentos</button>
+    <button class="nav-btn" data-view="aovivo"><span>📡</span>Ao vivo</button>
     <button class="nav-btn" data-view="config"><span>⚙</span>Config</button>
   </nav>
 
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=54.0.0"></script>
+  <script src="app.js?v=55.0.0"></script>
 </body>
 </html>

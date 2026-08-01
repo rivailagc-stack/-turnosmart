@@ -1,3 +1,3 @@
-# TurnoSmart V53 — Relatório Diário
+# TurnoSmart V55
 
-O relatório executivo agora mostra índice de gestão, tendência, indicadores, metas, prioridades, cobranças e acompanhamento da equipe.
+Nova criação de treinamento visual por foto/vídeo e painel SGMan ao vivo. A descrição automática local usa título, categoria e observações. Para reconhecimento completo da imagem será necessário conectar uma API de IA no servidor.

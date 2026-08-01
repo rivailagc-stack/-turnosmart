@@ -10,7 +10,9 @@ const STORAGE = {
   sgmanHistory: 'turnosmart_sgman_history_v1',
   sgmanMachineHistory: 'turnosmart_sgman_machine_history_v1',
   training: 'turnosmart_training_v1',
-  trainingProgress: 'turnosmart_training_progress_v1'
+  trainingProgress: 'turnosmart_training_progress_v1',
+  trainingMedia: 'turnosmart_training_media_v1',
+  liveDashboardHistory: 'turnosmart_live_dashboard_history_v1'
 };
 
 
@@ -196,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '54.0.0';
+const APP_VERSION = '55.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v54.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v55.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -453,6 +455,8 @@ const state = {
   quickOsVoiceParsed: null,
   teamPerformance: [],
   preventivePlan: [],
+  visualTrainingDraft: null,
+  liveTimer: null,
   improvementPlan: [],
   intelligenceOeeRows: [],
   intelligencePhotoName: '',
@@ -524,6 +528,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (viewName === 'inteligencia') {
       initializeIntelligenceOnlyWhenNeeded();
     }
+
+    if(viewName==='aovivo'){const r=$('view-aovivo');if(r&&r.dataset.initialized!=='true'){r.dataset.initialized='true';initLiveDashboard()}}
 
     if (viewName === 'treinamentos') {
       const root = $('view-treinamentos');
@@ -7479,7 +7485,7 @@ function clearTrainingForm(){state.trainingEditingId='';for(const id of ['traini
 async function deleteTrainingItem(id){const item=state.trainingItems.find(x=>String(x.id)===String(id));if(!item||!confirm(`Excluir "${item.title}"?`))return;state.trainingItems=state.trainingItems.filter(x=>String(x.id)!==String(id));state.trainingProgress=state.trainingProgress.filter(x=>String(x.trainingId)!==String(id));saveTrainingLocal();saveTrainingProgressLocal();renderTrainingPage();try{await trainingApiRequest('DELETE',{id})}catch(e){console.warn(e.message)}showToast('Conteúdo excluído.')}
 function openTrainingCompletion(id){const item=state.trainingItems.find(x=>String(x.id)===String(id));if(!item)return;$('trainingCompletionId').value=String(id);$('trainingCompletionTitle').textContent=item.title;$('trainingCompletionPanel').classList.remove('hidden');$('trainingCompletionPanel').scrollIntoView({behavior:'smooth',block:'center'})}
 async function saveTrainingCompletion(){const trainingId=$('trainingCompletionId')?.value||'';const mechanic=$('trainingProgressMechanic')?.value||'';if(!trainingId||!mechanic){showToast('Selecione o colaborador.');return}const record={id:`progress-${Date.now()}`,trainingId,mechanic,mechanicLabel:sgmanUserLabel(mechanic),status:'completed',score:Number($('trainingProgressScore')?.value||0),notes:$('trainingProgressNotes')?.value.trim()||'',completedAt:new Date().toISOString()};state.trainingProgress.unshift(record);saveTrainingProgressLocal();try{const data=await trainingApiRequest('POST',{action:'progress',record});state.trainingCloudAvailable=Boolean(data.cloud)}catch(e){console.warn(e.message)}$('trainingCompletionPanel').classList.add('hidden');renderTrainingPage();showToast('Conclusão registrada.')}
-async function initTrainingModule(){populateTrainingSelectors();for(const id of ['trainingSearch','trainingFilterType','trainingFilterMachine','trainingFilterStatus'])$(id)?.addEventListener(id==='trainingSearch'?'input':'change',renderTrainingPage);$('saveTrainingBtn')?.addEventListener('click',saveTrainingItem);$('cancelTrainingEditBtn')?.addEventListener('click',clearTrainingForm);$('saveTrainingCompletionBtn')?.addEventListener('click',saveTrainingCompletion);$('cancelTrainingCompletionBtn')?.addEventListener('click',()=> $('trainingCompletionPanel')?.classList.add('hidden'));$('refreshTrainingBtn')?.addEventListener('click',()=>loadTrainingData(true));await loadTrainingData()}
+async function initTrainingModule(){populateTrainingSelectors();initVisualTraining();for(const id of ['trainingSearch','trainingFilterType','trainingFilterMachine','trainingFilterStatus'])$(id)?.addEventListener(id==='trainingSearch'?'input':'change',renderTrainingPage);$('saveTrainingBtn')?.addEventListener('click',saveTrainingItem);$('cancelTrainingEditBtn')?.addEventListener('click',clearTrainingForm);$('saveTrainingCompletionBtn')?.addEventListener('click',saveTrainingCompletion);$('cancelTrainingCompletionBtn')?.addEventListener('click',()=> $('trainingCompletionPanel')?.classList.add('hidden'));$('refreshTrainingBtn')?.addEventListener('click',()=>loadTrainingData(true));await loadTrainingData()}
 
 function maintenanceManagerSnapshot() {
   const metrics = state.reliability3Days || calculateReliability3Days();
@@ -7537,6 +7543,23 @@ function renderMaintenanceManagerHome(){
 }
 async function refreshMaintenanceManagerHome(){const b=$('refreshManagerHomeBtn'); if(b){b.disabled=true;b.textContent='Atualizando...';} try{await refreshSgmanHistory(true);state.reliability3Days=calculateReliability3Days();renderMaintenanceManagerHome();showToast('Painel do gestor atualizado.');}finally{if(b){b.disabled=false;b.textContent='Atualizar painel';}}}
 function initMaintenanceManagerHome(){renderMaintenanceManagerHome();$('refreshManagerHomeBtn')?.addEventListener('click',refreshMaintenanceManagerHome);$('copyDailyReportHomeBtn')?.addEventListener('click',()=>copyText(maintenanceAccountabilityReport(),'Relatório diário copiado.'));$$('.manager-shortcut[data-view]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));}
+
+function visualTrainingItems(){try{const a=JSON.parse(localStorage.getItem(STORAGE.trainingMedia)||'[]');const seed={id:'seed-valvula-5-3',type:'image',title:'Válvula direcional 5/3',machine:'',category:'Pneumática',description:'Válvula pneumática com cinco vias e três posições, usada para avançar, pausar e retornar um cilindro.',steps:'1. Identifique P, a alimentação de ar.\n2. Identifique A e B, que vão para o cilindro.\n3. Identifique R e S, os escapes.\n4. Na posição esquerda, P alimenta A e o cilindro avança.\n5. Na posição central, confirme se o centro é fechado, aberto ou pressurizado.\n6. Na posição direita, P alimenta B e o cilindro retorna.\n7. Antes de intervir, bloqueie e despressurize o sistema.',safety:'Bloquear energia, despressurizar e confirmar ausência de movimento antes de desmontar.',keywords:['válvula 5/3','pneumática','cilindro','avanço','retorno'],mediaUrl:'/assets/training/valvula-5-3-exemplo.jpeg',createdAt:new Date().toISOString()};const items=Array.isArray(a)?a:[];if(!items.some(x=>x.id===seed.id))items.push(seed);return items}catch{return []}}
+function saveVisualTrainingItems(items){safeStorageSet(STORAGE.trainingMedia,JSON.stringify(items.slice(0,150)),{removeOnFailure:true})}
+function mediaDataUrl(file){return new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result||''));r.onerror=()=>no(r.error||new Error('Falha ao ler arquivo'));r.readAsDataURL(file)})}
+function visualTrainingTemplate(title,category,machine,notes){const t=normalizeKey(`${title} ${category} ${notes}`);let p=[];if(t.includes('valvula')||t.includes('pneumat'))p=['Identifique alimentação, saídas e escapes.','Confira a posição central e o tipo de centro.','Acione avanço, pausa e retorno.','Verifique vazamentos, pressão, bobinas e conectores.'];else if(t.includes('faca'))p=['Bloqueie a máquina.','Confira posição, alinhamento e aperto da faca.','Verifique contrafaca, folga, calços e desgaste.','Teste em baixa velocidade e acompanhe a produção.'];else if(t.includes('sensor'))p=['Confirme alimentação e LED.','Limpe e alinhe o sensor.','Teste o sinal no CLP ou multímetro.','Acompanhe após o ajuste.'];else p=['Identifique o componente e sua função.','Confira entradas, saídas e pontos de ajuste.','Verifique fixação, desgaste, sujeira, folgas e vazamentos.','Faça teste funcional e registre o resultado no SGMan.'];if(notes)p.push(`Observação informada: ${notes}`);return{description:`${title||'Conteúdo técnico'} explicado de forma simples para consulta da equipe.`,steps:p.map((x,i)=>`${i+1}. ${x}`).join('\n'),safety:'Aplicar bloqueio e etiquetagem, eliminar energias residuais e seguir o procedimento de segurança antes da intervenção.',keywords:uniqueStrings([...title.split(/\s+/),...category.split(/\s+/),machine].filter(x=>x&&x.length>2)).slice(0,15)}}
+async function createVisualTraining(){const f=$('visualTrainingFile')?.files?.[0];if(!f)return showToast('Escolha uma foto ou vídeo.');if(f.size>8*1024*1024)return showToast('Use arquivo de até 8 MB.');const title=$('visualTrainingTitle')?.value.trim()||f.name,cat=$('visualTrainingCategory')?.value.trim()||'Geral',machine=$('visualTrainingMachine')?.value||'',notes=$('visualTrainingNotes')?.value.trim()||'';const gen=visualTrainingTemplate(title,cat,machine,notes);state.visualTrainingDraft={id:`visual-${Date.now()}`,type:f.type.startsWith('video/')?'video':'image',title,category:cat,machine,notes,mediaUrl:await mediaDataUrl(f),...gen,createdAt:new Date().toISOString()};renderVisualTrainingDraft()}
+function renderVisualTrainingDraft(){const d=state.visualTrainingDraft,t=$('visualTrainingDraft');if(!t)return;if(!d){t.classList.add('hidden');t.innerHTML='';return}const media=d.type==='video'?`<video controls src="${escapeHtml(d.mediaUrl)}"></video>`:`<img src="${escapeHtml(d.mediaUrl)}" alt="${escapeHtml(d.title)}">`;t.classList.remove('hidden');t.innerHTML=`<div class="visual-media">${media}</div><div class="visual-fields"><label>Título<input id="visualDraftTitle" value="${escapeHtml(d.title)}"></label><label>Resumo<textarea id="visualDraftDescription" rows="3">${escapeHtml(d.description)}</textarea></label><label>Passo a passo<textarea id="visualDraftSteps" rows="9">${escapeHtml(d.steps)}</textarea></label><label>Segurança<textarea id="visualDraftSafety" rows="4">${escapeHtml(d.safety)}</textarea></label><label>Palavras-chave<input id="visualDraftKeywords" value="${escapeHtml(d.keywords.join(', '))}"></label><div class="button-row"><button id="saveVisualTrainingBtn" class="primary">Salvar</button><button id="cancelVisualTrainingBtn" class="secondary">Cancelar</button></div></div>`;$('saveVisualTrainingBtn').onclick=saveVisualTraining;$('cancelVisualTrainingBtn').onclick=()=>{state.visualTrainingDraft=null;renderVisualTrainingDraft()}}
+function saveVisualTraining(){const d=state.visualTrainingDraft;if(!d)return;d.title=$('visualDraftTitle').value.trim();d.description=$('visualDraftDescription').value.trim();d.steps=$('visualDraftSteps').value.trim();d.safety=$('visualDraftSafety').value.trim();d.keywords=uniqueStrings($('visualDraftKeywords').value.split(',').map(x=>x.trim()).filter(Boolean));const items=visualTrainingItems();items.unshift(d);saveVisualTrainingItems(items);state.visualTrainingDraft=null;$('visualTrainingFile').value='';renderVisualTrainingDraft();renderVisualTrainingLibrary();showToast('Treinamento visual salvo.')}
+function renderVisualTrainingLibrary(){const t=$('visualTrainingLibrary');if(!t)return;const q=normalizeKey($('visualTrainingSearch')?.value||''),m=$('visualTrainingFilterMachine')?.value||'',ty=$('visualTrainingFilterType')?.value||'';const items=visualTrainingItems().filter(x=>(!m||x.machine===m)&&(!ty||x.type===ty)&&(!q||normalizeKey([x.title,x.category,x.machine,x.description,x.steps,x.safety,...(x.keywords||[])].join(' ')).includes(q)));t.innerHTML=items.length?items.map(x=>{const media=x.type==='video'?`<video controls src="${escapeHtml(x.mediaUrl)}"></video>`:`<img src="${escapeHtml(x.mediaUrl)}" alt="${escapeHtml(x.title)}">`;return `<article class="visual-card"><div class="visual-media">${media}</div><div><span class="training-type">${x.type==='video'?'Vídeo':'Imagem'}</span><h3>${escapeHtml(x.title)}</h3><p>${escapeHtml(x.description||'')}</p><details><summary>Ver passo a passo</summary><pre>${escapeHtml(x.steps||'')}</pre></details><div class="visual-safety"><strong>Segurança</strong><p>${escapeHtml(x.safety||'')}</p></div><div class="visual-tags">${(x.keywords||[]).map(k=>`<span>${escapeHtml(k)}</span>`).join('')}</div></div></article>`}).join(''):'<p class="muted">Nenhum conteúdo encontrado.</p>'}
+function initVisualTraining(){const machines=trainingMachineOptions();for(const id of ['visualTrainingMachine','visualTrainingFilterMachine']){const e=$(id);if(e)e.innerHTML=`<option value="">${id.includes('Filter')?'Todas as máquinas':'Geral / todas'}</option>`+machines.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join('')}$('createVisualTrainingBtn')?.addEventListener('click',createVisualTraining);for(const id of ['visualTrainingSearch','visualTrainingFilterMachine','visualTrainingFilterType'])$(id)?.addEventListener(id==='visualTrainingSearch'?'input':'change',renderVisualTrainingLibrary);renderVisualTrainingLibrary()}
+function liveHistory(){try{const a=JSON.parse(localStorage.getItem(STORAGE.liveDashboardHistory)||'[]');return Array.isArray(a)?a:[]}catch{return []}}
+function liveSnapshot(){const m=state.reliability3Days||calculateReliability3Days(),s=state.sgmanHistory?.summary||{},rows=(m.rows||[]).filter(x=>x.machine).sort((a,b)=>(b.failureCount||0)-(a.failureCount||0)).slice(0,10);const stopped=rows.reduce((z,x)=>z+(Number(x.mttrMinutes||0)*Number(x.failureCount||0))/60,0);return{at:new Date().toISOString(),open:Number(s.open||0),overdue:Number(s.overdue||0),completed:Number(m.completedCurrentShift||0),mttr:m.mttrMinutes,mtbf:m.mtbfMinutes,reliability:m.reliabilityPercent,availability:Math.max(0,Math.min(100,((72-stopped)/72)*100)),recurrence:Number(m.recurrentMachines||0),rows}}
+function saveLivePoint(x){const h=liveHistory();h.unshift({at:x.at,overdue:x.overdue,mttr:x.mttr,open:x.open,availability:x.availability});safeStorageSet(STORAGE.liveDashboardHistory,JSON.stringify(h.slice(0,100)),{removeOnFailure:true})}
+function renderLiveDashboard(x=liveSnapshot()){const t=$('liveSgmanContent');if(!t)return;const max=Math.max(...x.rows.map(r=>Number(r.failureCount||0)),1);const hist=liveHistory().slice(0,12).reverse();t.innerHTML=`<div class="live-status"><span></span><strong>SGMan ao vivo</strong><small>${new Date(x.at).toLocaleString('pt-BR')}</small></div><div class="live-kpis">${[['OS abertas',x.open],['OS atrasadas',x.overdue],['Concluídas no turno',x.completed],['MTTR',formatReliabilityTime(x.mttr,'-')],['MTBF',formatReliabilityTime(x.mtbf,'-')],['Disponibilidade',x.availability.toFixed(1).replace('.',',')+'%'],['Confiabilidade 12h',formatReliabilityPercent(x.reliability,'-')],['Reincidências',x.recurrence]].map(a=>`<div class="metric"><span>${a[0]}</span><strong>${a[1]}</strong></div>`).join('')}</div><div class="live-grid"><section class="card"><h3>Histórico de OS atrasadas</h3><div class="spark-bars">${hist.map(v=>`<i style="height:${Math.max(5,Math.min(100,Number(v.overdue||0)))}%" title="${v.overdue}"></i>`).join('')}</div></section><section class="card"><h3>Falhas por máquina</h3><div class="machine-bars">${x.rows.map(r=>`<div><span>${escapeHtml(r.machine)}</span><b style="width:${(Number(r.failureCount||0)/max)*100}%"></b><strong>${r.failureCount||0}</strong></div>`).join('')}</div></section></div>`}
+async function refreshLiveDashboard(){const b=$('refreshLiveSgmanBtn');if(b){b.disabled=true;b.textContent='Atualizando...'}try{await refreshSgmanHistory(true);state.reliability3Days=calculateReliability3Days();const x=liveSnapshot();saveLivePoint(x);renderLiveDashboard(x)}finally{if(b){b.disabled=false;b.textContent='Atualizar agora'}}}
+function initLiveDashboard(){renderLiveDashboard();$('refreshLiveSgmanBtn')?.addEventListener('click',refreshLiveDashboard);$('startLiveSgmanBtn')?.addEventListener('click',()=>{if(state.liveTimer)clearInterval(state.liveTimer);const sec=Number($('liveInterval')?.value||60);state.liveTimer=setInterval(refreshLiveDashboard,Math.max(30,sec)*1000);refreshLiveDashboard()});$('stopLiveSgmanBtn')?.addEventListener('click',()=>{if(state.liveTimer)clearInterval(state.liveTimer);state.liveTimer=null;showToast('Painel pausado.')})}
+
 const SAMPLE_REPORT = `*Relatório de produção diária*
 - Turno: 3°
 *Lideres* : Adriana 
@@ -8161,7 +8184,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=54.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=55.0.0');
         registration.update();
       } catch {}
     });

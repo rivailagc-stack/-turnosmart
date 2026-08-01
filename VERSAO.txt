@@ -1,3 +1,4 @@
-TurnoSmart V54.0.0
-Adiciona Painel principal do Gestor de Manutenção.
-Mantém todas as páginas anteriores.
+TurnoSmart V55.0.0
+Treinamento visual por foto e vídeo.
+Pesquisa futura por assunto e máquina.
+Painel SGMan ao vivo com indicadores e gráficos.

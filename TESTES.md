@@ -1,8 +1,5 @@
-# Testes da V53
-
-1. Confirme V53.0.0.
-2. Analise um relatório.
-3. Confira RELATÓRIO DIÁRIO.
-4. Confira Índice de gestão.
-5. Confira indicadores e metas.
-6. Confirme as outras páginas.
+# Testes V55
+1. Abra Treinamentos e veja a válvula 5/3.
+2. Envie foto/vídeo e salve.
+3. Pesquise.
+4. Abra Ao vivo e atualize.
