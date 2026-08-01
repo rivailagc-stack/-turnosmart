@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '58.0.0';
+const APP_VERSION = '59.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v58.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v59.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -7607,12 +7607,23 @@ function loadImageFromFile(file){
 }
 
 async function optimizeVisualTrainingImage(file){
-  if(!file?.type?.startsWith('image/')){
+  const extension = String(file?.name || '')
+    .split('.')
+    .pop()
+    .toLowerCase();
+
+  const isImage =
+    String(file?.type || '').startsWith('image/') ||
+    ['jpg','jpeg','png','webp','heic','heif'].includes(extension);
+
+  if(!isImage){
     return file;
   }
 
   // Arquivos pequenos e formatos comuns podem seguir sem conversão.
-  const commonType = /image\/(jpeg|jpg|png|webp)/i.test(file.type);
+  const commonType =
+    /image\/(jpeg|jpg|png|webp)/i.test(file.type || '') ||
+    ['jpg','jpeg','png','webp'].includes(extension);
   if(commonType && file.size <= 1.8 * 1024 * 1024){
     return file;
   }
@@ -7666,7 +7677,15 @@ async function prepareVisualTrainingSelectedFile(file){
     throw new Error('Nenhum arquivo foi selecionado.');
   }
 
-  const isVideo = String(file.type || '').startsWith('video/');
+  const extension = String(file.name || '')
+    .split('.')
+    .pop()
+    .toLowerCase();
+
+  const isVideo =
+    String(file.type || '').startsWith('video/') ||
+    ['mov','mp4','m4v','avi','webm'].includes(extension);
+
   const maximum = isVideo
     ? 40 * 1024 * 1024
     : 25 * 1024 * 1024;
@@ -7769,21 +7788,11 @@ function initVisualTraining(){const machines=trainingMachineOptions();for(const 
   const mediaInput=$(id);
   if(!mediaInput)continue;
 
-  let processing=false;
-
-  const handleSelection=async event=>{
-    if(processing)return;
-    processing=true;
-
-    try{
-      await showVisualTrainingSelectedFile(id,event);
-    }finally{
-      setTimeout(()=>{processing=false},200);
-    }
-  };
-
-  mediaInput.addEventListener('input',handleSelection);
-  mediaInput.addEventListener('change',handleSelection);
+  // No Safari/iPhone, o evento input pode ocorrer antes de files estar pronto.
+  // O evento change é o evento confiável para receber a foto escolhida.
+  mediaInput.addEventListener('change',async event=>{
+    await showVisualTrainingSelectedFile(id,event);
+  });
 }
 
 $('createVisualTrainingBtn')?.addEventListener('click',createVisualTraining);
@@ -8419,7 +8428,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=58.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=59.0.0');
         registration.update();
       } catch {}
     });

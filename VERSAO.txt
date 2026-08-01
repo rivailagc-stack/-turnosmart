@@ -1,8 +1,6 @@
-TurnoSmart V58.0.0
-Corrige seleção de fotos no Safari e PWA do iPhone.
-Usa eventos input e change.
-Mantém o arquivo selecionado em memória.
-Mostra confirmação e prévia.
-Converte fotos grandes para JPEG otimizado.
-Aceita fotos de até 25 MB e vídeos de até 40 MB.
-Remove o limite antigo de 8 MB.
+TurnoSmart V59.0.0
+Corrige definitivamente o evento da biblioteca no iPhone.
+Remove o evento input que chegava antes do arquivo.
+Usa somente change para receber a foto.
+Remove o bloqueio que ignorava a seleção.
+Melhora detecção de HEIC, HEIF, MOV e arquivos com MIME vazio.
