@@ -1,7 +1,5 @@
-TurnoSmart V56.0.0
-Corrige o seletor de mídia no iPhone.
-Adiciona Tirar foto.
-Adiciona Biblioteca para fotos e vídeos salvos.
-Adiciona Gravar vídeo.
-O campo Biblioteca não usa capture.
-Mostra nome e tamanho do arquivo selecionado.
+TurnoSmart V57.0.0
+Corrige o arquivo escolhido na biblioteca que não era usado.
+A foto ou vídeo fica guardado em memória.
+Mostra prévia antes de criar a explicação.
+O botão Criar explicação usa o arquivo guardado.

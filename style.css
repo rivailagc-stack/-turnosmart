@@ -1454,3 +1454,23 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
     min-height: 88px;
   }
 }
+
+
+.visual-selection-preview {
+  display: grid;
+  place-items: center;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #0f172a;
+  overflow: hidden;
+}
+
+.visual-selection-preview img,
+.visual-selection-preview video {
+  display: block;
+  width: 100%;
+  max-height: 480px;
+  object-fit: contain;
+  border-radius: 8px;
+}

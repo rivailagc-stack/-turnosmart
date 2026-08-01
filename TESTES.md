@@ -1,11 +1,10 @@
-# Testes V56
+# Testes V57
 
-1. Confirme V56.0.0.
+1. Confirme V57.0.0.
 2. Abra Treinamentos.
-3. Toque em Tirar foto e confirme a câmera.
-4. Toque em Biblioteca e confirme a galeria.
-5. Escolha uma foto salva.
-6. Escolha um vídeo salvo.
-7. Toque em Gravar vídeo.
-8. Confira nome e tamanho do arquivo selecionado.
-9. Crie e salve a explicação.
+3. Toque em Biblioteca.
+4. Escolha uma foto.
+5. Confirme a prévia.
+6. Toque em Criar explicação.
+7. Salve.
+8. Confirme a foto no banco de conhecimento.
