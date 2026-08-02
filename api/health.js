@@ -2,10 +2,10 @@ module.exports = (req, res) =>
   res.status(200).json({
     ok: true,
     app: 'TurnoSmart',
-    version: '63.0.0',
-    visible_native_file_inputs_enabled: true,
-    javascript_file_picker_removed: true,
-    ios_library_compatibility_mode: true,
-    media_preview_enabled: true,
+    version: '64.0.0',
+    immediate_explanation_generation_enabled: true,
+    deferred_media_conversion_enabled: true,
+    visible_error_messages_enabled: true,
+    native_ios_file_input_enabled: true,
     sgman_configured: Boolean(process.env.SGMAN_TOKEN)
   });
