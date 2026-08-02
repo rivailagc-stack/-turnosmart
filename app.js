@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '64.0.0';
+const APP_VERSION = '65.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v64.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v65.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -465,7 +465,9 @@ const state = {
   trainingItems: [],
   trainingProgress: [],
   trainingCloudAvailable: false,
-  trainingEditingId: ''
+  trainingEditingId: '',
+  visualTrainingCloudItems: [],
+  visualTrainingCloudAvailable: false
 };
 
 const $ = id => document.getElementById(id);
@@ -7496,7 +7498,116 @@ function saveTrainingProgressLocal(){safeStorageSet(STORAGE.trainingProgress,JSO
 async function trainingApiRequest(method='GET',payload=null){const options={method,headers:{'Content-Type':'application/json'}};if(payload!==null)options.body=JSON.stringify(payload);const response=await fetch('/api/training',options);const data=await response.json().catch(()=>({}));if(!response.ok||data.ok===false)throw new Error(data.error||`Erro HTTP ${response.status}`);return data}
 function trainingStatusLabel(status=''){return({draft:'Rascunho',active:'Ativo',review:'Em revisão',archived:'Arquivado'})[status]||status||'Ativo'}
 function trainingProgressFor(id){return state.trainingProgress.filter(x=>String(x.trainingId)===String(id)&&x.status==='completed')}
-function trainingMachines(){return configuredMachineCodes().sort((a,b)=>a.localeCompare(b,'pt-BR',{numeric:true}))}
+
+function trainingMachines(){
+  return configuredMachineCodes()
+    .sort((a,b)=>a.localeCompare(b,'pt-BR',{numeric:true}));
+}
+
+function trainingMachineOptions(){
+  return trainingMachines();
+}
+
+function trainingMachineType(machine=''){
+  const code=normalizeMachineCode(machine);
+  const numeric=Number(String(code).replace(/\D/g,''));
+
+  const groups={
+    bolo:[170,176,214,217,221,222],
+    panetone:[69,138,149,172,173,178,179,188,192,212,220,223],
+    pirotine:[2,8,105,108,112,160],
+    pie:[159],
+    tulip:[302,306],
+    semi_acabado:[570,801]
+  };
+
+  for(const [type,codes] of Object.entries(groups)){
+    if(codes.includes(numeric))return type;
+  }
+
+  return 'outros';
+}
+
+function trainingMachineTypeLabel(value=''){
+  return ({
+    bolo:'Bolo',
+    panetone:'Panetone',
+    pirotine:'Pirotine',
+    pie:'PIE',
+    tulip:'Tulip',
+    semi_acabado:'Semiacabado',
+    outros:'Outros'
+  })[value]||value||'Outros';
+}
+
+function defaultTrainingProblems(){
+  return [
+    'Variação de altura',
+    'Calço na faca',
+    'Troca de mola da rotulatriz',
+    'Posição e alinhamento da faca',
+    'Faca quebrada ou desgastada',
+    'Contrafaca e folga',
+    'Fundo enroscando',
+    'Faixa enroscando',
+    'Falta de fundo',
+    'Falta de faixa',
+    'Bobina estourando',
+    'Alinhamento da bobina',
+    'Falha de cola',
+    'Vazamento pneumático',
+    'Falha de sensor',
+    'Falha elétrica',
+    'Falha de resistência',
+    'Falha de termopar',
+    'Vácuo baixo',
+    'Carrinho móvel',
+    'Carrinho fixo',
+    'Came ou leva',
+    'Preventiva geral',
+    'Regulagem operacional'
+  ];
+}
+
+function trainingProblemOptions(machine=''){
+  const defaults=defaultTrainingProblems();
+  const history=state.sgmanHistory?.items||state.sgmanHistory?.orders||[];
+  const machineKey=normalizeMachineCode(machine);
+
+  const phrases=[];
+
+  history
+    .filter(order=>{
+      if(!machineKey)return true;
+      const tag=normalizeMachineCode(
+        order.machine||
+        order.tag||
+        order.equipment||
+        ''
+      );
+      return tag===machineKey ||
+        String(order.tag||'').includes(
+          String(machineKey).replace(/\D/g,'')
+        );
+    })
+    .slice(0,300)
+    .forEach(order=>{
+      const text=String(
+        order.description||
+        order.descricao||
+        order.problem||
+        order.problema||
+        ''
+      ).trim();
+
+      if(text.length>=5 && text.length<=90){
+        phrases.push(text);
+      }
+    });
+
+  return uniqueStrings([...defaults,...phrases]).slice(0,100);
+}
+
 function populateTrainingSelectors(){const machines=trainingMachines();for(const id of ['trainingMachine','trainingFilterMachine']){const el=$(id);if(!el)continue;const current=el.value;el.innerHTML=`<option value="">${id==='trainingMachine'?'Geral / todas as máquinas':'Todas as máquinas'}</option>${machines.map(m=>`<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('')}`;if(machines.includes(current))el.value=current}const mechanic=$('trainingProgressMechanic');if(mechanic){const current=mechanic.value;const users=typeof scaleExecutantesOnly==='function'?scaleExecutantesOnly():[];mechanic.innerHTML=`<option value="">Selecione o colaborador</option>${users.map(u=>`<option value="${escapeHtml(u.username)}">${escapeHtml(u.label)} — ${escapeHtml(u.crew)}</option>`).join('')}`;if([...mechanic.options].some(o=>o.value===current))mechanic.value=current}}
 function filteredTrainingItems(){const search=normalizeKey($('trainingSearch')?.value||'');const type=$('trainingFilterType')?.value||'';const machine=$('trainingFilterMachine')?.value||'';const status=$('trainingFilterStatus')?.value||'';return state.trainingItems.filter(x=>!type||x.type===type).filter(x=>!machine||x.machine===machine).filter(x=>!status||x.status===status).filter(x=>!search||normalizeKey([x.title,x.description,x.machine,x.category,x.audience,x.steps,x.responsible].filter(Boolean).join(' ')).includes(search)).sort((a,b)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||'')))}
 function renderTrainingDashboard(){const t=$('trainingDashboard');if(!t)return;const active=state.trainingItems.filter(x=>x.status==='active').length;const procedures=state.trainingItems.filter(x=>x.type==='procedure').length;const completed=state.trainingProgress.filter(x=>x.status==='completed').length;const people=uniqueStrings(state.trainingProgress.filter(x=>x.status==='completed').map(x=>x.mechanic)).length;t.innerHTML=`<div class="metric"><span>Conteúdos ativos</span><strong>${active}</strong><small>Treinamentos e procedimentos</small></div><div class="metric"><span>Procedimentos</span><strong>${procedures}</strong><small>Padrões documentados</small></div><div class="metric"><span>Conclusões</span><strong>${completed}</strong><small>Capacitações registradas</small></div><div class="metric"><span>Pessoas treinadas</span><strong>${people}</strong><small>Colaboradores diferentes</small></div>`}
@@ -7592,10 +7703,268 @@ function initMaintenanceManagerHome(){
 let visualTrainingSelectedFileCache=null;
 let visualTrainingPreviewUrl='';
 let visualTrainingDraftFile=null;
-function visualTrainingItems(){try{const a=JSON.parse(localStorage.getItem(STORAGE.trainingMedia)||'[]');const seed={id:'seed-valvula-5-3',type:'image',title:'Válvula direcional 5/3',machine:'',category:'Pneumática',description:'Válvula pneumática com cinco vias e três posições, usada para avançar, pausar e retornar um cilindro.',steps:'1. Identifique P, a alimentação de ar.\n2. Identifique A e B, que vão para o cilindro.\n3. Identifique R e S, os escapes.\n4. Na posição esquerda, P alimenta A e o cilindro avança.\n5. Na posição central, confirme se o centro é fechado, aberto ou pressurizado.\n6. Na posição direita, P alimenta B e o cilindro retorna.\n7. Antes de intervir, bloqueie e despressurize o sistema.',safety:'Bloquear energia, despressurizar e confirmar ausência de movimento antes de desmontar.',keywords:['válvula 5/3','pneumática','cilindro','avanço','retorno'],mediaUrl:'/assets/training/valvula-5-3-exemplo.jpeg',createdAt:new Date().toISOString()};const items=Array.isArray(a)?a:[];if(!items.some(x=>x.id===seed.id))items.push(seed);return items}catch{return []}}
+function visualTrainingItems(){
+  let local=[];
+
+  try{
+    const parsed=JSON.parse(
+      localStorage.getItem(STORAGE.trainingMedia)||'[]'
+    );
+    local=Array.isArray(parsed)?parsed:[];
+  }catch{}
+
+  const seed={
+    id:'seed-valvula-5-3',
+    type:'image',
+    title:'Válvula direcional 5/3',
+    machine:'',
+    machineType:'outros',
+    problemType:'Pneumática — funcionamento da válvula',
+    category:'Pneumática',
+    description:'Válvula pneumática com cinco vias e três posições, usada para avançar, pausar e retornar um cilindro.',
+    steps:'1. Identifique P, a alimentação de ar.\n2. Identifique A e B, que vão para o cilindro.\n3. Identifique R e S, os escapes.\n4. Na posição esquerda, P alimenta A e o cilindro avança.\n5. Na posição central, confirme se o centro é fechado, aberto ou pressurizado.\n6. Na posição direita, P alimenta B e o cilindro retorna.\n7. Antes de intervir, bloqueie e despressurize o sistema.',
+    safety:'Bloquear energia, despressurizar e confirmar ausência de movimento antes de desmontar.',
+    validation:'Acionar avanço, parada e retorno e confirmar ausência de vazamentos.',
+    keywords:['válvula 5/3','pneumática','cilindro','avanço','retorno'],
+    mediaUrl:'/assets/training/valvula-5-3-exemplo.jpeg',
+    createdAt:new Date().toISOString(),
+    cloud:false
+  };
+
+  const all=[
+    ...(state.visualTrainingCloudItems||[]),
+    ...local,
+    seed
+  ];
+
+  const map=new Map();
+
+  all.forEach(item=>{
+    if(item?.id && !map.has(String(item.id))){
+      map.set(String(item.id),item);
+    }
+  });
+
+  return [...map.values()];
+}
+
 function saveVisualTrainingItems(items){safeStorageSet(STORAGE.trainingMedia,JSON.stringify(items.slice(0,150)),{removeOnFailure:true})}
 function mediaDataUrl(file){return new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result||''));r.onerror=()=>no(r.error||new Error('Falha ao ler arquivo'));r.readAsDataURL(file)})}
-function visualTrainingTemplate(title,category,machine,notes){const t=normalizeKey(`${title} ${category} ${notes}`);let p=[];if(t.includes('valvula')||t.includes('pneumat'))p=['Identifique alimentação, saídas e escapes.','Confira a posição central e o tipo de centro.','Acione avanço, pausa e retorno.','Verifique vazamentos, pressão, bobinas e conectores.'];else if(t.includes('faca'))p=['Bloqueie a máquina.','Confira posição, alinhamento e aperto da faca.','Verifique contrafaca, folga, calços e desgaste.','Teste em baixa velocidade e acompanhe a produção.'];else if(t.includes('sensor'))p=['Confirme alimentação e LED.','Limpe e alinhe o sensor.','Teste o sinal no CLP ou multímetro.','Acompanhe após o ajuste.'];else p=['Identifique o componente e sua função.','Confira entradas, saídas e pontos de ajuste.','Verifique fixação, desgaste, sujeira, folgas e vazamentos.','Faça teste funcional e registre o resultado no SGMan.'];if(notes)p.push(`Observação informada: ${notes}`);return{description:`${title||'Conteúdo técnico'} explicado de forma simples para consulta da equipe.`,steps:p.map((x,i)=>`${i+1}. ${x}`).join('\n'),safety:'Aplicar bloqueio e etiquetagem, eliminar energias residuais e seguir o procedimento de segurança antes da intervenção.',keywords:uniqueStrings([...title.split(/\s+/),...category.split(/\s+/),machine].filter(x=>x&&x.length>2)).slice(0,15)}}
+function visualTrainingTemplate(
+  title,
+  category,
+  machine,
+  notes,
+  machineType='outros',
+  problemType=''
+){
+  const source=normalizeKey(
+    `${title} ${category} ${problemType} ${notes}`
+  );
+
+  const points=[];
+
+  if(source.includes('variacao de altura')){
+    points.push(
+      'Bloquear a máquina e confirmar ausência de energia e movimento.',
+      'Medir a altura em pelo menos cinco peças consecutivas e registrar a variação.',
+      'Conferir mola, retorno e liberdade de movimento do conjunto.',
+      'Verificar posição, paralelismo e aperto da faca.',
+      'Conferir calços, nivelamento e folgas do conjunto.',
+      'Verificar guia, prensa e pontos que possam deslocar o material.',
+      'Regular em pequenas etapas e repetir a medição após cada ajuste.',
+      'Produzir uma amostra contínua e confirmar estabilidade antes de liberar.'
+    );
+  }else if(source.includes('calco') && source.includes('faca')){
+    points.push(
+      'Bloquear a máquina e limpar a região da faca.',
+      'Identificar em qual lado existe diferença de altura ou contato irregular.',
+      'Medir a folga atual antes de retirar qualquer calço.',
+      'Inspecionar calços amassados, quebrados ou colocados fora de posição.',
+      'Adicionar ou retirar calço em pequenas espessuras.',
+      'Apertar o conjunto de forma cruzada para evitar inclinação.',
+      'Girar manualmente e confirmar que não existe interferência.',
+      'Testar em baixa velocidade, medir as peças e acompanhar a produção.'
+    );
+  }else if(source.includes('troca de mola') || (source.includes('mola') && source.includes('rotulatriz'))){
+    points.push(
+      'Bloquear a rotulatriz e aliviar a tensão do mecanismo.',
+      'Fotografar ou marcar a posição original da mola e dos reguladores.',
+      'Retirar a mola danificada sem forçar eixos ou suportes.',
+      'Comparar comprimento, diâmetro, espessura e força da mola nova.',
+      'Instalar a mola no mesmo sentido e ponto de fixação.',
+      'Regular a pré-carga sem exceder o curso do mecanismo.',
+      'Acionar manualmente e confirmar retorno completo.',
+      'Testar com material, acompanhar a aplicação e registrar o resultado.'
+    );
+  }else if(source.includes('faca')){
+    points.push(
+      'Bloquear a máquina e remover resíduos do conjunto.',
+      'Inspecionar corte, desgaste, quebra e rebarbas.',
+      'Conferir posição, alinhamento, paralelismo e aperto.',
+      'Verificar contrafaca, folga e contato ao longo de toda a largura.',
+      'Conferir calços e nivelamento.',
+      'Girar manualmente e eliminar qualquer ponto de interferência.',
+      'Testar em baixa velocidade.',
+      'Acompanhar a produção e validar a qualidade do corte.'
+    );
+  }else if(source.includes('pneumat') || source.includes('valvula')){
+    points.push(
+      'Bloquear e despressurizar o circuito.',
+      'Identificar alimentação, saídas do atuador e escapes.',
+      'Conferir pressão de entrada e regulagem.',
+      'Verificar mangueiras, conexões e vazamentos.',
+      'Testar bobina, conector e comando elétrico.',
+      'Acionar manualmente a válvula e observar o deslocamento.',
+      'Confirmar avanço, parada e retorno do cilindro.',
+      'Pressurizar novamente e acompanhar o funcionamento.'
+    );
+  }else if(source.includes('sensor')){
+    points.push(
+      'Identificar o sensor e confirmar sua função no processo.',
+      'Verificar alimentação elétrica e estado do LED.',
+      'Limpar a área de leitura.',
+      'Conferir distância e alinhamento.',
+      'Testar o sinal no CLP, entrada digital ou multímetro.',
+      'Ajustar a sensibilidade quando aplicável.',
+      'Simular a passagem da peça.',
+      'Acompanhar a máquina e confirmar que o alarme não retorna.'
+    );
+  }else if(source.includes('bobina')){
+    points.push(
+      'Bloquear o desbobinador antes da intervenção.',
+      'Conferir centralização e alinhamento da bobina.',
+      'Verificar tensão, freio, roletes e guias.',
+      'Inspecionar bordas danificadas e emendas.',
+      'Confirmar o caminho correto do material.',
+      'Regular a tensão gradualmente.',
+      'Testar em baixa velocidade.',
+      'Acompanhar até confirmar alimentação estável.'
+    );
+  }else{
+    points.push(
+      'Identificar o componente, sua função e o sintoma observado.',
+      'Aplicar bloqueio e eliminar energias residuais.',
+      'Limpar e inspecionar fixações, folgas, desgaste e vazamentos.',
+      'Comparar a condição atual com o padrão correto.',
+      'Executar somente um ajuste por vez.',
+      'Testar primeiro em condição segura ou baixa velocidade.',
+      'Acompanhar a produção até confirmar estabilidade.',
+      'Registrar problema, causa, serviço e resultado no SGMan.'
+    );
+  }
+
+  if(notes){
+    points.push(`Observação prática: ${notes}`);
+  }
+
+  const machineLabel=machine||'aplicação geral';
+  const typeLabel=trainingMachineTypeLabel(machineType);
+
+  return {
+    description:
+      `Lição prática para ${problemType||title||'regulagem técnica'} na ${machineLabel}, tipo ${typeLabel}. O objetivo é ensinar a equipe a identificar, regular, testar e liberar o equipamento sem retrabalho.`,
+    steps:points.map((point,index)=>`${index+1}. ${point}`).join('\n'),
+    safety:
+      'Aplicar bloqueio e etiquetagem, eliminar energia elétrica, pneumática, hidráulica, térmica ou mecânica residual e utilizar os EPIs definidos pela empresa.',
+    validation:
+      'Liberar somente após teste funcional, acompanhamento em produção, confirmação de estabilidade e registro completo no SGMan.',
+    keywords:uniqueStrings([
+      ...String(title).split(/\s+/),
+      ...String(category).split(/\s+/),
+      ...String(problemType).split(/\s+/),
+      machine,
+      typeLabel
+    ].filter(item=>item&&item.length>2)).slice(0,25)
+  };
+}
+
+async function visualTrainingVideoFrame(file){
+  return new Promise((resolve,reject)=>{
+    const url=URL.createObjectURL(file);
+    const video=document.createElement('video');
+
+    video.muted=true;
+    video.playsInline=true;
+    video.preload='metadata';
+
+    video.onloadeddata=()=>{
+      try{
+        video.currentTime=Math.min(
+          1,
+          Math.max(0,Number(video.duration||0)/4)
+        );
+      }catch{
+        video.currentTime=0;
+      }
+    };
+
+    video.onseeked=()=>{
+      try{
+        const canvas=document.createElement('canvas');
+        const width=video.videoWidth||1280;
+        const height=video.videoHeight||720;
+        const scale=Math.min(1,1280/Math.max(width,height));
+
+        canvas.width=Math.max(1,Math.round(width*scale));
+        canvas.height=Math.max(1,Math.round(height*scale));
+
+        canvas.getContext('2d').drawImage(
+          video,
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        );
+
+        const dataUrl=canvas.toDataURL('image/jpeg',0.78);
+        URL.revokeObjectURL(url);
+        resolve(dataUrl);
+      }catch(error){
+        URL.revokeObjectURL(url);
+        reject(error);
+      }
+    };
+
+    video.onerror=()=>{
+      URL.revokeObjectURL(url);
+      reject(new Error('Não foi possível extrair uma imagem do vídeo.'));
+    };
+
+    video.src=url;
+  });
+}
+
+async function visualTrainingAiAnalysis(file,context){
+  let imageDataUrl='';
+
+  if(String(file.type||'').startsWith('video/')){
+    imageDataUrl=await visualTrainingVideoFrame(file);
+  }else{
+    imageDataUrl=await mediaDataUrl(file);
+  }
+
+  const response=await fetch('/api/training-ai',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      imageDataUrl,
+      context
+    })
+  });
+
+  const data=await response.json().catch(()=>({}));
+
+  if(!response.ok || data.ok===false){
+    throw new Error(
+      data.error||
+      `Falha na análise por inteligência artificial (${response.status}).`
+    );
+  }
+
+  return data.lesson;
+}
+
 async function createVisualTraining(){
   const button=$('createVisualTrainingBtn');
 
@@ -7606,42 +7975,64 @@ async function createVisualTraining(){
     $('visualTrainingFile')?.files?.[0];
 
   if(!file){
-    showToast('Escolha uma foto ou vídeo antes de criar a explicação.');
+    showToast('Escolha uma foto ou vídeo antes de criar a lição.');
     return;
   }
 
   if(button){
     button.disabled=true;
-    button.textContent='Criando explicação...';
+    button.textContent='Analisando foto e histórico...';
   }
 
   try{
-    const title=
-      $('visualTrainingTitle')?.value.trim() ||
-      String(file.name||'Treinamento visual')
-        .replace(/\.[^.]+$/,'')
-        .replace(/[-_]+/g,' ')
-        .trim();
+    const machine=$('visualTrainingMachine')?.value||'';
+    const machineType=
+      $('visualTrainingMachineType')?.value||
+      trainingMachineType(machine);
+
+    const problemType=
+      $('visualTrainingProblemType')?.value.trim()||
+      'Regulagem técnica';
 
     const category=
-      $('visualTrainingCategory')?.value.trim() ||
+      $('visualTrainingCategory')?.value.trim()||
+      problemType||
       'Geral';
 
-    const machine=
-      $('visualTrainingMachine')?.value ||
-      '';
+    const notes=$('visualTrainingNotes')?.value.trim()||'';
 
-    const notes=
-      $('visualTrainingNotes')?.value.trim() ||
-      '';
+    const title=
+      $('visualTrainingTitle')?.value.trim()||
+      `${problemType}${machine?` — ${machine}`:''}`;
 
-    const generated=
-      visualTrainingTemplate(
+    const context={
+      title,
+      machine,
+      machineType,
+      machineTypeLabel:trainingMachineTypeLabel(machineType),
+      problemType,
+      category,
+      notes,
+      sgmanReferences:trainingProblemOptions(machine).slice(0,20)
+    };
+
+    let generated;
+    let aiUsed=false;
+
+    try{
+      generated=await visualTrainingAiAnalysis(file,context);
+      aiUsed=true;
+    }catch(aiError){
+      console.warn('IA indisponível; usando modelo técnico local:',aiError);
+      generated=visualTrainingTemplate(
         title,
         category,
         machine,
-        notes
+        notes,
+        machineType,
+        problemType
       );
+    }
 
     visualTrainingDraftFile=file;
 
@@ -7651,76 +8042,197 @@ async function createVisualTraining(){
         ? 'video'
         : 'image',
       title,
-      category,
       machine,
+      machineType,
+      problemType,
+      category,
       notes,
       mediaUrl:
-        visualTrainingPreviewUrl ||
+        visualTrainingPreviewUrl||
         URL.createObjectURL(file),
       mediaIsTemporary:true,
-      ...generated,
-      createdAt:new Date().toISOString()
+      aiUsed,
+      description:generated.description||'',
+      steps:generated.steps||'',
+      safety:generated.safety||'',
+      validation:generated.validation||'',
+      keywords:Array.isArray(generated.keywords)
+        ? generated.keywords
+        : [],
+      createdAt:new Date().toISOString(),
+      updatedAt:new Date().toISOString()
     };
 
     renderVisualTrainingDraft();
 
-    const draft=$('visualTrainingDraft');
-    draft?.scrollIntoView({
+    $('visualTrainingDraft')?.scrollIntoView({
       behavior:'smooth',
       block:'start'
     });
 
-    showToast('Explicação criada. Revise antes de salvar.');
-  }catch(error){
-    console.error('Falha ao criar explicação:',error);
     showToast(
-      `Não foi possível criar a explicação: ${
-        error?.message || 'erro desconhecido'
+      aiUsed
+        ? 'Lição criada pela IA. Revise antes de salvar.'
+        : 'Lição criada pelo modelo técnico local. Configure OPENAI_API_KEY para análise visual automática.'
+    );
+  }catch(error){
+    console.error('Falha ao criar lição:',error);
+    showToast(
+      `Não foi possível criar a lição: ${
+        error?.message||'erro desconhecido'
       }`
     );
   }finally{
     if(button){
       button.disabled=false;
-      button.textContent='Criar explicação';
+      button.textContent='Criar lição ponto a ponto';
     }
   }
 }
-function renderVisualTrainingDraft(){const d=state.visualTrainingDraft,t=$('visualTrainingDraft');if(!t)return;if(!d){t.classList.add('hidden');t.innerHTML='';return}const media=d.type==='video'?`<video controls src="${escapeHtml(d.mediaUrl)}"></video>`:`<img src="${escapeHtml(d.mediaUrl)}" alt="${escapeHtml(d.title)}">`;t.classList.remove('hidden');t.innerHTML=`<div class="visual-media">${media}</div><div class="visual-fields"><label>Título<input id="visualDraftTitle" value="${escapeHtml(d.title)}"></label><label>Resumo<textarea id="visualDraftDescription" rows="3">${escapeHtml(d.description)}</textarea></label><label>Passo a passo<textarea id="visualDraftSteps" rows="9">${escapeHtml(d.steps)}</textarea></label><label>Segurança<textarea id="visualDraftSafety" rows="4">${escapeHtml(d.safety)}</textarea></label><label>Palavras-chave<input id="visualDraftKeywords" value="${escapeHtml(d.keywords.join(', '))}"></label><div class="button-row"><button id="saveVisualTrainingBtn" class="primary">Salvar</button><button id="cancelVisualTrainingBtn" class="secondary">Cancelar</button></div></div>`;$('saveVisualTrainingBtn').onclick=()=>{
-  saveVisualTraining();
-};$('cancelVisualTrainingBtn').onclick=()=>{
-  state.visualTrainingDraft=null;
-  visualTrainingDraftFile=null;
-  renderVisualTrainingDraft();
-}}
+function renderVisualTrainingDraft(){
+  const draft=state.visualTrainingDraft;
+  const target=$('visualTrainingDraft');
+
+  if(!target)return;
+
+  if(!draft){
+    target.classList.add('hidden');
+    target.innerHTML='';
+    return;
+  }
+
+  const media=draft.type==='video'
+    ? `<video controls playsinline src="${escapeHtml(draft.mediaUrl)}"></video>`
+    : `<img src="${escapeHtml(draft.mediaUrl)}" alt="${escapeHtml(draft.title)}">`;
+
+  target.classList.remove('hidden');
+
+  target.innerHTML=`
+    <div class="visual-media">${media}</div>
+
+    <div class="visual-fields">
+      <div class="visual-lesson-meta">
+        <span>${escapeHtml(trainingMachineTypeLabel(draft.machineType))}</span>
+        <span>${escapeHtml(draft.machine||'Geral')}</span>
+        <span>${escapeHtml(draft.problemType||'Regulagem')}</span>
+        <span>${draft.aiUsed?'IA visual':'Modelo técnico local'}</span>
+      </div>
+
+      <label>Título da lição
+        <input id="visualDraftTitle" value="${escapeHtml(draft.title)}">
+      </label>
+
+      <label>Objetivo e resumo
+        <textarea id="visualDraftDescription" rows="4">${escapeHtml(draft.description)}</textarea>
+      </label>
+
+      <label>Lição ponto a ponto
+        <textarea id="visualDraftSteps" rows="13">${escapeHtml(draft.steps)}</textarea>
+      </label>
+
+      <label>Segurança
+        <textarea id="visualDraftSafety" rows="5">${escapeHtml(draft.safety)}</textarea>
+      </label>
+
+      <label>Teste e liberação
+        <textarea id="visualDraftValidation" rows="5">${escapeHtml(draft.validation||'')}</textarea>
+      </label>
+
+      <label>Palavras-chave
+        <input id="visualDraftKeywords" value="${escapeHtml((draft.keywords||[]).join(', '))}">
+      </label>
+
+      <div class="button-row">
+        <button id="saveVisualTrainingBtn" class="primary" type="button">
+          Salvar na nuvem
+        </button>
+        <button id="cancelVisualTrainingBtn" class="secondary" type="button">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  `;
+
+  $('saveVisualTrainingBtn').onclick=()=>saveVisualTraining();
+
+  $('cancelVisualTrainingBtn').onclick=()=>{
+    state.visualTrainingDraft=null;
+    visualTrainingDraftFile=null;
+    renderVisualTrainingDraft();
+  };
+}
+async function visualTrainingCloudRequest(method='GET',payload=null){
+  const options={
+    method,
+    headers:{'Content-Type':'application/json'}
+  };
+
+  if(payload!==null){
+    options.body=JSON.stringify(payload);
+  }
+
+  const response=await fetch('/api/visual-training',options);
+  const data=await response.json().catch(()=>({}));
+
+  if(!response.ok || data.ok===false){
+    throw new Error(
+      data.error||
+      `Erro na nuvem (${response.status}).`
+    );
+  }
+
+  return data;
+}
+
+async function loadVisualTrainingCloud(){
+  try{
+    const data=await visualTrainingCloudRequest('GET');
+    state.visualTrainingCloudAvailable=Boolean(data.cloud);
+    state.visualTrainingCloudItems=Array.isArray(data.items)
+      ? data.items
+      : [];
+  }catch(error){
+    state.visualTrainingCloudAvailable=false;
+    state.visualTrainingCloudItems=[];
+    console.warn('Nuvem visual indisponível:',error);
+  }
+
+  renderVisualTrainingLibrary();
+}
+
 async function saveVisualTraining(){
   const draft=state.visualTrainingDraft;
   const button=$('saveVisualTrainingBtn');
 
   if(!draft){
-    showToast('Nenhuma explicação disponível para salvar.');
+    showToast('Nenhuma lição disponível para salvar.');
     return;
   }
 
   if(button){
     button.disabled=true;
-    button.textContent='Salvando...';
+    button.textContent='Enviando para a nuvem...';
   }
 
   try{
     draft.title=
-      $('visualDraftTitle')?.value.trim() ||
+      $('visualDraftTitle')?.value.trim()||
       draft.title;
 
     draft.description=
-      $('visualDraftDescription')?.value.trim() ||
+      $('visualDraftDescription')?.value.trim()||
       '';
 
     draft.steps=
-      $('visualDraftSteps')?.value.trim() ||
+      $('visualDraftSteps')?.value.trim()||
       '';
 
     draft.safety=
-      $('visualDraftSafety')?.value.trim() ||
+      $('visualDraftSafety')?.value.trim()||
+      '';
+
+    draft.validation=
+      $('visualDraftValidation')?.value.trim()||
       '';
 
     draft.keywords=uniqueStrings(
@@ -7730,35 +8242,57 @@ async function saveVisualTraining(){
         .filter(Boolean)
     );
 
-    if(draft.mediaIsTemporary){
-      const file=
-        visualTrainingDraftFile ||
-        visualTrainingSelectedFileCache;
+    const file=
+      visualTrainingDraftFile||
+      visualTrainingSelectedFileCache;
 
-      if(!file){
-        throw new Error(
-          'A foto original não está mais disponível. Selecione novamente.'
-        );
-      }
-
-      draft.mediaUrl=await mediaDataUrl(file);
-      delete draft.mediaIsTemporary;
+    if(!file){
+      throw new Error(
+        'A foto original não está mais disponível. Selecione novamente.'
+      );
     }
 
-    const items=visualTrainingItems();
-    items.unshift(draft);
+    const mediaDataUrl=await mediaDataUrl(file);
 
-    const serialized=JSON.stringify(items.slice(0,150));
+    let cloudSaved=false;
 
     try{
-      localStorage.setItem(
-        STORAGE.trainingMedia,
-        serialized
+      const result=await visualTrainingCloudRequest(
+        'POST',
+        {
+          action:'upsert',
+          item:{
+            ...draft,
+            mediaDataUrl,
+            mediaName:file.name||`${draft.id}.jpg`,
+            mediaMimeType:file.type||'image/jpeg'
+          }
+        }
       );
-    }catch(storageError){
-      throw new Error(
-        'A foto ficou grande demais para o armazenamento local. Tente outra foto ou conecte o banco na nuvem.'
-      );
+
+      cloudSaved=Boolean(result.cloud);
+
+      if(result.item){
+        state.visualTrainingCloudItems=[
+          result.item,
+          ...(state.visualTrainingCloudItems||[])
+            .filter(item=>String(item.id)!==String(result.item.id))
+        ];
+      }
+    }catch(cloudError){
+      console.warn('Falha ao salvar na nuvem:',cloudError);
+    }
+
+    if(!cloudSaved){
+      draft.mediaUrl=mediaDataUrl;
+      delete draft.mediaIsTemporary;
+      draft.cloud=false;
+
+      const local=visualTrainingItems()
+        .filter(item=>item.id!=='seed-valvula-5-3')
+        .filter(item=>String(item.id)!==String(draft.id));
+
+      saveVisualTrainingItems([draft,...local]);
     }
 
     state.visualTrainingDraft=null;
@@ -7766,9 +8300,7 @@ async function saveVisualTraining(){
     visualTrainingSelectedFileCache=null;
 
     if(visualTrainingPreviewUrl){
-      try{
-        URL.revokeObjectURL(visualTrainingPreviewUrl);
-      }catch{}
+      try{URL.revokeObjectURL(visualTrainingPreviewUrl)}catch{}
     }
 
     visualTrainingPreviewUrl='';
@@ -7778,9 +8310,7 @@ async function saveVisualTraining(){
       'visualTrainingCameraFile',
       'visualTrainingVideoFile'
     ]){
-      if($(id)){
-        $(id).value='';
-      }
+      if($(id))$(id).value='';
     }
 
     if($('visualTrainingSelectedFile')){
@@ -7789,32 +8319,126 @@ async function saveVisualTraining(){
     }
 
     if($('visualTrainingSelectionPreview')){
-      $('visualTrainingSelectionPreview')
-        .classList.add('hidden');
-
-      $('visualTrainingSelectionPreview')
-        .innerHTML='';
+      $('visualTrainingSelectionPreview').classList.add('hidden');
+      $('visualTrainingSelectionPreview').innerHTML='';
     }
 
     renderVisualTrainingDraft();
     renderVisualTrainingLibrary();
 
-    showToast('Treinamento visual salvo com sucesso.');
+    showToast(
+      cloudSaved
+        ? 'Lição salva na nuvem com sucesso.'
+        : 'Nuvem não configurada. Lição salva somente neste aparelho.'
+    );
   }catch(error){
-    console.error('Falha ao salvar treinamento:',error);
+    console.error('Falha ao salvar lição:',error);
     showToast(
       `Não foi possível salvar: ${
-        error?.message || 'erro desconhecido'
+        error?.message||'erro desconhecido'
       }`
     );
   }finally{
     if(button){
       button.disabled=false;
-      button.textContent='Salvar';
+      button.textContent='Salvar na nuvem';
     }
   }
 }
-function renderVisualTrainingLibrary(){const t=$('visualTrainingLibrary');if(!t)return;const q=normalizeKey($('visualTrainingSearch')?.value||''),m=$('visualTrainingFilterMachine')?.value||'',ty=$('visualTrainingFilterType')?.value||'';const items=visualTrainingItems().filter(x=>(!m||x.machine===m)&&(!ty||x.type===ty)&&(!q||normalizeKey([x.title,x.category,x.machine,x.description,x.steps,x.safety,...(x.keywords||[])].join(' ')).includes(q)));t.innerHTML=items.length?items.map(x=>{const media=x.type==='video'?`<video controls src="${escapeHtml(x.mediaUrl)}"></video>`:`<img src="${escapeHtml(x.mediaUrl)}" alt="${escapeHtml(x.title)}">`;return `<article class="visual-card"><div class="visual-media">${media}</div><div><span class="training-type">${x.type==='video'?'Vídeo':'Imagem'}</span><h3>${escapeHtml(x.title)}</h3><p>${escapeHtml(x.description||'')}</p><details><summary>Ver passo a passo</summary><pre>${escapeHtml(x.steps||'')}</pre></details><div class="visual-safety"><strong>Segurança</strong><p>${escapeHtml(x.safety||'')}</p></div><div class="visual-tags">${(x.keywords||[]).map(k=>`<span>${escapeHtml(k)}</span>`).join('')}</div></div></article>`}).join(''):'<p class="muted">Nenhum conteúdo encontrado.</p>'}
+function renderVisualTrainingLibrary(){
+  const target=$('visualTrainingLibrary');
+  if(!target)return;
+
+  const search=normalizeKey(
+    $('visualTrainingSearch')?.value||''
+  );
+
+  const machine=
+    $('visualTrainingFilterMachine')?.value||'';
+
+  const machineType=
+    $('visualTrainingFilterMachineType')?.value||'';
+
+  const problemType=
+    $('visualTrainingFilterProblemType')?.value||'';
+
+  const mediaType=
+    $('visualTrainingFilterType')?.value||'';
+
+  const items=visualTrainingItems()
+    .filter(item=>!machine||item.machine===machine)
+    .filter(item=>!machineType||item.machineType===machineType)
+    .filter(item=>!problemType||item.problemType===problemType)
+    .filter(item=>!mediaType||item.type===mediaType)
+    .filter(item=>{
+      if(!search)return true;
+
+      return normalizeKey([
+        item.title,
+        item.machine,
+        trainingMachineTypeLabel(item.machineType),
+        item.problemType,
+        item.category,
+        item.description,
+        item.steps,
+        item.validation,
+        ...(item.keywords||[])
+      ].filter(Boolean).join(' ')).includes(search);
+    })
+    .sort((a,b)=>
+      String(b.updatedAt||b.createdAt||'')
+        .localeCompare(String(a.updatedAt||a.createdAt||''))
+    );
+
+  target.innerHTML=items.length
+    ? items.map(item=>{
+        const media=item.type==='video'
+          ? `<video controls playsinline src="${escapeHtml(item.mediaUrl)}"></video>`
+          : `<img src="${escapeHtml(item.mediaUrl)}" alt="${escapeHtml(item.title)}">`;
+
+        return `
+          <article class="visual-card">
+            <div class="visual-media">${media}</div>
+
+            <div>
+              <div class="visual-lesson-meta">
+                <span>${escapeHtml(trainingMachineTypeLabel(item.machineType))}</span>
+                <span>${escapeHtml(item.machine||'Geral')}</span>
+                <span>${escapeHtml(item.problemType||item.category||'Geral')}</span>
+                <span>${item.cloud?'Nuvem':'Local'}</span>
+              </div>
+
+              <h3>${escapeHtml(item.title)}</h3>
+              <p>${escapeHtml(item.description||'')}</p>
+
+              <details>
+                <summary>Ver lição ponto a ponto</summary>
+                <pre>${escapeHtml(item.steps||'')}</pre>
+              </details>
+
+              <div class="visual-safety">
+                <strong>Segurança</strong>
+                <p>${escapeHtml(item.safety||'')}</p>
+              </div>
+
+              ${item.validation?`
+                <div class="visual-validation">
+                  <strong>Teste e liberação</strong>
+                  <p>${escapeHtml(item.validation)}</p>
+                </div>
+              `:''}
+
+              <div class="visual-tags">
+                ${(item.keywords||[])
+                  .map(keyword=>`<span>${escapeHtml(keyword)}</span>`)
+                  .join('')}
+              </div>
+            </div>
+          </article>
+        `;
+      }).join('')
+    : '<p class="muted">Nenhuma lição encontrada com esses filtros.</p>';
+}
 
 function visualTrainingFileFromEvent(event, inputId){
   const fromEvent =
@@ -8019,24 +8643,154 @@ try{
   showToast(error.message);
 }
 }
-function initVisualTraining(){const machines=trainingMachineOptions();for(const id of ['visualTrainingMachine','visualTrainingFilterMachine']){const e=$(id);if(e)e.innerHTML=`<option value="">${id.includes('Filter')?'Todas as máquinas':'Geral / todas'}</option>`+machines.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join('')}for(const inputId of [
-  'visualTrainingCameraFile',
-  'visualTrainingFile',
-  'visualTrainingVideoFile'
-]){
-  const input=$(inputId);
-  if(!input)continue;
+function populateVisualTrainingOptions(){
+  const machines=trainingMachineOptions();
 
-  input.addEventListener('change',async event=>{
-    await showVisualTrainingSelectedFile(inputId,event);
-  });
+  for(const id of [
+    'visualTrainingMachine',
+    'visualTrainingFilterMachine'
+  ]){
+    const element=$(id);
+    if(!element)continue;
+
+    const current=element.value;
+
+    element.innerHTML=
+      `<option value="">${
+        id.includes('Filter')
+          ? 'Todas as máquinas'
+          : 'Geral / todas'
+      }</option>`+
+      machines.map(machine=>
+        `<option value="${escapeHtml(machine)}">${escapeHtml(machine)}</option>`
+      ).join('');
+
+    if([...element.options].some(option=>option.value===current)){
+      element.value=current;
+    }
+  }
+
+  const machineTypes=[
+    'bolo',
+    'panetone',
+    'pirotine',
+    'pie',
+    'tulip',
+    'semi_acabado',
+    'outros'
+  ];
+
+  for(const id of [
+    'visualTrainingMachineType',
+    'visualTrainingFilterMachineType'
+  ]){
+    const element=$(id);
+    if(!element)continue;
+
+    const current=element.value;
+
+    element.innerHTML=
+      `<option value="">${
+        id.includes('Filter')
+          ? 'Todos os tipos de máquina'
+          : 'Selecione o tipo'
+      }</option>`+
+      machineTypes.map(type=>
+        `<option value="${type}">${trainingMachineTypeLabel(type)}</option>`
+      ).join('');
+
+    if([...element.options].some(option=>option.value===current)){
+      element.value=current;
+    }
+  }
+
+  populateVisualProblemOptions();
 }
 
-$('createVisualTrainingBtn')?.addEventListener(
-  'click',
-  createVisualTraining
-);
-for(const id of ['visualTrainingSearch','visualTrainingFilterMachine','visualTrainingFilterType'])$(id)?.addEventListener(id==='visualTrainingSearch'?'input':'change',renderVisualTrainingLibrary);renderVisualTrainingLibrary()}
+function populateVisualProblemOptions(){
+  const selectedMachine=
+    $('visualTrainingMachine')?.value||'';
+
+  const options=trainingProblemOptions(selectedMachine);
+
+  for(const id of [
+    'visualTrainingProblemType',
+    'visualTrainingFilterProblemType'
+  ]){
+    const element=$(id);
+    if(!element)continue;
+
+    const current=element.value;
+
+    element.innerHTML=
+      `<option value="">${
+        id.includes('Filter')
+          ? 'Todos os tipos de problema'
+          : 'Selecione o problema ou regulagem'
+      }</option>`+
+      options.map(problem=>
+        `<option value="${escapeHtml(problem)}">${escapeHtml(problem)}</option>`
+      ).join('');
+
+    if([...element.options].some(option=>option.value===current)){
+      element.value=current;
+    }
+  }
+}
+
+function initVisualTraining(){
+  populateVisualTrainingOptions();
+
+  $('visualTrainingMachine')?.addEventListener('change',event=>{
+    const type=trainingMachineType(event.target.value);
+
+    if($('visualTrainingMachineType')){
+      $('visualTrainingMachineType').value=type;
+    }
+
+    populateVisualProblemOptions();
+  });
+
+  for(const inputId of [
+    'visualTrainingCameraFile',
+    'visualTrainingFile',
+    'visualTrainingVideoFile'
+  ]){
+    const input=$(inputId);
+    if(!input)continue;
+
+    input.addEventListener('change',async event=>{
+      await showVisualTrainingSelectedFile(inputId,event);
+    });
+  }
+
+  $('createVisualTrainingBtn')?.addEventListener(
+    'click',
+    createVisualTraining
+  );
+
+  for(const id of [
+    'visualTrainingSearch',
+    'visualTrainingFilterMachine',
+    'visualTrainingFilterMachineType',
+    'visualTrainingFilterProblemType',
+    'visualTrainingFilterType'
+  ]){
+    const element=$(id);
+    if(!element)continue;
+
+    element.addEventListener(
+      id==='visualTrainingSearch'
+        ? 'input'
+        : 'change',
+      renderVisualTrainingLibrary
+    );
+  }
+
+  renderVisualTrainingLibrary();
+  loadVisualTrainingCloud();
+}
+
 function liveHistory(){try{const a=JSON.parse(localStorage.getItem(STORAGE.liveDashboardHistory)||'[]');return Array.isArray(a)?a:[]}catch{return []}}
 function liveSnapshot(){const m=state.reliability3Days||calculateReliability3Days(),s=state.sgmanHistory?.summary||{},rows=(m.rows||[]).filter(x=>x.machine).sort((a,b)=>(b.failureCount||0)-(a.failureCount||0)).slice(0,10);const stopped=rows.reduce((z,x)=>z+(Number(x.mttrMinutes||0)*Number(x.failureCount||0))/60,0);return{at:new Date().toISOString(),open:Number(s.open||0),overdue:Number(s.overdue||0),completed:Number(m.completedCurrentShift||0),mttr:m.mttrMinutes,mtbf:m.mtbfMinutes,reliability:m.reliabilityPercent,availability:Math.max(0,Math.min(100,((72-stopped)/72)*100)),recurrence:Number(m.recurrentMachines||0),rows}}
 function saveLivePoint(x){const h=liveHistory();h.unshift({at:x.at,overdue:x.overdue,mttr:x.mttr,open:x.open,availability:x.availability});safeStorageSet(STORAGE.liveDashboardHistory,JSON.stringify(h.slice(0,100)),{removeOnFailure:true})}
@@ -8668,7 +9422,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=64.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=65.0.0');
         registration.update();
       } catch {}
     });

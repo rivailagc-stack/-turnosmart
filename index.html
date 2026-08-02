@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=64.0.0" />
+  <link rel="stylesheet" href="style.css?v=65.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -20,7 +20,7 @@
       <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V64.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V65.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -670,7 +670,31 @@
     <section id="view-treinamentos" class="view">
       <div class="hero card training-hero"><div><span class="badge">TREINAMENTOS E PROCEDIMENTOS</span><h2>Conhecimento da manutenção</h2><p>Cadastre padrões, checklists e treinamentos. Funciona localmente e pode sincronizar com Supabase.</p></div><button id="refreshTrainingBtn" class="secondary" type="button">Atualizar nuvem</button></div>
       <div id="trainingDashboard" class="training-dashboard"></div>
-      <div class="card visual-builder"><div class="section-head"><div><span class="eyebrow">FOTO OU VÍDEO</span><h2>Criar treinamento visual</h2></div></div><p class="muted">Envie uma foto ou vídeo, informe o assunto e o aplicativo cria uma explicação organizada para você revisar e salvar.</p><div class="grid two"><label>Título<input id="visualTrainingTitle" placeholder="Ex.: Como funciona a válvula 5/3"></label><label>Máquina<select id="visualTrainingMachine"><option value="">Geral / todas</option></select></label><label>Categoria<input id="visualTrainingCategory" placeholder="Pneumática, elétrica, faca..."></label><div class="span-two visual-media-source">
+      <div class="card visual-builder"><div class="section-head"><div><span class="eyebrow">FOTO OU VÍDEO</span><h2>Criar treinamento visual</h2></div></div><p class="muted">Envie uma foto ou vídeo, informe o assunto e o aplicativo cria uma explicação organizada para você revisar e salvar.</p><div class="grid two"><label>Título da lição
+  <input id="visualTrainingTitle" placeholder="Ex.: Regulagem de variação de altura">
+</label>
+
+<label>Máquina
+  <select id="visualTrainingMachine">
+    <option value="">Geral / todas</option>
+  </select>
+</label>
+
+<label>Tipo de máquina
+  <select id="visualTrainingMachineType">
+    <option value="">Selecione o tipo</option>
+  </select>
+</label>
+
+<label>Tipo de problema ou regulagem
+  <select id="visualTrainingProblemType">
+    <option value="">Selecione o problema</option>
+  </select>
+</label>
+
+<label class="span-two">Categoria técnica
+  <input id="visualTrainingCategory" placeholder="Pneumática, elétrica, faca, rotulatriz...">
+</label><div class="span-two visual-media-source">
   <span class="field-label">Adicionar foto ou vídeo</span>
   <div class="visual-native-pickers">
     <div class="visual-native-picker">
@@ -728,8 +752,28 @@
     Após escolher a foto, toque em Criar explicação. O texto será mostrado imediatamente para revisão; a foto será convertida somente ao salvar.
   </div>
   <div id="visualTrainingSelectionPreview" class="visual-selection-preview hidden"></div>
-</div><label class="span-two">Observações<textarea id="visualTrainingNotes" rows="3" placeholder="Explique o que aparece e os cuidados importantes..."></textarea></label></div><button id="createVisualTrainingBtn" class="primary">Criar explicação</button><div id="visualTrainingDraft" class="visual-draft hidden"></div></div>
-      <div class="card"><div class="section-head"><div><span class="eyebrow">PESQUISA VISUAL</span><h2>Fotos e vídeos explicativos</h2></div></div><div class="training-filters"><input id="visualTrainingSearch" type="search" placeholder="Pesquisar válvula, sensor, motor..."><select id="visualTrainingFilterMachine"><option value="">Todas as máquinas</option></select><select id="visualTrainingFilterType"><option value="">Foto e vídeo</option><option value="image">Fotos</option><option value="video">Vídeos</option></select></div><div id="visualTrainingLibrary" class="visual-library"></div></div>
+</div><label class="span-two">Observações<textarea id="visualTrainingNotes" rows="3" placeholder="Explique o que aparece e os cuidados importantes..."></textarea></label></div><button id="createVisualTrainingBtn" class="primary" type="button">Criar lição ponto a ponto</button><div id="visualTrainingDraft" class="visual-draft hidden"></div></div>
+      <div class="card"><div class="section-head"><div><span class="eyebrow">PESQUISA VISUAL</span><h2>Fotos e vídeos explicativos</h2></div></div><div class="training-filters visual-training-filters">
+  <input id="visualTrainingSearch" type="search" placeholder="Pesquisar máquina, problema ou regulagem...">
+
+  <select id="visualTrainingFilterMachine">
+    <option value="">Todas as máquinas</option>
+  </select>
+
+  <select id="visualTrainingFilterMachineType">
+    <option value="">Todos os tipos de máquina</option>
+  </select>
+
+  <select id="visualTrainingFilterProblemType">
+    <option value="">Todos os tipos de problema</option>
+  </select>
+
+  <select id="visualTrainingFilterType">
+    <option value="">Foto e vídeo</option>
+    <option value="image">Fotos</option>
+    <option value="video">Vídeos</option>
+  </select>
+</div><div id="visualTrainingLibrary" class="visual-library"></div></div>
       <div id="trainingFormCard" class="card form-card"><div class="section-head"><div><span class="eyebrow">CADASTRO</span><h2>Novo conteúdo técnico</h2></div><span id="trainingCloudStatus" class="training-cloud-status local">Modo local</span></div>
         <div class="grid two"><label>Tipo<select id="trainingType"><option value="training">Treinamento</option><option value="procedure">Procedimento</option><option value="checklist">Checklist</option></select></label><label>Status<select id="trainingStatus"><option value="active">Ativo</option><option value="draft">Rascunho</option><option value="review">Em revisão</option><option value="archived">Arquivado</option></select></label><label>Título<input id="trainingTitle" type="text" placeholder="Ex.: Regulagem da faca da MK-173"></label><label>Máquina<select id="trainingMachine"><option value="">Geral / todas as máquinas</option></select></label><label>Categoria<input id="trainingCategory" type="text" placeholder="Faca, elétrica, pneumática..."></label><label>Público<select id="trainingAudience"><option>Todos da manutenção</option><option>Líderes</option><option>Mecânicos</option><option>Eletricistas</option><option>Preventiva</option><option>Lubrificação</option></select></label><label>Periodicidade<input id="trainingFrequency" type="text" placeholder="Admissional, anual..."></label><label>Responsável<input id="trainingResponsible" type="text" placeholder="Rivail Cardoso"></label><label class="span-two">Descrição<textarea id="trainingDescription" rows="4"></textarea></label><label class="span-two">Passos do procedimento<textarea id="trainingSteps" rows="8" placeholder="1. Bloquear a máquina&#10;2. Confirmar ausência de energia&#10;3. Verificar..."></textarea></label><label class="span-two">Link de vídeo ou documento<input id="trainingMaterialUrl" type="url" placeholder="https://..."></label></div>
         <div class="button-row"><button id="saveTrainingBtn" class="primary" type="button">Salvar conteúdo</button><button id="cancelTrainingEditBtn" class="secondary hidden" type="button">Cancelar edição</button></div>
@@ -831,7 +875,7 @@
 
       <div class="card">
         <span class="eyebrow">INTEGRAÇÕES</span>
-        <h2>Configuração da versão 64</h2>
+        <h2>Configuração da versão 65</h2>
         <div class="integration-grid">
           <div class="integration-item done">
             <strong>Análise local</strong>
@@ -955,6 +999,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=64.0.0"></script>
+  <script src="app.js?v=65.0.0"></script>
 </body>
 </html>
