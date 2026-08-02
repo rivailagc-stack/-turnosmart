@@ -1,16 +1,7 @@
-TurnoSmart V65.0.0
+TurnoSmart V66.0.0
 
 Correção principal:
-- corrige Can't find variable: trainingMachineOptions.
-
-Treinamento inteligente:
-- foto ou vídeo;
-- análise visual por IA quando OPENAI_API_KEY estiver configurada;
-- fallback técnico local quando a IA não estiver configurada;
-- lição com objetivo, passos, segurança e teste de liberação;
-- organização por máquina;
-- tipo de máquina: bolo, panetone, pirotine, PIE, tulip e semiacabado;
-- tipo de problema/regulagem;
-- sugestões baseadas no histórico do SGMan;
-- salvamento de mídia e lição no Supabase;
-- pesquisa futura por todos os filtros.
+- adiciona a função normalizeMachineCode que estava ausente;
+- corrige a inicialização do módulo de treinamentos;
+- reconhece MK179, MK-179, máquina 179 e tags como alimentação faixa 179;
+- mantém análise por IA, filtros e salvamento local/nuvem da V65.

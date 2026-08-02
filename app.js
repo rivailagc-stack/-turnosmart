@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '65.0.0';
+const APP_VERSION = '66.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v65.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v66.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -1564,7 +1564,39 @@ function cleanLine(line = '') {
 }
 
 function normalizeKey(value = '') {
-  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function normalizeMachineCode(value = '') {
+  const raw = normalizeKey(String(value ?? ''))
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!raw) return '';
+
+  // Usa primeiro o identificador já reconhecido pelo restante do app.
+  try {
+    const detected = machineKeyFromText(raw);
+    if (detected) return String(detected).toUpperCase();
+  } catch {
+    // Continua com a extração direta abaixo.
+  }
+
+  // Reconhece formatos como MK179, MK-179, M.179, máquina 179 e tags da árvore.
+  const explicit = raw.match(/\b(?:mk|m|maquina|máquina)\s*[.:-]?\s*(\d{1,4})\b/i);
+  if (explicit) return `MK-${Number(explicit[1])}`;
+
+  // Em tags como “alimentação faixa 179”, utiliza o número final.
+  const numbers = [...raw.matchAll(/\b(\d{1,4})\b/g)];
+  if (numbers.length) {
+    return `MK-${Number(numbers[numbers.length - 1][1])}`;
+  }
+
+  return raw.toUpperCase();
 }
 
 function parseBrazilianNumber(value) {
@@ -9422,7 +9454,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=65.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=66.0.0');
         registration.update();
       } catch {}
     });
