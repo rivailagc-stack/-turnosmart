@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '63.0.0';
+const APP_VERSION = '64.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v63.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v64.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -7591,35 +7591,229 @@ function initMaintenanceManagerHome(){
 
 let visualTrainingSelectedFileCache=null;
 let visualTrainingPreviewUrl='';
+let visualTrainingDraftFile=null;
 function visualTrainingItems(){try{const a=JSON.parse(localStorage.getItem(STORAGE.trainingMedia)||'[]');const seed={id:'seed-valvula-5-3',type:'image',title:'Válvula direcional 5/3',machine:'',category:'Pneumática',description:'Válvula pneumática com cinco vias e três posições, usada para avançar, pausar e retornar um cilindro.',steps:'1. Identifique P, a alimentação de ar.\n2. Identifique A e B, que vão para o cilindro.\n3. Identifique R e S, os escapes.\n4. Na posição esquerda, P alimenta A e o cilindro avança.\n5. Na posição central, confirme se o centro é fechado, aberto ou pressurizado.\n6. Na posição direita, P alimenta B e o cilindro retorna.\n7. Antes de intervir, bloqueie e despressurize o sistema.',safety:'Bloquear energia, despressurizar e confirmar ausência de movimento antes de desmontar.',keywords:['válvula 5/3','pneumática','cilindro','avanço','retorno'],mediaUrl:'/assets/training/valvula-5-3-exemplo.jpeg',createdAt:new Date().toISOString()};const items=Array.isArray(a)?a:[];if(!items.some(x=>x.id===seed.id))items.push(seed);return items}catch{return []}}
 function saveVisualTrainingItems(items){safeStorageSet(STORAGE.trainingMedia,JSON.stringify(items.slice(0,150)),{removeOnFailure:true})}
 function mediaDataUrl(file){return new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result||''));r.onerror=()=>no(r.error||new Error('Falha ao ler arquivo'));r.readAsDataURL(file)})}
 function visualTrainingTemplate(title,category,machine,notes){const t=normalizeKey(`${title} ${category} ${notes}`);let p=[];if(t.includes('valvula')||t.includes('pneumat'))p=['Identifique alimentação, saídas e escapes.','Confira a posição central e o tipo de centro.','Acione avanço, pausa e retorno.','Verifique vazamentos, pressão, bobinas e conectores.'];else if(t.includes('faca'))p=['Bloqueie a máquina.','Confira posição, alinhamento e aperto da faca.','Verifique contrafaca, folga, calços e desgaste.','Teste em baixa velocidade e acompanhe a produção.'];else if(t.includes('sensor'))p=['Confirme alimentação e LED.','Limpe e alinhe o sensor.','Teste o sinal no CLP ou multímetro.','Acompanhe após o ajuste.'];else p=['Identifique o componente e sua função.','Confira entradas, saídas e pontos de ajuste.','Verifique fixação, desgaste, sujeira, folgas e vazamentos.','Faça teste funcional e registre o resultado no SGMan.'];if(notes)p.push(`Observação informada: ${notes}`);return{description:`${title||'Conteúdo técnico'} explicado de forma simples para consulta da equipe.`,steps:p.map((x,i)=>`${i+1}. ${x}`).join('\n'),safety:'Aplicar bloqueio e etiquetagem, eliminar energias residuais e seguir o procedimento de segurança antes da intervenção.',keywords:uniqueStrings([...title.split(/\s+/),...category.split(/\s+/),machine].filter(x=>x&&x.length>2)).slice(0,15)}}
 async function createVisualTraining(){
-const f=
-  visualTrainingSelectedFileCache ||
-  $('visualTrainingCameraFile')?.files?.[0] ||
-  $('visualTrainingVideoFile')?.files?.[0] ||
-  $('visualTrainingFile')?.files?.[0];
-if(!f)return showToast('Escolha uma foto ou vídeo e aguarde a prévia aparecer.');const title=$('visualTrainingTitle')?.value.trim()||f.name,cat=$('visualTrainingCategory')?.value.trim()||'Geral',machine=$('visualTrainingMachine')?.value||'',notes=$('visualTrainingNotes')?.value.trim()||'';const gen=visualTrainingTemplate(title,cat,machine,notes);state.visualTrainingDraft={id:`visual-${Date.now()}`,type:f.type.startsWith('video/')?'video':'image',title,category:cat,machine,notes,mediaUrl:await mediaDataUrl(f),...gen,createdAt:new Date().toISOString()};renderVisualTrainingDraft()}
-function renderVisualTrainingDraft(){const d=state.visualTrainingDraft,t=$('visualTrainingDraft');if(!t)return;if(!d){t.classList.add('hidden');t.innerHTML='';return}const media=d.type==='video'?`<video controls src="${escapeHtml(d.mediaUrl)}"></video>`:`<img src="${escapeHtml(d.mediaUrl)}" alt="${escapeHtml(d.title)}">`;t.classList.remove('hidden');t.innerHTML=`<div class="visual-media">${media}</div><div class="visual-fields"><label>Título<input id="visualDraftTitle" value="${escapeHtml(d.title)}"></label><label>Resumo<textarea id="visualDraftDescription" rows="3">${escapeHtml(d.description)}</textarea></label><label>Passo a passo<textarea id="visualDraftSteps" rows="9">${escapeHtml(d.steps)}</textarea></label><label>Segurança<textarea id="visualDraftSafety" rows="4">${escapeHtml(d.safety)}</textarea></label><label>Palavras-chave<input id="visualDraftKeywords" value="${escapeHtml(d.keywords.join(', '))}"></label><div class="button-row"><button id="saveVisualTrainingBtn" class="primary">Salvar</button><button id="cancelVisualTrainingBtn" class="secondary">Cancelar</button></div></div>`;$('saveVisualTrainingBtn').onclick=saveVisualTraining;$('cancelVisualTrainingBtn').onclick=()=>{state.visualTrainingDraft=null;renderVisualTrainingDraft()}}
-function saveVisualTraining(){const d=state.visualTrainingDraft;if(!d)return;d.title=$('visualDraftTitle').value.trim();d.description=$('visualDraftDescription').value.trim();d.steps=$('visualDraftSteps').value.trim();d.safety=$('visualDraftSafety').value.trim();d.keywords=uniqueStrings($('visualDraftKeywords').value.split(',').map(x=>x.trim()).filter(Boolean));const items=visualTrainingItems();items.unshift(d);saveVisualTrainingItems(items);state.visualTrainingDraft=null;
-visualTrainingSelectedFileCache=null;
-if(visualTrainingPreviewUrl){
-  try{URL.revokeObjectURL(visualTrainingPreviewUrl)}catch{}
+  const button=$('createVisualTrainingBtn');
+
+  const file=
+    visualTrainingSelectedFileCache ||
+    $('visualTrainingCameraFile')?.files?.[0] ||
+    $('visualTrainingVideoFile')?.files?.[0] ||
+    $('visualTrainingFile')?.files?.[0];
+
+  if(!file){
+    showToast('Escolha uma foto ou vídeo antes de criar a explicação.');
+    return;
+  }
+
+  if(button){
+    button.disabled=true;
+    button.textContent='Criando explicação...';
+  }
+
+  try{
+    const title=
+      $('visualTrainingTitle')?.value.trim() ||
+      String(file.name||'Treinamento visual')
+        .replace(/\.[^.]+$/,'')
+        .replace(/[-_]+/g,' ')
+        .trim();
+
+    const category=
+      $('visualTrainingCategory')?.value.trim() ||
+      'Geral';
+
+    const machine=
+      $('visualTrainingMachine')?.value ||
+      '';
+
+    const notes=
+      $('visualTrainingNotes')?.value.trim() ||
+      '';
+
+    const generated=
+      visualTrainingTemplate(
+        title,
+        category,
+        machine,
+        notes
+      );
+
+    visualTrainingDraftFile=file;
+
+    state.visualTrainingDraft={
+      id:`visual-${Date.now()}`,
+      type:String(file.type||'').startsWith('video/')
+        ? 'video'
+        : 'image',
+      title,
+      category,
+      machine,
+      notes,
+      mediaUrl:
+        visualTrainingPreviewUrl ||
+        URL.createObjectURL(file),
+      mediaIsTemporary:true,
+      ...generated,
+      createdAt:new Date().toISOString()
+    };
+
+    renderVisualTrainingDraft();
+
+    const draft=$('visualTrainingDraft');
+    draft?.scrollIntoView({
+      behavior:'smooth',
+      block:'start'
+    });
+
+    showToast('Explicação criada. Revise antes de salvar.');
+  }catch(error){
+    console.error('Falha ao criar explicação:',error);
+    showToast(
+      `Não foi possível criar a explicação: ${
+        error?.message || 'erro desconhecido'
+      }`
+    );
+  }finally{
+    if(button){
+      button.disabled=false;
+      button.textContent='Criar explicação';
+    }
+  }
 }
-visualTrainingPreviewUrl='';
-for(const id of ['visualTrainingFile','visualTrainingCameraFile','visualTrainingVideoFile']){
-  if($(id))$(id).value='';
+function renderVisualTrainingDraft(){const d=state.visualTrainingDraft,t=$('visualTrainingDraft');if(!t)return;if(!d){t.classList.add('hidden');t.innerHTML='';return}const media=d.type==='video'?`<video controls src="${escapeHtml(d.mediaUrl)}"></video>`:`<img src="${escapeHtml(d.mediaUrl)}" alt="${escapeHtml(d.title)}">`;t.classList.remove('hidden');t.innerHTML=`<div class="visual-media">${media}</div><div class="visual-fields"><label>Título<input id="visualDraftTitle" value="${escapeHtml(d.title)}"></label><label>Resumo<textarea id="visualDraftDescription" rows="3">${escapeHtml(d.description)}</textarea></label><label>Passo a passo<textarea id="visualDraftSteps" rows="9">${escapeHtml(d.steps)}</textarea></label><label>Segurança<textarea id="visualDraftSafety" rows="4">${escapeHtml(d.safety)}</textarea></label><label>Palavras-chave<input id="visualDraftKeywords" value="${escapeHtml(d.keywords.join(', '))}"></label><div class="button-row"><button id="saveVisualTrainingBtn" class="primary">Salvar</button><button id="cancelVisualTrainingBtn" class="secondary">Cancelar</button></div></div>`;$('saveVisualTrainingBtn').onclick=()=>{
+  saveVisualTraining();
+};$('cancelVisualTrainingBtn').onclick=()=>{
+  state.visualTrainingDraft=null;
+  visualTrainingDraftFile=null;
+  renderVisualTrainingDraft();
+}}
+async function saveVisualTraining(){
+  const draft=state.visualTrainingDraft;
+  const button=$('saveVisualTrainingBtn');
+
+  if(!draft){
+    showToast('Nenhuma explicação disponível para salvar.');
+    return;
+  }
+
+  if(button){
+    button.disabled=true;
+    button.textContent='Salvando...';
+  }
+
+  try{
+    draft.title=
+      $('visualDraftTitle')?.value.trim() ||
+      draft.title;
+
+    draft.description=
+      $('visualDraftDescription')?.value.trim() ||
+      '';
+
+    draft.steps=
+      $('visualDraftSteps')?.value.trim() ||
+      '';
+
+    draft.safety=
+      $('visualDraftSafety')?.value.trim() ||
+      '';
+
+    draft.keywords=uniqueStrings(
+      ($('visualDraftKeywords')?.value||'')
+        .split(',')
+        .map(item=>item.trim())
+        .filter(Boolean)
+    );
+
+    if(draft.mediaIsTemporary){
+      const file=
+        visualTrainingDraftFile ||
+        visualTrainingSelectedFileCache;
+
+      if(!file){
+        throw new Error(
+          'A foto original não está mais disponível. Selecione novamente.'
+        );
+      }
+
+      draft.mediaUrl=await mediaDataUrl(file);
+      delete draft.mediaIsTemporary;
+    }
+
+    const items=visualTrainingItems();
+    items.unshift(draft);
+
+    const serialized=JSON.stringify(items.slice(0,150));
+
+    try{
+      localStorage.setItem(
+        STORAGE.trainingMedia,
+        serialized
+      );
+    }catch(storageError){
+      throw new Error(
+        'A foto ficou grande demais para o armazenamento local. Tente outra foto ou conecte o banco na nuvem.'
+      );
+    }
+
+    state.visualTrainingDraft=null;
+    visualTrainingDraftFile=null;
+    visualTrainingSelectedFileCache=null;
+
+    if(visualTrainingPreviewUrl){
+      try{
+        URL.revokeObjectURL(visualTrainingPreviewUrl);
+      }catch{}
+    }
+
+    visualTrainingPreviewUrl='';
+
+    for(const id of [
+      'visualTrainingFile',
+      'visualTrainingCameraFile',
+      'visualTrainingVideoFile'
+    ]){
+      if($(id)){
+        $(id).value='';
+      }
+    }
+
+    if($('visualTrainingSelectedFile')){
+      $('visualTrainingSelectedFile').textContent=
+        'Nenhum arquivo selecionado.';
+    }
+
+    if($('visualTrainingSelectionPreview')){
+      $('visualTrainingSelectionPreview')
+        .classList.add('hidden');
+
+      $('visualTrainingSelectionPreview')
+        .innerHTML='';
+    }
+
+    renderVisualTrainingDraft();
+    renderVisualTrainingLibrary();
+
+    showToast('Treinamento visual salvo com sucesso.');
+  }catch(error){
+    console.error('Falha ao salvar treinamento:',error);
+    showToast(
+      `Não foi possível salvar: ${
+        error?.message || 'erro desconhecido'
+      }`
+    );
+  }finally{
+    if(button){
+      button.disabled=false;
+      button.textContent='Salvar';
+    }
+  }
 }
-if($('visualTrainingSelectedFile')){
-  $('visualTrainingSelectedFile').textContent='Nenhum arquivo selecionado.';
-}
-if($('visualTrainingSelectionPreview')){
-  $('visualTrainingSelectionPreview').classList.add('hidden');
-  $('visualTrainingSelectionPreview').innerHTML='';
-}
-renderVisualTrainingDraft();renderVisualTrainingLibrary();showToast('Treinamento visual salvo.')}
 function renderVisualTrainingLibrary(){const t=$('visualTrainingLibrary');if(!t)return;const q=normalizeKey($('visualTrainingSearch')?.value||''),m=$('visualTrainingFilterMachine')?.value||'',ty=$('visualTrainingFilterType')?.value||'';const items=visualTrainingItems().filter(x=>(!m||x.machine===m)&&(!ty||x.type===ty)&&(!q||normalizeKey([x.title,x.category,x.machine,x.description,x.steps,x.safety,...(x.keywords||[])].join(' ')).includes(q)));t.innerHTML=items.length?items.map(x=>{const media=x.type==='video'?`<video controls src="${escapeHtml(x.mediaUrl)}"></video>`:`<img src="${escapeHtml(x.mediaUrl)}" alt="${escapeHtml(x.title)}">`;return `<article class="visual-card"><div class="visual-media">${media}</div><div><span class="training-type">${x.type==='video'?'Vídeo':'Imagem'}</span><h3>${escapeHtml(x.title)}</h3><p>${escapeHtml(x.description||'')}</p><details><summary>Ver passo a passo</summary><pre>${escapeHtml(x.steps||'')}</pre></details><div class="visual-safety"><strong>Segurança</strong><p>${escapeHtml(x.safety||'')}</p></div><div class="visual-tags">${(x.keywords||[]).map(k=>`<span>${escapeHtml(k)}</span>`).join('')}</div></div></article>`}).join(''):'<p class="muted">Nenhum conteúdo encontrado.</p>'}
 
 function visualTrainingFileFromEvent(event, inputId){
@@ -8474,7 +8668,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=63.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=64.0.0');
         registration.update();
       } catch {}
     });

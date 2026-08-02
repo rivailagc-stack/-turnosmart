@@ -1598,3 +1598,26 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
   color: #fff;
   font-weight: 850;
 }
+
+
+#createVisualTrainingBtn:disabled,
+#saveVisualTrainingBtn:disabled {
+  opacity: .65;
+  cursor: wait;
+}
+
+#visualTrainingDraft:not(.hidden) {
+  margin-top: 16px;
+  animation: visualDraftOpen .22s ease-out;
+}
+
+@keyframes visualDraftOpen {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

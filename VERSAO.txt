@@ -1,11 +1,12 @@
-TurnoSmart V63.0.0
+TurnoSmart V64.0.0
 
 Correção:
-A Biblioteca não usa mais botão personalizado nem input.click().
+O botão Criar explicação tentava converter toda a foto antes de mostrar o texto.
 
 Agora:
-- o campo nativo de arquivo fica visível;
-- o próprio Safari/iPhone controla a abertura;
-- Biblioteca aceita foto e vídeo;
-- Câmera e vídeo também usam campos nativos;
-- mantém prévia, otimização e criação da explicação.
+- cria a explicação imediatamente;
+- mostra a tela de revisão;
+- rola automaticamente até a explicação;
+- converte a foto somente ao salvar;
+- mostra erro visível caso o armazenamento esteja cheio;
+- mantém a foto selecionada até concluir o salvamento.

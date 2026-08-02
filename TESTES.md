@@ -1,11 +1,12 @@
-# Testes V63
+# Testes V64
 
-1. Confirme V63.0.0.
-2. Feche e abra novamente o aplicativo.
-3. Abra Treinamentos.
-4. Na caixa Biblioteca, toque em Escolher Arquivo.
-5. Escolha Fototeca/Fotos/Arquivos.
-6. Selecione uma imagem.
-7. Confira o nome do arquivo e a prévia.
-8. Toque em Criar explicação.
-9. Salve.
+1. Confirme V64.0.0.
+2. Abra Treinamentos.
+3. Escolha uma foto na Biblioteca.
+4. Confira a prévia.
+5. Toque em Criar explicação.
+6. Confira “Criando explicação...”.
+7. Confirme que a tela de revisão aparece.
+8. Revise título, resumo, passos e segurança.
+9. Toque em Salvar.
+10. Confira o treinamento na pesquisa visual.
