@@ -97,30 +97,50 @@ module.exports=async(req,res)=>{
     }
 
     const prompt=`
-Você é um especialista em manutenção industrial da Ecopack Brasil.
-Analise a imagem enviada e crie uma pequena lição prática em português brasileiro.
+Você é um instrutor sênior de manutenção industrial.
+Analise a imagem ou quadro do vídeo e crie uma aula completa em português brasileiro.
 
 Contexto:
-- Máquina: ${context.machine||'geral'}
-- Tipo de máquina: ${context.machineTypeLabel||context.machineType||'não informado'}
-- Problema ou regulagem: ${context.problemType||'não informado'}
+- Máquina: ${context.machine||'uso geral'}
+- Família: ${context.machineTypeLabel||context.machineType||'não informada'}
+- Componente sugerido: ${context.component||'não informado'}
+- Grupo técnico: ${context.componentGroup||'não informado'}
+- Problema/regulagem: ${context.problemType||'não informado'}
 - Categoria: ${context.category||'não informada'}
 - Observações: ${context.notes||'nenhuma'}
-- Referências recentes do SGMan: ${(context.sgmanReferences||[]).join(' | ')}
+- SGMan: ${(context.sgmanReferences||[]).join(' | ')}
 
-Regras:
-1. Não invente detalhes que não sejam visíveis ou informados.
-2. Faça uma lição curta, clara e técnica.
-3. Entregue de 6 a 10 passos numerados.
-4. Inclua bloqueio, segurança, teste e acompanhamento.
-5. Foque em regulagem, diagnóstico e prevenção de retrabalho.
-6. Use linguagem simples para mecânicos e líderes.
-7. Responda somente JSON válido com:
+A aula deve conter:
+- identificação do componente;
+- função e princípio de funcionamento;
+- portas, terminais, conexões, placa, código ou símbolo;
+- instrumentos e ferramentas;
+- inspeção visual;
+- como testar eletricamente, mecanicamente, pneumaticamente,
+  hidraulicamente ou pelo CLP;
+- como separar alimentação, comando, componente e carga;
+- sintomas, causas e defeitos comuns;
+- confirmação da causa antes de trocar peças;
+- segurança e bloqueio;
+- teste final e critério de liberação;
+- registro no SGMan.
+
+Não invente tensão, resistência, torque, folga ou pressão.
+Quando depender do modelo, mande consultar placa, manual ou componente igual.
+Nunca ensine a anular relé, proteção ou circuito de segurança.
+Gere entre 8 e 16 passos.
+
+Responda somente JSON válido:
 {
-  "description":"objetivo da lição",
-  "steps":"passos numerados em uma única string",
-  "safety":"cuidados de segurança",
-  "validation":"como testar, acompanhar e liberar",
+  "component":"componente identificado",
+  "componentGroup":"Pneumática, Elétrica, Automação, Mecânica, Hidráulica, Instrumentação ou Geral",
+  "principle":"como funciona",
+  "description":"objetivo e aplicação",
+  "tools":"instrumentos e ferramentas",
+  "steps":"passos numerados",
+  "faults":"defeitos, sintomas e causas numerados",
+  "safety":"bloqueio e cuidados",
+  "validation":"teste final e liberação",
   "keywords":["palavra 1","palavra 2"]
 }
 `;
