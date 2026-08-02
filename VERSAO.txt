@@ -1,7 +1,24 @@
-TurnoSmart V66.0.0
+TurnoSmart V69.0.0
 
-Correção principal:
-- adiciona a função normalizeMachineCode que estava ausente;
-- corrige a inicialização do módulo de treinamentos;
-- reconhece MK179, MK-179, máquina 179 e tags como alimentação faixa 179;
-- mantém análise por IA, filtros e salvamento local/nuvem da V65.
+Melhorias para produto comercial:
+
+1. Mecânico IA:
+- pergunta por texto ou voz;
+- máquina e componente;
+- diagnóstico, teste, funcionamento, preventiva ou procedimento;
+- histórico da árvore completa do SGMan;
+- resposta com testes, causas, segurança e liberação;
+- fallback local quando a IA estiver indisponível.
+
+2. Lacunas de conhecimento:
+- cruza OS do SGMan com treinamentos existentes;
+- mostra cobertura técnica;
+- identifica falhas sem procedimento;
+- destaca reincidências;
+- permite iniciar treinamento diretamente da lacuna.
+
+3. Estrutura comercial:
+- mantém empresa, unidade e departamento configuráveis;
+- não depende de banco novo no Supabase;
+- mantém funcionamento local;
+- preparado para múltiplas empresas.

@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '66.0.0';
+const APP_VERSION = '69.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v66.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v69.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -3128,6 +3128,13 @@ function initializeViewModule(name) {
   if (name === 'inteligencia') {
     initializeIntelligenceOnlyWhenNeeded();
   }
+
+  if (name === 'mecanico') {
+    populateVirtualMechanicMachines(
+      $('virtualMechanicMachine')?.value||''
+    );
+    renderKnowledgeGapDashboard();
+  }
 }
 
 function switchView(name) {
@@ -4681,36 +4688,559 @@ function renderManagerDashboard(metrics = {}) {
   }
 }
 
+
 function populateVirtualMechanicMachines(selected='') {
-  const select=$('virtualMechanicMachine'); if(!select) return;
-  const machines=configuredMachineCodes().sort((a,b)=>a.localeCompare(b,'pt-BR',{numeric:true}));
-  select.innerHTML='<option value="">Selecione a máquina</option>'+machines.map(m=>`<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join('');
-  if(selected && machines.includes(selected)) select.value=selected;
+  const select=$('virtualMechanicMachine');
+  if(!select)return;
+
+  const machines=configuredMachineCodes()
+    .sort((a,b)=>a.localeCompare(b,'pt-BR',{numeric:true}));
+
+  select.innerHTML=
+    '<option value="">Geral / selecione a máquina</option>'+
+    machines.map(machine=>
+      `<option value="${escapeHtml(machine)}">${escapeHtml(machine)}</option>`
+    ).join('');
+
+  if(selected && machines.includes(selected)){
+    select.value=selected;
+  }
+
+  const componentList=$('mechanicComponentList');
+  if(componentList && typeof industrialComponentOptions==='function'){
+    componentList.innerHTML=industrialComponentOptions()
+      .map(component=>`<option value="${escapeHtml(component)}"></option>`)
+      .join('');
+  }
 }
 
 function virtualInspectionSequence(analysis={}) {
-  const seq=[];
-  (analysis.rankedTexts||[]).slice(0,2).forEach(item=>{ const t=cleanHistoricalResolution(item.text); if(t) seq.push(t); });
-  (analysis.patterns||[]).forEach(p=>{ if(seq.length<4 && !seq.some(t=>normalizeKey(t).includes(normalizeKey(p.shortLabel)))) seq.push(p.label); });
-  if(!seq.length) seq.push('Confirmar o sintoma com segurança','Inspecionar o conjunto do defeito','Medir folgas, alinhamento e sinais','Registrar a causa real na conclusão da OS');
-  return uniqueStrings(seq).slice(0,4);
+  const sequence=[];
+
+  (analysis.rankedTexts||[]).slice(0,3).forEach(item=>{
+    const text=cleanHistoricalResolution(item.text);
+    if(text)sequence.push(text);
+  });
+
+  (analysis.patterns||[]).forEach(pattern=>{
+    if(
+      sequence.length<5 &&
+      !sequence.some(text=>
+        normalizeKey(text).includes(normalizeKey(pattern.shortLabel))
+      )
+    ){
+      sequence.push(pattern.label);
+    }
+  });
+
+  if(!sequence.length){
+    sequence.push(
+      'Confirmar o sintoma e as condições em que ele ocorre.',
+      'Aplicar bloqueio e eliminar energias residuais.',
+      'Separar alimentação, comando, componente e carga.',
+      'Medir antes de regular ou substituir.',
+      'Testar, acompanhar e registrar a causa no SGMan.'
+    );
+  }
+
+  return uniqueStrings(sequence).slice(0,6);
+}
+
+function mechanicModeLabel(mode='diagnosis'){
+  return ({
+    diagnosis:'Diagnóstico de falha',
+    test:'Teste do componente',
+    operation:'Princípio de funcionamento',
+    preventive:'Plano preventivo',
+    procedure:'Procedimento técnico'
+  })[mode]||'Diagnóstico de falha';
+}
+
+function mechanicLocalGuidance(component='',problem='',mode='diagnosis'){
+  const selected=component||problem||'Componente industrial';
+  const guide=typeof industrialTechnicalGuide==='function'
+    ? industrialTechnicalGuide(selected)
+    : null;
+
+  if(!guide)return null;
+
+  const steps=(guide.steps||[])
+    .map((text,index)=>`${index+1}. ${text}`)
+    .join('\n');
+
+  const faults=(guide.faults||[])
+    .map((text,index)=>`${index+1}. ${text}`)
+    .join('\n');
+
+  return {
+    title:`${mechanicModeLabel(mode)} — ${selected}`,
+    summary:guide.principle||'Orientação técnica baseada no componente informado.',
+    immediateActions:(guide.steps||[]).slice(0,5),
+    tests:steps,
+    probableCauses:faults,
+    safety:'Aplicar bloqueio e etiquetagem, eliminar energias residuais e nunca anular proteções.',
+    releaseCriteria:'Testar sem carga quando aplicável, testar em condição real, repetir o ciclo e acompanhar estabilidade.',
+    sgmanRecord:'Registrar problema, causa confirmada, medições, serviço executado e resultado do teste.',
+    confidence:'modelo técnico local'
+  };
+}
+
+async function mechanicAiRequest(payload){
+  const response=await fetch('/api/mechanic-ai',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload)
+  });
+
+  const data=await response.json().catch(()=>({}));
+
+  if(!response.ok || data.ok===false){
+    throw new Error(
+      data.error||
+      `Falha na análise (${response.status}).`
+    );
+  }
+
+  return data;
+}
+
+function renderMechanicAiResult(result={},meta={}){
+  const output=$('virtualMechanicResult');
+  if(!output)return;
+
+  const actions=Array.isArray(result.immediateActions)
+    ? result.immediateActions
+    : String(result.immediateActions||'')
+        .split('\n')
+        .map(item=>item.replace(/^\d+[.)]\s*/,'').trim())
+        .filter(Boolean);
+
+  output.innerHTML=`
+    <article class="mechanic-ai-answer">
+      <div class="mechanic-ai-heading">
+        <div>
+          <span class="eyebrow">${escapeHtml(mechanicModeLabel(meta.mode))}</span>
+          <h3>${escapeHtml(result.title||'Orientação técnica')}</h3>
+        </div>
+        <span class="confidence confidence-${escapeHtml(
+          String(result.confidence||'média').toLowerCase()
+            .replace('alta','alta')
+            .replace('media','media')
+            .replace('média','media')
+            .replace('baixa','baixa')
+        )}">${escapeHtml(result.confidence||'Análise técnica')}</span>
+      </div>
+
+      <div class="mechanic-ai-summary">
+        <strong>Entendimento da situação</strong>
+        <p>${escapeHtml(result.summary||'')}</p>
+      </div>
+
+      <div class="mechanic-ai-grid">
+        <section>
+          <h4>Primeiras ações</h4>
+          <ol>${actions.map(action=>`<li>${escapeHtml(action)}</li>`).join('')}</ol>
+        </section>
+
+        <section>
+          <h4>Testes ponto a ponto</h4>
+          <pre>${escapeHtml(result.tests||'')}</pre>
+        </section>
+
+        <section>
+          <h4>Causas prováveis</h4>
+          <pre>${escapeHtml(result.probableCauses||'')}</pre>
+        </section>
+
+        <section>
+          <h4>Segurança</h4>
+          <p>${escapeHtml(result.safety||'')}</p>
+        </section>
+
+        <section>
+          <h4>Critério de liberação</h4>
+          <p>${escapeHtml(result.releaseCriteria||'')}</p>
+        </section>
+
+        <section>
+          <h4>Registro no SGMan</h4>
+          <p>${escapeHtml(result.sgmanRecord||'')}</p>
+        </section>
+      </div>
+
+      <div class="reference-box">
+        <strong>Base utilizada</strong>
+        <p>${escapeHtml(meta.referenceText||'Conhecimento técnico industrial.')}</p>
+      </div>
+    </article>
+  `;
 }
 
 async function runVirtualMechanic() {
   const machine=$('virtualMechanicMachine')?.value||'';
+  const component=$('virtualMechanicComponent')?.value.trim()||'';
   const problem=compactIssue($('virtualMechanicProblem')?.value||'');
-  if(!machine){ showToast('Selecione a máquina.'); return; }
-  if(!problem){ showToast('Descreva o problema.'); return; }
-  const btn=$('virtualMechanicRunBtn'), status=$('virtualMechanicStatus'), out=$('virtualMechanicResult');
-  btn.disabled=true; btn.textContent='Analisando...'; status.textContent=`Consultando até 100 OS da árvore da ${machine}...`;
-  try {
-    await fetchSgmanMachineHistory(machine,true);
-    const analysis=analyzeMachineHistoryForAction({machine,description:problem,department:'maintenance',action:'',baseAction:''});
-    const seq=virtualInspectionSequence(analysis);
-    out.innerHTML=`<div class="virtual-summary"><span class="confidence confidence-${escapeHtml(analysis.confidence||'baixa')}">Confiança ${escapeHtml(analysis.confidence||'baixa')}</span><h3>${escapeHtml(machine)} — ${escapeHtml(problem)}</h3><p>${escapeHtml(analysis.summary)}</p></div><div class="virtual-sequence"><h4>Sequência recomendada</h4><ol>${seq.map(x=>`<li>${escapeHtml(x)}</li>`).join('')}</ol></div><div class="reference-box"><strong>Orientação</strong><p>${escapeHtml(analysis.resolution)}</p></div>`;
-    status.textContent=`${analysis.similarOrders} OS semelhante(s) entre ${analysis.totalMachineOrders} analisadas.`;
-  } catch(e){ out.innerHTML=`<p class="error-text">Falha: ${escapeHtml(e.message)}</p>`; status.textContent='Falha na consulta ao SGMan.'; }
-  finally { btn.disabled=false; btn.textContent='Analisar problema'; }
+  const mode=$('virtualMechanicMode')?.value||'diagnosis';
+  const priority=$('virtualMechanicPriority')?.value||'normal';
+
+  if(!problem && !component){
+    showToast('Informe o componente ou descreva a situação.');
+    return;
+  }
+
+  const button=$('virtualMechanicRunBtn');
+  const status=$('virtualMechanicStatus');
+
+  button.disabled=true;
+  button.textContent='Consultando SGMan e IA...';
+  status.textContent=machine
+    ? `Consultando a árvore completa da ${machine}...`
+    : 'Preparando orientação técnica geral...';
+
+  try{
+    let historyAnalysis=null;
+    let references=[];
+
+    if(machine){
+      try{
+        await fetchSgmanMachineHistory(machine,true);
+        historyAnalysis=analyzeMachineHistoryForAction({
+          machine,
+          description:problem||component,
+          department:'maintenance',
+          action:'',
+          baseAction:''
+        });
+
+        references=[
+          ...(historyAnalysis.rankedTexts||[])
+            .slice(0,8)
+            .map(item=>cleanHistoricalResolution(item.text))
+            .filter(Boolean),
+          ...(historyAnalysis.patterns||[])
+            .slice(0,8)
+            .map(item=>item.label)
+            .filter(Boolean)
+        ];
+      }catch(historyError){
+        console.warn('Histórico do SGMan indisponível:',historyError);
+      }
+    }
+
+    let result;
+    let usedAi=false;
+
+    try{
+      const response=await mechanicAiRequest({
+        machine,
+        component,
+        problem,
+        mode,
+        priority,
+        organization:typeof organizationProfile==='function'
+          ? organizationProfile()
+          : {},
+        sgmanReferences:references.slice(0,20),
+        historySummary:historyAnalysis
+          ? {
+              similarOrders:historyAnalysis.similarOrders,
+              totalMachineOrders:historyAnalysis.totalMachineOrders,
+              confidence:historyAnalysis.confidence,
+              summary:historyAnalysis.summary
+            }
+          : null
+      });
+
+      result=response.answer;
+      usedAi=true;
+    }catch(aiError){
+      console.warn('IA indisponível, usando guia local:',aiError);
+      result=mechanicLocalGuidance(component,problem,mode);
+
+      if(historyAnalysis){
+        const sequence=virtualInspectionSequence(historyAnalysis);
+        result.immediateActions=uniqueStrings([
+          ...sequence,
+          ...(result.immediateActions||[])
+        ]).slice(0,7);
+
+        result.summary=
+          `${historyAnalysis.summary} ${result.summary||''}`.trim();
+
+        result.confidence=
+          `SGMan ${historyAnalysis.confidence||'baixa'} + modelo local`;
+      }
+    }
+
+    renderMechanicAiResult(result,{
+      mode,
+      referenceText:machine
+        ? `${historyAnalysis?.similarOrders||0} OS semelhante(s) entre ${
+            historyAnalysis?.totalMachineOrders||0
+          } registros da árvore da ${machine}. ${
+            usedAi?'Resposta enriquecida pela IA.':'Resposta local.'
+          }`
+        : usedAi
+          ? 'Conhecimento industrial enriquecido pela IA.'
+          : 'Modelo técnico local.'
+    });
+
+    status.textContent=usedAi
+      ? 'Análise concluída pela IA.'
+      : 'IA indisponível. Orientação criada pelo modelo técnico local.';
+  }catch(error){
+    $('virtualMechanicResult').innerHTML=
+      `<p class="error-text">Falha: ${escapeHtml(error.message)}</p>`;
+
+    status.textContent='Não foi possível concluir a análise.';
+  }finally{
+    button.disabled=false;
+    button.textContent='Analisar com IA';
+  }
+}
+
+function startVirtualMechanicSpeech(){
+  const Recognition=
+    window.SpeechRecognition||
+    window.webkitSpeechRecognition;
+
+  if(!Recognition){
+    showToast('Reconhecimento de voz não disponível neste navegador.');
+    return;
+  }
+
+  const button=$('virtualMechanicSpeechBtn');
+  const recognition=new Recognition();
+
+  recognition.lang='pt-BR';
+  recognition.interimResults=false;
+  recognition.maxAlternatives=1;
+
+  button.disabled=true;
+  button.textContent='🎙️ Ouvindo...';
+
+  recognition.onresult=event=>{
+    const text=event.results?.[0]?.[0]?.transcript||'';
+    if(text){
+      const field=$('virtualMechanicProblem');
+      field.value=`${field.value.trim()} ${text}`.trim();
+
+      const machine=machineKeyFromText(text);
+      if(machine){
+        populateVirtualMechanicMachines(machine);
+        $('virtualMechanicMachine').value=machine;
+      }
+    }
+  };
+
+  recognition.onerror=event=>{
+    showToast(`Não foi possível ouvir: ${event.error||'erro desconhecido'}`);
+  };
+
+  recognition.onend=()=>{
+    button.disabled=false;
+    button.textContent='🎙️ Falar';
+  };
+
+  recognition.start();
+}
+
+function clearVirtualMechanic(){
+  $('virtualMechanicMachine').value='';
+  $('virtualMechanicComponent').value='';
+  $('virtualMechanicProblem').value='';
+  $('virtualMechanicMode').value='diagnosis';
+  $('virtualMechanicPriority').value='normal';
+  $('virtualMechanicStatus').textContent='';
+  $('virtualMechanicResult').innerHTML='';
+}
+
+function knowledgeCoverageKey(item={}){
+  return normalizeKey([
+    item.machine,
+    item.problemType,
+    item.component,
+    item.category,
+    item.title,
+    item.description,
+    ...(item.keywords||[])
+  ].filter(Boolean).join(' '));
+}
+
+function buildKnowledgeGapAnalysis(){
+  const trainingItems=typeof visualTrainingItems==='function'
+    ? visualTrainingItems()
+    : [];
+
+  const trainingKeys=trainingItems.map(knowledgeCoverageKey);
+  const orders=state.sgmanHistory?.items||state.sgmanHistory?.orders||[];
+
+  const groups=new Map();
+
+  orders.slice(0,3000).forEach(order=>{
+    const machine=normalizeMachineCode(
+      order.machine||order.tag||order.equipment||''
+    );
+
+    const problem=compactIssue(
+      order.description||
+      order.descricao||
+      order.problem||
+      order.problema||
+      ''
+    );
+
+    if(!machine || !problem)return;
+
+    const key=`${machine}|${normalizeKey(problem).slice(0,80)}`;
+
+    if(!groups.has(key)){
+      groups.set(key,{
+        machine,
+        problem,
+        count:0,
+        stoppedCount:0
+      });
+    }
+
+    const row=groups.get(key);
+    row.count+=1;
+
+    if(
+      order.machineStopped===true ||
+      order.maquinaParada===true ||
+      normalizeKey(order.stop||order.parada||'').includes('sim')
+    ){
+      row.stoppedCount+=1;
+    }
+  });
+
+  return [...groups.values()]
+    .map(row=>{
+      const searchKey=normalizeKey(`${row.machine} ${row.problem}`);
+      const covered=trainingKeys.some(key=>{
+        const machineMatch=key.includes(normalizeKey(row.machine));
+        const problemWords=normalizeKey(row.problem)
+          .split(/\s+/)
+          .filter(word=>word.length>3)
+          .slice(0,5);
+
+        const wordMatches=problemWords
+          .filter(word=>key.includes(word))
+          .length;
+
+        return machineMatch && wordMatches>=Math.min(2,problemWords.length);
+      });
+
+      return {
+        ...row,
+        covered,
+        score:
+          row.count*10+
+          row.stoppedCount*8+
+          (covered?0:30)
+      };
+    })
+    .sort((a,b)=>b.score-a.score);
+}
+
+function renderKnowledgeGapDashboard(){
+  const target=$('knowledgeGapDashboard');
+  if(!target)return;
+
+  const gaps=buildKnowledgeGapAnalysis();
+  const uncovered=gaps.filter(item=>!item.covered);
+  const recurrent=gaps.filter(item=>item.count>=2);
+  const coveredCount=gaps.filter(item=>item.covered).length;
+  const coverage=gaps.length
+    ? Math.round((coveredCount/gaps.length)*100)
+    : 0;
+
+  const top=uncovered.slice(0,8);
+
+  target.innerHTML=`
+    <div class="knowledge-gap-kpis">
+      <div class="manager-kpi">
+        <span>Cobertura técnica</span>
+        <strong>${coverage}%</strong>
+        <small>Falhas com conteúdo relacionado</small>
+      </div>
+      <div class="manager-kpi">
+        <span>Sem procedimento</span>
+        <strong>${uncovered.length}</strong>
+        <small>Oportunidades de documentação</small>
+      </div>
+      <div class="manager-kpi">
+        <span>Reincidências</span>
+        <strong>${recurrent.length}</strong>
+        <small>Ocorrências repetidas</small>
+      </div>
+      <div class="manager-kpi">
+        <span>Conteúdos existentes</span>
+        <strong>${typeof visualTrainingItems==='function'
+          ? visualTrainingItems().length
+          : 0}</strong>
+        <small>Biblioteca visual</small>
+      </div>
+    </div>
+
+    <div class="knowledge-gap-list">
+      ${top.length
+        ? top.map((item,index)=>`
+          <article class="knowledge-gap-item">
+            <span class="priority-number">${index+1}</span>
+            <div>
+              <strong>${escapeHtml(item.machine)} — ${escapeHtml(item.problem)}</strong>
+              <p>${item.count} ocorrência(s)${
+                item.stoppedCount
+                  ? ` • ${item.stoppedCount} com máquina parada`
+                  : ''
+              }</p>
+            </div>
+            <button class="secondary knowledge-create-training"
+              data-machine="${escapeHtml(item.machine)}"
+              data-problem="${escapeHtml(item.problem)}"
+              type="button">
+              Criar treinamento
+            </button>
+          </article>
+        `).join('')
+        : '<p class="muted">Nenhuma lacuna crítica identificada com os dados disponíveis.</p>'
+      }
+    </div>
+  `;
+
+  $$('.knowledge-create-training').forEach(button=>{
+    button.addEventListener('click',()=>{
+      switchView('treinamentos');
+
+      setTimeout(()=>{
+        if($('visualTrainingMachine')){
+          $('visualTrainingMachine').value=button.dataset.machine||'';
+        }
+
+        if($('visualTrainingTitle')){
+          $('visualTrainingTitle').value=
+            `${button.dataset.problem||'Treinamento'} — ${button.dataset.machine||''}`;
+        }
+
+        if($('visualTrainingComponent')){
+          $('visualTrainingComponent').value=
+            button.dataset.problem||'';
+        }
+
+        if($('visualTrainingNotes')){
+          $('visualTrainingNotes').value=
+            `Criar treinamento para eliminar reincidência identificada no SGMan: ${button.dataset.problem||''}.`;
+        }
+
+        $('view-treinamentos')?.scrollIntoView({
+          behavior:'smooth',
+          block:'start'
+        });
+      },250);
+    });
+  });
 }
 
 function renderEfficiencyTrendAndPlan(metrics) {
@@ -7572,8 +8102,296 @@ function trainingMachineTypeLabel(value=''){
   })[value]||value||'Outros';
 }
 
+
+function industrialComponentCatalog(){
+  return {
+    'Pneumática':[
+      'Válvula direcional 3/2','Válvula direcional 5/2',
+      'Válvula direcional 5/3','Bobina de válvula pneumática',
+      'Cilindro pneumático','Cilindro guiado','Unidade FRL',
+      'Filtro regulador','Pressostato','Vacuostato',
+      'Gerador de vácuo','Ventosa','Regulador de fluxo',
+      'Sensor magnético de cilindro'
+    ],
+    'Elétrica':[
+      'Motor trifásico','Motor monofásico','Motor com freio',
+      'Servomotor','Motor de passo','Contator','Relé auxiliar',
+      'Relé térmico','Relé de segurança','Disjuntor motor',
+      'Fusível','Fonte 24 VCC','Transformador',
+      'Inversor de frequência','Soft starter','Encoder',
+      'Resistência elétrica','Termopar','PT100'
+    ],
+    'Automação':[
+      'CLP','IHM','Módulo de entrada digital',
+      'Módulo de saída digital','Módulo analógico',
+      'Sensor indutivo','Sensor capacitivo',
+      'Sensor fotoelétrico','Sensor ultrassônico',
+      'Sensor PNP','Sensor NPN','Chave de segurança',
+      'Cortina de luz','Botão de emergência',
+      'Rede Profinet','Rede Ethernet/IP','IO-Link'
+    ],
+    'Mecânica':[
+      'Rolamento','Mancal de rolamento','Eixo','Bucha',
+      'Retentor','Acoplamento','Correia','Polia','Corrente',
+      'Pinhão','Engrenagem','Redutor','Guia linear',
+      'Patim linear','Fuso','Porca de fuso','Came','Leva',
+      'Mola','Faca','Contrafaca'
+    ],
+    'Hidráulica':[
+      'Bomba hidráulica','Válvula direcional hidráulica',
+      'Válvula de alívio','Cilindro hidráulico',
+      'Filtro hidráulico','Acumulador hidráulico',
+      'Trocador de calor'
+    ],
+    'Instrumentação':[
+      'Manômetro','Multímetro','Alicate amperímetro',
+      'Megômetro','Relógio comparador','Paquímetro',
+      'Micrômetro','Tacômetro','Termômetro infravermelho',
+      'Analisador de vibração'
+    ]
+  };
+}
+
+function industrialComponentOptions(){
+  return Object.values(industrialComponentCatalog())
+    .flat()
+    .sort((a,b)=>a.localeCompare(b,'pt-BR'));
+}
+
+function industrialComponentGroup(component=''){
+  const key=normalizeKey(component);
+  for(const [group,items] of Object.entries(industrialComponentCatalog())){
+    if(items.some(item=>normalizeKey(item)===key))return group;
+  }
+  return 'Geral';
+}
+
+function industrialTechnicalGuide(component=''){
+  const key=normalizeKey(component);
+
+  const generic={
+    principle:'Identifique a função do componente no sistema e separe alimentação, comando, carga, montagem e condição física.',
+    tools:'Multímetro, ferramentas adequadas, instrumentos de medição e documentação técnica.',
+    steps:[
+      'Ler placa, código, símbolo e identificação.',
+      'Localizar o componente no diagrama e entender sua função.',
+      'Aplicar bloqueio e eliminar energias residuais.',
+      'Inspecionar conexões, fixações, desgaste, sujeira e vazamentos.',
+      'Confirmar alimentação e comando.',
+      'Testar o componente isolado quando for seguro.',
+      'Testar novamente instalado e sob carga.',
+      'Acompanhar estabilidade antes de liberar.'
+    ],
+    faults:[
+      'Alimentação incorreta ou ausente.',
+      'Mau contato.',
+      'Desgaste ou contaminação.',
+      'Desalinhamento.',
+      'Montagem ou regulagem incorreta.'
+    ]
+  };
+
+  if(key.includes('valvula direcional 5 3')){
+    return {
+      principle:'Válvula com cinco vias e três posições. P alimenta; A e B vão ao atuador; R e S são escapes. O centro depende do símbolo do modelo.',
+      tools:'Multímetro, manômetro, fonte/comando compatível, spray detector de vazamento e chaves.',
+      steps:[
+        'Ler tensão e potência da bobina.',
+        'Identificar P, A, B, R e S.',
+        'Comparar a posição central com o símbolo pneumático.',
+        'Medir resistência da bobina desenergizada.',
+        'Confirmar tensão nominal durante o comando.',
+        'Acionar o comando manual para separar defeito elétrico de travamento.',
+        'Medir pressão na entrada P.',
+        'Confirmar passagem alternada para A e B.',
+        'Verificar escapes R e S e silenciadores.',
+        'Confirmar avanço, centro e retorno do cilindro.',
+        'Verificar vazamento e retorno do carretel.'
+      ],
+      faults:[
+        'Bobina aberta, em curto ou com tensão incorreta.',
+        'Conector sem alimentação ou com mau contato.',
+        'Carretel travado por sujeira ou água.',
+        'Pressão insuficiente.',
+        'Escape obstruído.',
+        'Vazamento interno ou externo.',
+        'Centro incompatível com a aplicação.'
+      ]
+    };
+  }
+
+  if(key.includes('motor')){
+    return {
+      principle:'O motor converte energia elétrica em rotação. O diagnóstico deve separar alimentação, enrolamentos, carga mecânica, ventilação e rolamentos.',
+      tools:'Multímetro, alicate amperímetro, megômetro, tacômetro, termômetro e analisador de vibração quando disponível.',
+      steps:[
+        'Ler placa: tensão, corrente, potência, frequência, rotação e ligação.',
+        'Verificar caixa de ligação, aterramento, ventilação e fixação.',
+        'Conferir ligação estrela/triângulo conforme placa e rede.',
+        'Medir resistência entre fases e comparar equilíbrio.',
+        'Medir isolamento fase-terra conforme procedimento.',
+        'Medir tensão entre fases durante a partida.',
+        'Medir corrente nas três fases e comparar com a placa.',
+        'Confirmar sentido de rotação.',
+        'Verificar temperatura, ruído e vibração.',
+        'Verificar rolamentos, alinhamento, acoplamento e carga.',
+        'Desacoplar a carga quando necessário para separar motor e máquina.'
+      ],
+      faults:[
+        'Falta ou desequilíbrio de fase.',
+        'Ligação incorreta.',
+        'Sobrecarga mecânica.',
+        'Rolamento danificado.',
+        'Ventilação obstruída.',
+        'Baixo isolamento.',
+        'Desalinhamento.'
+      ]
+    };
+  }
+
+  if(key==='clp'){
+    return {
+      principle:'O CLP lê entradas, executa a lógica do programa e comanda saídas.',
+      tools:'Multímetro, notebook autorizado, software correto, cabo de programação e diagrama elétrico.',
+      steps:[
+        'Verificar LEDs de alimentação, RUN, STOP, ERROR e comunicação.',
+        'Confirmar fonte, aterramento e conectores.',
+        'Ler diagnóstico antes de reiniciar ou trocar módulos.',
+        'Verificar a entrada física e o bit online.',
+        'Verificar intertravamentos da lógica.',
+        'Verificar comando e bit da saída.',
+        'Medir a saída no borne com a carga conectada.',
+        'Confirmar comunicação com IHM, inversores e remotas.',
+        'Comparar backup e versão do programa.',
+        'Nunca forçar saída sem avaliação de risco e autorização.'
+      ],
+      faults:[
+        'Fonte 24 VCC instável.',
+        'CPU em STOP.',
+        'Falha de módulo.',
+        'Entrada sem sinal.',
+        'Saída sem comum ou danificada.',
+        'Falha de rede.',
+        'Intertravamento ativo.',
+        'Programa ou parâmetro incorreto.'
+      ]
+    };
+  }
+
+  if(key.includes('rele de seguranca')){
+    return {
+      principle:'Monitora dispositivos de segurança e só libera as saídas quando canais, reset e realimentação estão corretos.',
+      tools:'Multímetro, diagrama de segurança e documentação do fabricante.',
+      steps:[
+        'Identificar alimentação, canais, reset, realimentação e saídas.',
+        'Verificar LEDs e códigos de diagnóstico.',
+        'Confirmar alimentação nominal.',
+        'Testar cada canal do botão de emergência ou chave.',
+        'Verificar discrepância entre canais.',
+        'Confirmar realimentação dos contatores.',
+        'Testar reset manual.',
+        'Confirmar que não ocorre rearme automático indevido.',
+        'Executar teste funcional de cada proteção antes de liberar.',
+        'Nunca jumpear ou anular o circuito de segurança.'
+      ],
+      faults:[
+        'Canal aberto ou cruzado.',
+        'Reset permanentemente acionado.',
+        'Contator colado.',
+        'Realimentação aberta.',
+        'Tensão baixa.',
+        'Dispositivo desalinhado.',
+        'Ligação fora do diagrama.'
+      ]
+    };
+  }
+
+  if(key.includes('rolamento')){
+    return {
+      principle:'O rolamento suporta e guia o eixo. A seleção depende de código, dimensões, carga, rotação, vedação, folga e ambiente.',
+      tools:'Paquímetro, micrômetro, relógio comparador, termômetro e analisador de vibração quando disponível.',
+      steps:[
+        'Ler o código gravado.',
+        'Confirmar diâmetro interno, externo e largura.',
+        'Verificar vedação e folga interna.',
+        'Inspecionar pistas, elementos rolantes, gaiola e coloração.',
+        'Girar manualmente e sentir aspereza ou travamento.',
+        'Medir folga radial e axial conforme a montagem.',
+        'Verificar temperatura, ruído e vibração.',
+        'Conferir ajuste no eixo e alojamento.',
+        'Verificar lubrificação, contaminação e excesso de graxa.',
+        'Confirmar alinhamento e carga aplicada.'
+      ],
+      faults:[
+        'Falta ou excesso de lubrificação.',
+        'Contaminação.',
+        'Montagem pela pista errada.',
+        'Ajuste solto ou apertado.',
+        'Desalinhamento.',
+        'Corrente elétrica.',
+        'Sobrecarga ou fadiga.'
+      ]
+    };
+  }
+
+  if(key.includes('mancal')){
+    return {
+      principle:'O mancal aloja o rolamento e sustenta o eixo, garantindo alinhamento, fixação e lubrificação.',
+      tools:'Relógio comparador, paquímetro, torquímetro quando especificado e instrumento de alinhamento.',
+      steps:[
+        'Identificar mancal e rolamento.',
+        'Verificar base, parafusos, trincas e vedação.',
+        'Conferir aperto da base.',
+        'Medir alinhamento do eixo.',
+        'Verificar folga no alojamento.',
+        'Inspecionar entrada de contaminantes.',
+        'Confirmar caminho de lubrificação.',
+        'Acompanhar temperatura, ruído e vibração.'
+      ],
+      faults:[
+        'Base frouxa.',
+        'Alojamento desgastado.',
+        'Desalinhamento.',
+        'Vedação danificada.',
+        'Lubrificação inadequada.',
+        'Rolamento incorreto.'
+      ]
+    };
+  }
+
+  if(key.includes('sensor')){
+    return {
+      principle:'O sensor detecta presença, posição ou condição e envia um sinal ao sistema de controle.',
+      tools:'Multímetro, alvo de teste, diagrama e notebook quando necessário.',
+      steps:[
+        'Identificar tensão, PNP/NPN, NA/NF e alcance.',
+        'Verificar LED, cabo, conector, sujeira e alinhamento.',
+        'Confirmar alimentação.',
+        'Acionar com o alvo correto.',
+        'Medir a comutação da saída.',
+        'Confirmar mudança na entrada do CLP.',
+        'Regular distância ou sensibilidade.',
+        'Testar repetibilidade.',
+        'Verificar interferência, reflexo ou metal próximo.'
+      ],
+      faults:[
+        'Sem alimentação.',
+        'PNP/NPN incompatível.',
+        'Saída em curto.',
+        'Alinhamento incorreto.',
+        'Distância excessiva.',
+        'Cabo rompido.',
+        'Entrada do CLP defeituosa.'
+      ]
+    };
+  }
+
+  return generic;
+}
+
 function defaultTrainingProblems(){
-  return [
+  return uniqueStrings([
+    ...industrialComponentOptions(),
     'Variação de altura',
     'Calço na faca',
     'Troca de mola da rotulatriz',
@@ -7598,7 +8416,7 @@ function defaultTrainingProblems(){
     'Came ou leva',
     'Preventiva geral',
     'Regulagem operacional'
-  ];
+  ]);
 }
 
 function trainingProblemOptions(machine=''){
@@ -7782,132 +8600,47 @@ function visualTrainingItems(){
 
 function saveVisualTrainingItems(items){safeStorageSet(STORAGE.trainingMedia,JSON.stringify(items.slice(0,150)),{removeOnFailure:true})}
 function mediaDataUrl(file){return new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result||''));r.onerror=()=>no(r.error||new Error('Falha ao ler arquivo'));r.readAsDataURL(file)})}
+
 function visualTrainingTemplate(
   title,
   category,
   machine,
   notes,
   machineType='outros',
-  problemType=''
+  problemType='',
+  component=''
 ){
-  const source=normalizeKey(
-    `${title} ${category} ${problemType} ${notes}`
-  );
+  const selected=component||problemType||title||'Componente industrial';
+  const guide=industrialTechnicalGuide(selected);
+  const group=industrialComponentGroup(selected);
 
-  const points=[];
+  const steps=[
+    'Identificar placa, código, símbolo e modelo do componente.',
+    'Localizar o componente no diagrama e entender sua função.',
+    ...guide.steps,
+    'Registrar todas as medições e comparar com placa, manual ou componente igual.',
+    'Executar teste final com as proteções instaladas.',
+    'Acompanhar a máquina em produção antes de liberar.',
+    'Registrar problema, causa, serviço e resultado no SGMan.'
+  ];
 
-  if(source.includes('variacao de altura')){
-    points.push(
-      'Bloquear a máquina e confirmar ausência de energia e movimento.',
-      'Medir a altura em pelo menos cinco peças consecutivas e registrar a variação.',
-      'Conferir mola, retorno e liberdade de movimento do conjunto.',
-      'Verificar posição, paralelismo e aperto da faca.',
-      'Conferir calços, nivelamento e folgas do conjunto.',
-      'Verificar guia, prensa e pontos que possam deslocar o material.',
-      'Regular em pequenas etapas e repetir a medição após cada ajuste.',
-      'Produzir uma amostra contínua e confirmar estabilidade antes de liberar.'
-    );
-  }else if(source.includes('calco') && source.includes('faca')){
-    points.push(
-      'Bloquear a máquina e limpar a região da faca.',
-      'Identificar em qual lado existe diferença de altura ou contato irregular.',
-      'Medir a folga atual antes de retirar qualquer calço.',
-      'Inspecionar calços amassados, quebrados ou colocados fora de posição.',
-      'Adicionar ou retirar calço em pequenas espessuras.',
-      'Apertar o conjunto de forma cruzada para evitar inclinação.',
-      'Girar manualmente e confirmar que não existe interferência.',
-      'Testar em baixa velocidade, medir as peças e acompanhar a produção.'
-    );
-  }else if(source.includes('troca de mola') || (source.includes('mola') && source.includes('rotulatriz'))){
-    points.push(
-      'Bloquear a rotulatriz e aliviar a tensão do mecanismo.',
-      'Fotografar ou marcar a posição original da mola e dos reguladores.',
-      'Retirar a mola danificada sem forçar eixos ou suportes.',
-      'Comparar comprimento, diâmetro, espessura e força da mola nova.',
-      'Instalar a mola no mesmo sentido e ponto de fixação.',
-      'Regular a pré-carga sem exceder o curso do mecanismo.',
-      'Acionar manualmente e confirmar retorno completo.',
-      'Testar com material, acompanhar a aplicação e registrar o resultado.'
-    );
-  }else if(source.includes('faca')){
-    points.push(
-      'Bloquear a máquina e remover resíduos do conjunto.',
-      'Inspecionar corte, desgaste, quebra e rebarbas.',
-      'Conferir posição, alinhamento, paralelismo e aperto.',
-      'Verificar contrafaca, folga e contato ao longo de toda a largura.',
-      'Conferir calços e nivelamento.',
-      'Girar manualmente e eliminar qualquer ponto de interferência.',
-      'Testar em baixa velocidade.',
-      'Acompanhar a produção e validar a qualidade do corte.'
-    );
-  }else if(source.includes('pneumat') || source.includes('valvula')){
-    points.push(
-      'Bloquear e despressurizar o circuito.',
-      'Identificar alimentação, saídas do atuador e escapes.',
-      'Conferir pressão de entrada e regulagem.',
-      'Verificar mangueiras, conexões e vazamentos.',
-      'Testar bobina, conector e comando elétrico.',
-      'Acionar manualmente a válvula e observar o deslocamento.',
-      'Confirmar avanço, parada e retorno do cilindro.',
-      'Pressurizar novamente e acompanhar o funcionamento.'
-    );
-  }else if(source.includes('sensor')){
-    points.push(
-      'Identificar o sensor e confirmar sua função no processo.',
-      'Verificar alimentação elétrica e estado do LED.',
-      'Limpar a área de leitura.',
-      'Conferir distância e alinhamento.',
-      'Testar o sinal no CLP, entrada digital ou multímetro.',
-      'Ajustar a sensibilidade quando aplicável.',
-      'Simular a passagem da peça.',
-      'Acompanhar a máquina e confirmar que o alarme não retorna.'
-    );
-  }else if(source.includes('bobina')){
-    points.push(
-      'Bloquear o desbobinador antes da intervenção.',
-      'Conferir centralização e alinhamento da bobina.',
-      'Verificar tensão, freio, roletes e guias.',
-      'Inspecionar bordas danificadas e emendas.',
-      'Confirmar o caminho correto do material.',
-      'Regular a tensão gradualmente.',
-      'Testar em baixa velocidade.',
-      'Acompanhar até confirmar alimentação estável.'
-    );
-  }else{
-    points.push(
-      'Identificar o componente, sua função e o sintoma observado.',
-      'Aplicar bloqueio e eliminar energias residuais.',
-      'Limpar e inspecionar fixações, folgas, desgaste e vazamentos.',
-      'Comparar a condição atual com o padrão correto.',
-      'Executar somente um ajuste por vez.',
-      'Testar primeiro em condição segura ou baixa velocidade.',
-      'Acompanhar a produção até confirmar estabilidade.',
-      'Registrar problema, causa, serviço e resultado no SGMan.'
-    );
-  }
-
-  if(notes){
-    points.push(`Observação prática: ${notes}`);
-  }
-
-  const machineLabel=machine||'aplicação geral';
-  const typeLabel=trainingMachineTypeLabel(machineType);
+  if(notes)steps.push(`Observação prática: ${notes}`);
 
   return {
-    description:
-      `Lição prática para ${problemType||title||'regulagem técnica'} na ${machineLabel}, tipo ${typeLabel}. O objetivo é ensinar a equipe a identificar, regular, testar e liberar o equipamento sem retrabalho.`,
-    steps:points.map((point,index)=>`${index+1}. ${point}`).join('\n'),
-    safety:
-      'Aplicar bloqueio e etiquetagem, eliminar energia elétrica, pneumática, hidráulica, térmica ou mecânica residual e utilizar os EPIs definidos pela empresa.',
-    validation:
-      'Liberar somente após teste funcional, acompanhamento em produção, confirmação de estabilidade e registro completo no SGMan.',
+    component:selected,
+    componentGroup:group,
+    principle:guide.principle,
+    description:`Aula técnica sobre ${selected}, aplicada em ${machine||'uso geral'}. Ensina funcionamento, identificação, inspeção, diagnóstico, testes e liberação.`,
+    tools:guide.tools,
+    steps:steps.map((text,index)=>`${index+1}. ${text}`).join('\n'),
+    faults:guide.faults.map((text,index)=>`${index+1}. ${text}`).join('\n'),
+    safety:'Aplicar bloqueio e etiquetagem e eliminar energias elétrica, pneumática, hidráulica, térmica, gravitacional e mecânica residual. Nunca anular proteções ou circuitos de segurança.',
+    validation:'Liberar somente após teste sem carga quando aplicável, teste sob condição real, repetição do ciclo e confirmação de ausência de vazamentos, ruídos, aquecimento, alarmes ou instabilidade.',
     keywords:uniqueStrings([
-      ...String(title).split(/\s+/),
-      ...String(category).split(/\s+/),
-      ...String(problemType).split(/\s+/),
-      machine,
-      typeLabel
-    ].filter(item=>item&&item.length>2)).slice(0,25)
+      selected,group,category,problemType,machine,
+      trainingMachineTypeLabel(machineType),
+      'como funciona','como testar','diagnóstico','defeitos'
+    ].filter(Boolean)).slice(0,30)
   };
 }
 
@@ -8024,7 +8757,11 @@ async function createVisualTraining(){
 
     const problemType=
       $('visualTrainingProblemType')?.value.trim()||
-      'Regulagem técnica';
+      'Treinamento de componente';
+
+    const component=
+      $('visualTrainingComponent')?.value.trim()||
+      problemType;
 
     const category=
       $('visualTrainingCategory')?.value.trim()||
@@ -8043,6 +8780,8 @@ async function createVisualTraining(){
       machineType,
       machineTypeLabel:trainingMachineTypeLabel(machineType),
       problemType,
+      component,
+      componentGroup:industrialComponentGroup(component),
       category,
       notes,
       sgmanReferences:trainingProblemOptions(machine).slice(0,20)
@@ -8062,7 +8801,8 @@ async function createVisualTraining(){
         machine,
         notes,
         machineType,
-        problemType
+        problemType,
+        component
       );
     }
 
@@ -8077,6 +8817,11 @@ async function createVisualTraining(){
       machine,
       machineType,
       problemType,
+      component:generated.component||component,
+      componentGroup:generated.componentGroup||industrialComponentGroup(component),
+      principle:generated.principle||'',
+      tools:generated.tools||'',
+      faults:generated.faults||'',
       category,
       notes,
       mediaUrl:
@@ -8121,10 +8866,10 @@ async function createVisualTraining(){
     }
   }
 }
+
 function renderVisualTrainingDraft(){
   const draft=state.visualTrainingDraft;
   const target=$('visualTrainingDraft');
-
   if(!target)return;
 
   if(!draft){
@@ -8138,61 +8883,62 @@ function renderVisualTrainingDraft(){
     : `<img src="${escapeHtml(draft.mediaUrl)}" alt="${escapeHtml(draft.title)}">`;
 
   target.classList.remove('hidden');
-
   target.innerHTML=`
     <div class="visual-media">${media}</div>
-
     <div class="visual-fields">
       <div class="visual-lesson-meta">
-        <span>${escapeHtml(trainingMachineTypeLabel(draft.machineType))}</span>
-        <span>${escapeHtml(draft.machine||'Geral')}</span>
-        <span>${escapeHtml(draft.problemType||'Regulagem')}</span>
+        <span>${escapeHtml(draft.componentGroup||'Geral')}</span>
+        <span>${escapeHtml(draft.component||draft.problemType||'Componente')}</span>
+        <span>${escapeHtml(draft.machine||'Aplicação geral')}</span>
         <span>${draft.aiUsed?'IA visual':'Modelo técnico local'}</span>
       </div>
 
-      <label>Título da lição
+      <label>Título da aula
         <input id="visualDraftTitle" value="${escapeHtml(draft.title)}">
       </label>
-
-      <label>Objetivo e resumo
-        <textarea id="visualDraftDescription" rows="4">${escapeHtml(draft.description)}</textarea>
+      <label>Componente identificado
+        <input id="visualDraftComponent" value="${escapeHtml(draft.component||'')}">
       </label>
-
-      <label>Lição ponto a ponto
-        <textarea id="visualDraftSteps" rows="13">${escapeHtml(draft.steps)}</textarea>
+      <label>Como funciona
+        <textarea id="visualDraftPrinciple" rows="5">${escapeHtml(draft.principle||'')}</textarea>
       </label>
-
+      <label>Objetivo e aplicação
+        <textarea id="visualDraftDescription" rows="5">${escapeHtml(draft.description||'')}</textarea>
+      </label>
+      <label>Instrumentos e ferramentas
+        <textarea id="visualDraftTools" rows="4">${escapeHtml(draft.tools||'')}</textarea>
+      </label>
+      <label>Como identificar e testar — ponto a ponto
+        <textarea id="visualDraftSteps" rows="18">${escapeHtml(draft.steps||'')}</textarea>
+      </label>
+      <label>Defeitos, sintomas e causas
+        <textarea id="visualDraftFaults" rows="10">${escapeHtml(draft.faults||'')}</textarea>
+      </label>
       <label>Segurança
-        <textarea id="visualDraftSafety" rows="5">${escapeHtml(draft.safety)}</textarea>
+        <textarea id="visualDraftSafety" rows="6">${escapeHtml(draft.safety||'')}</textarea>
       </label>
-
-      <label>Teste e liberação
-        <textarea id="visualDraftValidation" rows="5">${escapeHtml(draft.validation||'')}</textarea>
+      <label>Teste final e liberação
+        <textarea id="visualDraftValidation" rows="6">${escapeHtml(draft.validation||'')}</textarea>
       </label>
-
       <label>Palavras-chave
         <input id="visualDraftKeywords" value="${escapeHtml((draft.keywords||[]).join(', '))}">
       </label>
 
       <div class="button-row">
-        <button id="saveVisualTrainingBtn" class="primary" type="button">
-          Salvar na nuvem
-        </button>
-        <button id="cancelVisualTrainingBtn" class="secondary" type="button">
-          Cancelar
-        </button>
+        <button id="saveVisualTrainingBtn" class="primary" type="button">Salvar treinamento</button>
+        <button id="cancelVisualTrainingBtn" class="secondary" type="button">Cancelar</button>
       </div>
     </div>
   `;
 
   $('saveVisualTrainingBtn').onclick=()=>saveVisualTraining();
-
   $('cancelVisualTrainingBtn').onclick=()=>{
     state.visualTrainingDraft=null;
     visualTrainingDraftFile=null;
     renderVisualTrainingDraft();
   };
 }
+
 async function visualTrainingCloudRequest(method='GET',payload=null){
   const options={
     method,
@@ -8251,12 +8997,31 @@ async function saveVisualTraining(){
       $('visualDraftTitle')?.value.trim()||
       draft.title;
 
+    draft.component=
+      $('visualDraftComponent')?.value.trim()||
+      draft.component||
+      '';
+
+    draft.componentGroup=industrialComponentGroup(draft.component);
+
+    draft.principle=
+      $('visualDraftPrinciple')?.value.trim()||
+      '';
+
     draft.description=
       $('visualDraftDescription')?.value.trim()||
       '';
 
+    draft.tools=
+      $('visualDraftTools')?.value.trim()||
+      '';
+
     draft.steps=
       $('visualDraftSteps')?.value.trim()||
+      '';
+
+    draft.faults=
+      $('visualDraftFaults')?.value.trim()||
       '';
 
     draft.safety=
@@ -8284,7 +9049,7 @@ async function saveVisualTraining(){
       );
     }
 
-    const mediaDataUrl=await mediaDataUrl(file);
+    const encodedMediaDataUrl=await mediaDataUrl(file);
 
     let cloudSaved=false;
 
@@ -8295,7 +9060,7 @@ async function saveVisualTraining(){
           action:'upsert',
           item:{
             ...draft,
-            mediaDataUrl,
+            mediaDataUrl:encodedMediaDataUrl,
             mediaName:file.name||`${draft.id}.jpg`,
             mediaMimeType:file.type||'image/jpeg'
           }
@@ -8316,7 +9081,7 @@ async function saveVisualTraining(){
     }
 
     if(!cloudSaved){
-      draft.mediaUrl=mediaDataUrl;
+      draft.mediaUrl=encodedMediaDataUrl;
       delete draft.mediaIsTemporary;
       draft.cloud=false;
 
@@ -8676,6 +9441,13 @@ try{
 }
 }
 function populateVisualTrainingOptions(){
+  const componentList=$('industrialComponentList');
+  if(componentList){
+    componentList.innerHTML=industrialComponentOptions()
+      .map(item=>`<option value="${escapeHtml(item)}"></option>`)
+      .join('');
+  }
+
   const machines=trainingMachineOptions();
 
   for(const id of [
@@ -9076,8 +9848,22 @@ function init() {
   });
 
   $('quickOsSendBtn').addEventListener('click', sendQuickOsToSgman);
-  $('virtualMechanicRunBtn').addEventListener('click', runVirtualMechanic);
-  $('virtualMechanicProblem').addEventListener('input', e => { const m=machineKeyFromText(e.target.value); if(m){ populateVirtualMechanicMachines(m); $('virtualMechanicMachine').value=m; } });
+  $('virtualMechanicRunBtn')?.addEventListener('click',runVirtualMechanic);
+  $('virtualMechanicSpeechBtn')?.addEventListener('click',startVirtualMechanicSpeech);
+  $('virtualMechanicClearBtn')?.addEventListener('click',clearVirtualMechanic);
+  $('refreshKnowledgeGapsBtn')?.addEventListener('click',()=>{
+    renderKnowledgeGapDashboard();
+    showToast('Lacunas de conhecimento atualizadas.');
+  });
+
+  $('virtualMechanicProblem')?.addEventListener('input',event=>{
+    const machine=machineKeyFromText(event.target.value);
+
+    if(machine){
+      populateVirtualMechanicMachines(machine);
+      $('virtualMechanicMachine').value=machine;
+    }
+  });
   $('quickOsClearBtn').addEventListener('click', () => {
     clearQuickOsForm(false);
     $('quickOsResult').textContent = '';
@@ -9454,7 +10240,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=66.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=69.0.0');
         registration.update();
       } catch {}
     });

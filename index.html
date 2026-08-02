@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=66.0.0" />
+  <link rel="stylesheet" href="style.css?v=69.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -20,7 +20,7 @@
       <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V66.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V69.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -30,7 +30,7 @@
 
     <section id="view-painel" class="view active">
       <div class="hero card manager-home-hero"><div><span class="badge">GESTOR DE MANUTENÇÃO</span><h2>Visão diária da operação</h2><p>Indicadores, prioridades, metas, preventivas e acompanhamento da equipe em uma única página.</p></div><div class="button-row manager-home-actions"><button id="refreshManagerHomeBtn" class="secondary" type="button">Atualizar painel</button><button id="copyDailyReportHomeBtn" class="primary" type="button">Copiar relatório diário</button></div></div>
-      <div class="card"><div class="manager-shortcuts"><button class="manager-shortcut" data-view="osrapida" type="button"><span>📷</span><strong>Abrir OS</strong><small>Foto, áudio ou texto</small></button><button class="manager-shortcut" data-view="analise" type="button"><span>▦</span><strong>Análise</strong><small>Indicadores e cobranças</small></button><button class="manager-shortcut" data-view="treinamentos" type="button"><span>🎓</span><strong>Treinamentos</strong><small>Procedimentos e capacitação</small></button><button class="manager-shortcut" data-view="inteligencia" type="button"><span>📈</span><strong>Inteligência</strong><small>OEE, grupo e SGMan</small></button></div></div>
+      <div class="card"><div class="manager-shortcuts"><button class="manager-shortcut" data-view="osrapida" type="button"><span>📷</span><strong>Abrir OS</strong><small>Foto, áudio ou texto</small></button><button class="manager-shortcut" data-view="analise" type="button"><span>▦</span><strong>Análise</strong><small>Indicadores e cobranças</small></button><button class="manager-shortcut" data-view="treinamentos" type="button"><span>🎓</span><strong>Treinamentos</strong><small>Procedimentos e capacitação</small></button><button class="manager-shortcut" data-view="mecanico" type="button"><span>🧠</span><strong>Mecânico IA</strong><small>Diagnóstico e testes</small></button><button class="manager-shortcut" data-view="inteligencia" type="button"><span>📈</span><strong>Inteligência</strong><small>OEE, grupo e SGMan</small></button></div></div>
       <div id="managerHomeContent"></div>
     </section>
 
@@ -356,8 +356,74 @@
     </section>
 
     <section id="view-mecanico" class="view">
-      <div class="hero card"><div><span class="badge">MECÂNICO VIRTUAL</span><h2>Diagnóstico pelo SGMan</h2><p>Consulta até 100 OS da árvore completa da máquina.</p></div></div>
-      <div class="card form-card"><div class="grid two"><label>Máquina<select id="virtualMechanicMachine"><option value="">Selecione a máquina</option></select></label><label>Problema encontrado<input id="virtualMechanicProblem" type="text" placeholder="Ex.: MK 179 variando altura" /></label></div><div class="button-row"><button id="virtualMechanicRunBtn" class="primary" type="button">Analisar problema</button></div><p id="virtualMechanicStatus" class="muted"></p><div id="virtualMechanicResult" class="virtual-mechanic-result"></div></div>
+      <div class="hero card mechanic-ai-hero">
+        <div>
+          <span class="badge">MECÂNICO IA</span>
+          <h2>Diagnóstico e orientação técnica</h2>
+          <p>Combina histórico do SGMan, conhecimento industrial e inteligência artificial para orientar testes sem trocar peças no escuro.</p>
+        </div>
+      </div>
+
+      <div class="card form-card mechanic-ai-form">
+        <div class="grid two">
+          <label>Máquina
+            <select id="virtualMechanicMachine">
+              <option value="">Geral / selecione a máquina</option>
+            </select>
+          </label>
+
+          <label>Componente
+            <input id="virtualMechanicComponent" list="mechanicComponentList"
+              placeholder="Ex.: válvula 5/3, motor, sensor, rolamento">
+            <datalist id="mechanicComponentList"></datalist>
+          </label>
+
+          <label>Tipo de orientação
+            <select id="virtualMechanicMode">
+              <option value="diagnosis">Diagnosticar uma falha</option>
+              <option value="test">Como testar o componente</option>
+              <option value="operation">Como funciona</option>
+              <option value="preventive">Criar preventiva</option>
+              <option value="procedure">Criar procedimento</option>
+            </select>
+          </label>
+
+          <label>Prioridade
+            <select id="virtualMechanicPriority">
+              <option value="normal">Normal</option>
+              <option value="machine_stopped">Máquina parada</option>
+              <option value="safety">Segurança</option>
+              <option value="recurrent">Falha reincidente</option>
+            </select>
+          </label>
+        </div>
+
+        <label>Pergunta, sintoma ou situação
+          <textarea id="virtualMechanicProblem" rows="5"
+            placeholder="Ex.: A válvula 5/3 recebe 24 V, mas o cilindro não retorna. O que devo testar primeiro?"></textarea>
+        </label>
+
+        <div class="button-row">
+          <button id="virtualMechanicSpeechBtn" class="secondary" type="button">🎙️ Falar</button>
+          <button id="virtualMechanicRunBtn" class="primary" type="button">Analisar com IA</button>
+          <button id="virtualMechanicClearBtn" class="ghost" type="button">Limpar</button>
+        </div>
+
+        <p id="virtualMechanicStatus" class="muted"></p>
+        <div id="virtualMechanicResult" class="virtual-mechanic-result"></div>
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">LACUNAS DE CONHECIMENTO</span>
+            <h2>Onde falta procedimento ou treinamento</h2>
+          </div>
+          <button id="refreshKnowledgeGapsBtn" class="secondary" type="button">Atualizar análise</button>
+        </div>
+        <p class="muted">Cruza reincidências e falhas do SGMan com a biblioteca técnica existente.</p>
+        <div id="knowledgeGapDashboard" class="knowledge-gap-dashboard"></div>
+      </div>
     </section>
 
     <section id="view-analise" class="view">
@@ -691,6 +757,11 @@
     <option value="">Selecione o problema</option>
   </select>
 </label>
+<label>Componente ou equipamento industrial
+  <input id="visualTrainingComponent" list="industrialComponentList"
+    placeholder="Ex.: Válvula 5/3, motor, CLP, rolamento...">
+  <datalist id="industrialComponentList"></datalist>
+</label>
 
 <label class="span-two">Categoria técnica
   <input id="visualTrainingCategory" placeholder="Pneumática, elétrica, faca, rotulatriz...">
@@ -752,7 +823,7 @@
     Após escolher a foto, toque em Criar explicação. O texto será mostrado imediatamente para revisão; a foto será convertida somente ao salvar.
   </div>
   <div id="visualTrainingSelectionPreview" class="visual-selection-preview hidden"></div>
-</div><label class="span-two">Observações<textarea id="visualTrainingNotes" rows="3" placeholder="Explique o que aparece e os cuidados importantes..."></textarea></label></div><button id="createVisualTrainingBtn" class="primary" type="button">Criar lição ponto a ponto</button><div id="visualTrainingDraft" class="visual-draft hidden"></div></div>
+</div><label class="span-two">Observações<textarea id="visualTrainingNotes" rows="3" placeholder="Explique o que aparece e os cuidados importantes..."></textarea></label></div><button id="createVisualTrainingBtn" class="primary" type="button">Criar treinamento técnico completo</button><div id="visualTrainingDraft" class="visual-draft hidden"></div></div>
       <div class="card"><div class="section-head"><div><span class="eyebrow">PESQUISA VISUAL</span><h2>Fotos e vídeos explicativos</h2></div></div><div class="training-filters visual-training-filters">
   <input id="visualTrainingSearch" type="search" placeholder="Pesquisar máquina, problema ou regulagem...">
 
@@ -999,6 +1070,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=66.0.0"></script>
+  <script src="app.js?v=69.0.0"></script>
 </body>
 </html>
