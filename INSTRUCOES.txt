@@ -1,1 +1,9 @@
-Substitua app.js, index.html, sw.js e api/health.js. Faça novo deploy e confirme V73.0.0.
+PATCH V74
+
+Substitua:
+- app.js
+- index.html
+- sw.js
+- api/health.js
+
+Depois faça novo deploy e confirme V74.0.0.

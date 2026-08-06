@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '73.0.0';
+const APP_VERSION = '74.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v73.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v74.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -3520,10 +3520,18 @@ function maintenanceMessage() {
   // A lista final vem da Inteligência do Supervisor.
   // Quadro OEE + relatório da produção escolhem as máquinas.
   // SGMan entra somente para sugerir verificações técnicas.
-  let supervisorRows=(state.supervisorFusionRows?.length
+  let fusionRows=(state.supervisorFusionRows?.length
     ? state.supervisorFusionRows
     : supervisorFusionRanking(5)
-  ).filter(row=>row.selected).slice(0,3);
+  );
+
+  let supervisorRows=fusionRows.filter(row=>row.selected).slice(0,3);
+
+  if(!supervisorRows.length){
+    fusionRows=applyAutomaticSupervisorSelection(fusionRows);
+    state.supervisorFusionRows=fusionRows;
+    supervisorRows=fusionRows.filter(row=>row.selected).slice(0,3);
+  }
 
   // Segunda barreira: uma máquina acima de 65%, estável e não citada
   // pelo relatório da produção não pode voltar pela lista antiga.
@@ -5750,6 +5758,56 @@ function currentBoardMap(){
   return map;
 }
 
+
+function supervisorPriorityStorageKey(){
+  return 'turnosmart_supervisor_priorities_v74';
+}
+
+function loadSavedSupervisorPriorities(){
+  try{
+    const raw=localStorage.getItem(supervisorPriorityStorageKey());
+    const parsed=raw?JSON.parse(raw):[];
+    return Array.isArray(parsed)
+      ? parsed.map(normalizeMachineCode).filter(Boolean).slice(0,3)
+      : [];
+  }catch{
+    return [];
+  }
+}
+
+function saveSupervisorPriorities(machines=[]){
+  try{
+    localStorage.setItem(
+      supervisorPriorityStorageKey(),
+      JSON.stringify(
+        uniqueStrings(
+          machines.map(normalizeMachineCode).filter(Boolean)
+        ).slice(0,3)
+      )
+    );
+  }catch(error){
+    console.warn('Não foi possível salvar prioridades:',error);
+  }
+}
+
+function applyAutomaticSupervisorSelection(rows=[]){
+  const available=new Set(rows.map(row=>row.machine));
+  const saved=loadSavedSupervisorPriorities()
+    .filter(machine=>available.has(machine));
+
+  const automatic=rows.slice(0,3).map(row=>row.machine);
+  const selected=saved.length
+    ? uniqueStrings([...saved,...automatic]).slice(0,3)
+    : automatic;
+
+  saveSupervisorPriorities(selected);
+
+  return rows.map(row=>({
+    ...row,
+    selected:selected.includes(row.machine)
+  }));
+}
+
 function supervisorFusionRanking(limit=5){
   const report=productionReportMachineMentions();
   const board=currentBoardMap();
@@ -5837,13 +5895,11 @@ function supervisorFusionRanking(limit=5){
     });
   }
 
-  return rows
+  const ranked=rows
     .sort((a,b)=>b.score-a.score || (a.oee??999)-(b.oee??999))
-    .slice(0,limit)
-    .map((row,index)=>({
-      ...row,
-      selected:index<3 && !(row.oee!==null && row.oee>65 && !row.sources.includes('production'))
-    }));
+    .slice(0,limit);
+
+  return applyAutomaticSupervisorSelection(ranked);
 }
 
 function sourceBadge(source){
@@ -5906,12 +5962,16 @@ function renderSupervisorFusionPanel(){
         return;
       }
 
+      const selectedMachines=[...selected]
+        .map(item=>normalizeMachineCode(item.dataset.machine))
+        .filter(Boolean);
+
       state.supervisorFusionRows=state.supervisorFusionRows.map(row=>({
         ...row,
-        selected:[...selected].some(item=>
-          item.dataset.machine===row.machine
-        )
+        selected:selectedMachines.includes(row.machine)
       }));
+
+      saveSupervisorPriorities(selectedMachines);
 
       input.closest('.supervisor-fusion-row')
         ?.classList.toggle('is-selected',input.checked);
@@ -5920,12 +5980,20 @@ function renderSupervisorFusionPanel(){
 }
 
 function confirmedSupervisorPlan(){
-  const rows=(state.supervisorFusionRows?.length
+  let rows=(state.supervisorFusionRows?.length
     ? state.supervisorFusionRows
     : supervisorFusionRanking(5)
-  ).filter(row=>row.selected).slice(0,3);
+  );
 
-  return rows.map((row,index)=>{
+  let selected=rows.filter(row=>row.selected).slice(0,3);
+
+  if(!selected.length){
+    rows=applyAutomaticSupervisorSelection(rows);
+    state.supervisorFusionRows=rows;
+    selected=rows.filter(row=>row.selected).slice(0,3);
+  }
+
+  return selected.map((row,index)=>{
     const actions=row.actions
       .map(action=>`   • ${action}`)
       .join('\n');
@@ -10997,7 +11065,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=73.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=74.0.0');
         registration.update();
       } catch {}
     });
