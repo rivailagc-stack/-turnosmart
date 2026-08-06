@@ -1788,3 +1788,203 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
 .monthly-insights{display:grid;gap:9px;margin-top:16px}
 .management-insight{padding:12px 14px;border-left:5px solid #0f766e;border-radius:10px;background:#ecfdf5;font-weight:700}
 @media(max-width:760px){.monthly-summary{grid-template-columns:1fr 1fr}}
+
+/* ==========================================================
+   TURNO SMART — TEMA ECOPACK
+   ========================================================== */
+:root{
+  --ecopack-orange:#f28c00;
+  --ecopack-orange-dark:#c96f00;
+  --ecopack-orange-soft:#fff4e6;
+  --ecopack-graphite:#222831;
+  --ecopack-graphite-2:#353c46;
+  --ecopack-gray:#667085;
+  --ecopack-light:#f4f6f8;
+  --ecopack-white:#ffffff;
+
+  --primary:var(--ecopack-orange);
+  --primary-dark:var(--ecopack-orange-dark);
+  --accent:var(--ecopack-orange);
+  --navy:var(--ecopack-graphite);
+  --text:#20242b;
+  --muted:#667085;
+  --line:#d9dee5;
+  --surface:#ffffff;
+  --background:#eef1f4;
+}
+
+body{
+  background:
+    radial-gradient(circle at top right,rgba(242,140,0,.10),transparent 28rem),
+    var(--background);
+  color:var(--text);
+}
+
+.app-header,
+header.app-header,
+.top-header{
+  background:
+    linear-gradient(135deg,var(--ecopack-graphite) 0%,#161b22 68%,#3d2b12 100%);
+  border-bottom:4px solid var(--ecopack-orange);
+}
+
+.app-header::after,
+.top-header::after{
+  content:"";
+  position:absolute;
+  right:-75px;
+  top:-95px;
+  width:245px;
+  height:245px;
+  border-radius:50%;
+  background:rgba(242,140,0,.18);
+  pointer-events:none;
+}
+
+.app-header .eyebrow,
+.app-header .location,
+.top-header .eyebrow{
+  color:#ffc46b !important;
+}
+
+.version-badge,
+.app-version,
+.version-pill{
+  color:#fff;
+  background:rgba(242,140,0,.15);
+  border-color:var(--ecopack-orange);
+  box-shadow:0 0 0 1px rgba(242,140,0,.08) inset;
+}
+
+button.primary,
+.primary-button,
+.btn-primary{
+  background:linear-gradient(135deg,var(--ecopack-orange),#ff9d1c);
+  color:#fff;
+  border-color:var(--ecopack-orange-dark);
+  box-shadow:0 8px 20px rgba(242,140,0,.22);
+}
+
+button.primary:hover,
+.primary-button:hover,
+.btn-primary:hover{
+  background:linear-gradient(135deg,#db7c00,var(--ecopack-orange));
+}
+
+button.secondary,
+.secondary-button,
+.btn-secondary{
+  color:var(--ecopack-orange-dark);
+  background:var(--ecopack-orange-soft);
+  border-color:#f6c47d;
+}
+
+.card{
+  border:1px solid #e0e4e9;
+  box-shadow:0 12px 28px rgba(34,40,49,.08);
+}
+
+.eyebrow,
+.section-label,
+.badge{
+  color:var(--ecopack-orange-dark);
+}
+
+.manager-shortcut:hover,
+.nav-item.active,
+.bottom-nav button.active,
+.bottom-navigation button.active{
+  color:var(--ecopack-orange-dark);
+  background:var(--ecopack-orange-soft);
+}
+
+.manager-kpi strong,
+.kpi strong{
+  color:var(--ecopack-graphite);
+}
+
+.priority-card,
+.manager-priority,
+.action-priority{
+  border-left:6px solid var(--ecopack-orange);
+}
+
+.ecopack-source-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  padding:5px 9px;
+  border-radius:999px;
+  font-size:.76rem;
+  font-weight:850;
+  background:var(--ecopack-orange-soft);
+  color:#9a5700;
+  border:1px solid #f6c47d;
+}
+
+.ecopack-source-badge.source-board{background:#eaf5ff;color:#145d8f;border-color:#b9dcf5}
+.ecopack-source-badge.source-production{background:#eef9ee;color:#256b2e;border-color:#bee2c2}
+.ecopack-source-badge.source-sgman{background:#f3efff;color:#6541a5;border-color:#d7c8f5}
+.ecopack-source-badge.source-manual{background:#fff4e6;color:#9a5700;border-color:#f6c47d}
+
+.supervisor-fusion-panel{
+  display:grid;
+  gap:14px;
+  margin-top:16px;
+}
+
+.supervisor-fusion-row{
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  align-items:start;
+  gap:12px;
+  padding:14px;
+  border:1px solid var(--line);
+  border-radius:14px;
+  background:#fff;
+}
+
+.supervisor-fusion-row.is-selected{
+  border-color:var(--ecopack-orange);
+  box-shadow:0 0 0 3px rgba(242,140,0,.10);
+}
+
+.supervisor-fusion-rank{
+  display:grid;
+  place-items:center;
+  width:34px;
+  height:34px;
+  border-radius:50%;
+  color:#fff;
+  background:var(--ecopack-orange);
+  font-weight:900;
+}
+
+.supervisor-fusion-meta{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-top:7px;
+}
+
+.supervisor-confirm-box{
+  margin-top:14px;
+  padding:14px;
+  border-radius:14px;
+  background:linear-gradient(135deg,#fff8ef,#fff);
+  border:1px solid #f4c27a;
+}
+
+.supervisor-confirm-box strong{
+  color:#9a5700;
+}
+
+@media(max-width:760px){
+  .supervisor-fusion-row{
+    grid-template-columns:auto minmax(0,1fr);
+  }
+  .supervisor-fusion-row input{
+    grid-column:1/-1;
+    justify-self:start;
+  }
+}

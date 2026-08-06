@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=71.0.0" />
+  <link rel="stylesheet" href="style.css?v=72.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -20,7 +20,7 @@
       <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V71.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V72.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -569,6 +569,18 @@
     </section>
 
     <section id="view-acoes" class="view">
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">INTELIGÊNCIA DO SUPERVISOR</span>
+            <h2>Confirmar prioridades do próximo turno</h2>
+            <p class="muted">Quadro OEE e relatório da produção definem as máquinas. SGMan define as verificações técnicas.</p>
+          </div>
+          <button id="refreshSupervisorFusionBtn" class="secondary" type="button">Atualizar prioridades</button>
+        </div>
+        <div id="supervisorFusionPanel"></div>
+      </div>
       <div id="emptyActions" class="card empty-state">
         <h2>Nenhum relatório gerado</h2>
         <p>Os relatórios da manutenção e da produção aparecem depois da análise.</p>
@@ -1103,6 +1115,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=71.0.0"></script>
+  <script src="app.js?v=72.0.0"></script>
 </body>
 </html>

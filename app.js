@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '71.0.0';
+const APP_VERSION = '72.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v71.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v72.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -3162,6 +3162,10 @@ function initializeViewModule(name) {
     );
     renderKnowledgeGapDashboard();
   }
+  if(name==='acoes'){
+    setTimeout(renderSupervisorFusionPanel,100);
+  }
+
 }
 
 function switchView(name) {
@@ -5649,6 +5653,283 @@ function smartActionsFromHistory(orders,issue=''){
   return uniqueStrings(actions).slice(0,4);
 }
 
+
+function productionReportMachineMentions(){
+  const texts=[
+    state.productionReportText,
+    state.productionReport,
+    state.latestProductionReport,
+    state.analysisInput,
+    state.rawReportText,
+    $('productionReportInput')?.value,
+    $('reportInput')?.value,
+    $('analysisInput')?.value
+  ].filter(Boolean).join('\n');
+
+  const machines=new Map();
+
+  for(const machine of OEE_BOARD_MACHINES){
+    const normalized=normalizeMachineCode(machine);
+    const variants=[
+      normalized,
+      normalized.replace('-',''),
+      normalized.replace('MK-','MK '),
+      normalized.replace('MK-','MAQUINA ')
+    ];
+
+    const present=variants.some(variant=>
+      normalizeKey(texts).includes(normalizeKey(variant))
+    );
+
+    if(!present)continue;
+
+    const lines=String(texts).split(/\n+/)
+      .filter(line=>
+        variants.some(variant=>
+          normalizeKey(line).includes(normalizeKey(variant))
+        )
+      );
+
+    machines.set(normalized,{
+      machine:normalized,
+      mentioned:true,
+      lines,
+      problem:compactIssue(lines.join(' '))
+    });
+  }
+
+  return machines;
+}
+
+function currentBoardMap(){
+  const map=new Map();
+
+  for(const item of smartMachineRows()){
+    map.set(item.machine,item);
+  }
+
+  const boardRows=[
+    ...(state.oeeBoardRows||[]),
+    ...(state.ocrOeeRows||[]),
+    ...(state.boardAnalysis?.machines||[])
+  ];
+
+  for(const row of boardRows){
+    const machine=normalizeMachineCode(
+      row.machine||row.maquina||row.code||''
+    );
+    const oee=smartNumeric(row.oee??row.value??row.efficiency);
+
+    if(machine && oee!==null){
+      const previous=map.get(machine);
+      map.set(machine,{
+        ...(previous||{}),
+        machine,
+        oee,
+        previous:previous?.previous??null,
+        trend:previous?.trend??null,
+        stoppedMinutes:previous?.stoppedMinutes??0,
+        failures:previous?.failures??0,
+        raw:{...(previous?.raw||{}),...row},
+        boardConfirmed:true
+      });
+    }
+  }
+
+  return map;
+}
+
+function supervisorFusionRanking(limit=5){
+  const report=productionReportMachineMentions();
+  const board=currentBoardMap();
+  const machines=new Set([...report.keys(),...board.keys()]);
+  const rows=[];
+
+  for(const machine of machines){
+    const boardRow=board.get(machine)||{
+      machine,oee:null,trend:null,
+      stoppedMinutes:0,failures:0,raw:{}
+    };
+    const reportRow=report.get(machine);
+    let score=0;
+    const sources=[];
+    const reasons=[];
+
+    if(boardRow.oee!==null){
+      sources.push('board');
+      if(boardRow.oee<50){score+=65;reasons.push(`OEE crítico ${boardRow.oee.toFixed(1)}%`);}
+      else if(boardRow.oee<60){score+=50;reasons.push(`OEE muito baixo ${boardRow.oee.toFixed(1)}%`);}
+      else if(boardRow.oee<65){score+=36;reasons.push(`OEE abaixo de 65%`);}
+      else if(boardRow.oee<=65){score+=20;reasons.push(`OEE no limite de 65%`);}
+      else{score-=35;reasons.push(`OEE atual ${boardRow.oee.toFixed(1)}%`);}
+    }
+
+    if(reportRow?.mentioned){
+      sources.push('production');
+      score+=35;
+      reasons.push('citada no relatório da produção');
+    }
+
+    if(boardRow.trend!==null && boardRow.trend<0){
+      score+=Math.min(25,Math.abs(boardRow.trend)*2);
+      reasons.push(`tendência de queda ${Math.abs(boardRow.trend).toFixed(1)} p.p.`);
+    }
+
+    if(boardRow.stoppedMinutes>0){
+      score+=Math.min(25,boardRow.stoppedMinutes/3);
+      reasons.push(`${Math.round(boardRow.stoppedMinutes)} min parados`);
+    }
+
+    // Regra permanente:
+    // acima de 65%, sem relato de problema atual, nunca entra por histórico.
+    const stableAbove65=
+      boardRow.oee!==null &&
+      boardRow.oee>65 &&
+      !reportRow?.mentioned &&
+      (boardRow.trend===null || boardRow.trend>=0) &&
+      boardRow.stoppedMinutes===0;
+
+    if(stableAbove65)continue;
+
+    const issue=compactIssue(
+      reportRow?.problem||
+      boardRow.raw?.problem||
+      boardRow.raw?.issue||
+      boardRow.raw?.mainLoss||
+      boardRow.raw?.cause||
+      boardRow.raw?.causale_standard||
+      ''
+    );
+
+    const history=smartHistoryFor(machine,issue);
+    const actions=smartActionsFromHistory(history,issue);
+
+    if(history.length)sources.push('sgman');
+
+    rows.push({
+      machine,
+      oee:boardRow.oee,
+      trend:boardRow.trend,
+      score:Math.round(score),
+      reasons:uniqueStrings(reasons),
+      issue,
+      actions:actions.length
+        ? actions
+        : [
+            'Analisar e resolver o problema durante o turno.',
+            'Testar, acompanhar a produção e confirmar estabilidade.',
+            'Registrar causa, serviço executado e resultado no SGMan.'
+          ],
+      historyCount:history.length,
+      sources:uniqueStrings(sources),
+      selected:false
+    });
+  }
+
+  return rows
+    .sort((a,b)=>b.score-a.score || (a.oee??999)-(b.oee??999))
+    .slice(0,limit)
+    .map((row,index)=>({...row,selected:index<3}));
+}
+
+function sourceBadge(source){
+  const labels={
+    board:'Quadro OEE',
+    production:'Relatório produção',
+    sgman:'Histórico SGMan',
+    manual:'Confirmação manual'
+  };
+
+  return `<span class="ecopack-source-badge source-${escapeHtml(source)}">${
+    escapeHtml(labels[source]||source)
+  }</span>`;
+}
+
+function renderSupervisorFusionPanel(){
+  const target=$('supervisorFusionPanel');
+  if(!target)return;
+
+  const rows=supervisorFusionRanking(5);
+  state.supervisorFusionRows=rows;
+
+  target.innerHTML=`
+    <div class="supervisor-confirm-box">
+      <strong>Validação antes de gerar o relatório</strong>
+      <p>As três prioridades vêm do quadro atual e do relatório da produção. O SGMan apenas recomenda o que verificar.</p>
+    </div>
+
+    <div class="supervisor-fusion-panel">
+      ${rows.length?rows.map((row,index)=>`
+        <article class="supervisor-fusion-row ${row.selected?'is-selected':''}">
+          <span class="supervisor-fusion-rank">${index+1}</span>
+          <div>
+            <strong>${escapeHtml(row.machine)}${
+              row.oee!==null?` — ${row.oee.toFixed(1)}%`:''
+            }</strong>
+            <p>${escapeHtml(row.reasons.join(' | ')||'Revisar prioridade')}</p>
+            <div class="supervisor-fusion-meta">
+              ${row.sources.map(sourceBadge).join('')}
+            </div>
+          </div>
+          <label>
+            <input class="supervisor-priority-check"
+              data-machine="${escapeHtml(row.machine)}"
+              type="checkbox" ${row.selected?'checked':''}>
+            Prioridade
+          </label>
+        </article>
+      `).join(''):'<p class="muted">Nenhuma prioridade atual identificada.</p>'}
+    </div>
+  `;
+
+  $$('.supervisor-priority-check').forEach(input=>{
+    input.addEventListener('change',()=>{
+      const selected=$$('.supervisor-priority-check:checked');
+
+      if(selected.length>3){
+        input.checked=false;
+        showToast('Escolha no máximo três prioridades.');
+        return;
+      }
+
+      state.supervisorFusionRows=state.supervisorFusionRows.map(row=>({
+        ...row,
+        selected:[...selected].some(item=>
+          item.dataset.machine===row.machine
+        )
+      }));
+
+      input.closest('.supervisor-fusion-row')
+        ?.classList.toggle('is-selected',input.checked);
+    });
+  });
+}
+
+function confirmedSupervisorPlan(){
+  const rows=(state.supervisorFusionRows?.length
+    ? state.supervisorFusionRows
+    : supervisorFusionRanking(5)
+  ).filter(row=>row.selected).slice(0,3);
+
+  return rows.map((row,index)=>{
+    const actions=row.actions
+      .map(action=>`   • ${action}`)
+      .join('\n');
+
+    const sourceText=row.sources.map(source=>({
+      board:'quadro OEE',
+      production:'relatório da produção',
+      sgman:'histórico SGMan'
+    })[source]||source).join(' + ');
+
+    return `${index+1}. *${row.machine}*${
+      row.oee!==null?` — OEE ${row.oee.toFixed(1)}%`:''
+    }.
+${actions}
+   Fonte atual: ${sourceText||'confirmação do supervisor'}.
+   Histórico técnico: ${row.historyCount} OS semelhante(s).`;
+  }).join('\n');
+}
 function smartNextShiftPlan(){
   return smartPriorityRanking(3).map(item=>{
     const issue=compactIssue(
@@ -5679,6 +5960,9 @@ function smartNextShiftPlan(){
 }
 
 function smartFormatNextShiftPlan(){
+  const confirmed=confirmedSupervisorPlan();
+  if(confirmed)return confirmed;
+
   const plan=smartNextShiftPlan();
   if(!plan.length){
     return 'Sem leitura atual suficiente. Analisar e resolver os problemas do turno.';
@@ -10699,7 +10983,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=71.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=72.0.0');
         registration.update();
       } catch {}
     });
@@ -10764,5 +11048,12 @@ document.addEventListener('click',event=>{
   const text=normalizeKey(event.target?.textContent||'');
   if(text.includes('analisar relatorio')||text.includes('gerar relatorio')||text==='acoes'){
     setTimeout(applySmartRealPlan,500);
+  }
+});
+
+document.addEventListener('click',event=>{
+  if(event.target?.id==='refreshSupervisorFusionBtn'){
+    renderSupervisorFusionPanel();
+    showToast('Prioridades atualizadas com quadro e relatório da produção.');
   }
 });
