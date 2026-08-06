@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '72.0.0';
+const APP_VERSION = '73.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v72.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v73.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -3517,80 +3517,91 @@ function maintenanceAccountabilityReport() {
 function maintenanceMessage() {
   if (!state.analysis) return '';
 
-  const approved = state.actions
-    .filter(action =>
-      action.approved &&
-      action.department === 'maintenance' &&
-      action.status !== 'Concluída'
-    )
-    .sort((a, b) =>
-      (({ Alta: 0, Média: 1, Baixa: 2 })[a.priority] -
-       ({ Alta: 0, Média: 1, Baixa: 2 })[b.priority]) ||
-      b.recordedMinutes - a.recordedMinutes
-    );
+  // A lista final vem da Inteligência do Supervisor.
+  // Quadro OEE + relatório da produção escolhem as máquinas.
+  // SGMan entra somente para sugerir verificações técnicas.
+  let supervisorRows=(state.supervisorFusionRows?.length
+    ? state.supervisorFusionRows
+    : supervisorFusionRanking(5)
+  ).filter(row=>row.selected).slice(0,3);
 
-  const shown = approved.slice(0, 5);
-  const lowOee = state.analysis.lowOeeMachines || [];
-  const recurrence = deriveRecurrenceMachines(state.analysis);
-  const trend = efficiencyTrendMessage();
-  const lines = ['*AÇÕES DA MANUTENÇÃO*'];
+  // Segunda barreira: uma máquina acima de 65%, estável e não citada
+  // pelo relatório da produção não pode voltar pela lista antiga.
+  supervisorRows=supervisorRows.filter(row=>{
+    const citedByProduction=row.sources?.includes('production');
+    const stableAbove65=
+      row.oee!==null &&
+      row.oee>65 &&
+      !citedByProduction &&
+      (row.trend===null || row.trend>=0);
 
-  if (state.analysis.reportedOee) {
-    lines.push(
-      `OEE do turno: ${String(state.analysis.reportedOee).replace('.', ',')}%.`
-    );
+    return !stableAbove65;
+  });
+
+  const lowOee=supervisorRows
+    .filter(row=>row.oee!==null && row.oee<=65)
+    .map(row=>({machine:row.machine,oee:row.oee}));
+
+  const recurrence=deriveRecurrenceMachines(state.analysis)
+    .filter(machine=>supervisorRows.some(row=>row.machine===normalizeMachineCode(machine)));
+
+  const trend=efficiencyTrendMessage();
+  const lines=['*AÇÕES DA MANUTENÇÃO*'];
+
+  if(state.analysis.reportedOee){
+    lines.push(`OEE do turno: ${String(state.analysis.reportedOee).replace('.', ',')}%.`);
   }
 
   lines.push(trend.line);
   lines.push(`Direção do turno: ${trend.guidance}`);
 
-  if (state.analysis.sgmanSummary) {
+  if(state.analysis.sgmanSummary){
+    lines.push(`SGMan: ${sgmanDailySummaryText(state.analysis.sgmanSummary)}.`);
+  }
+
+  if(state.analysis.reliability3Days){
     lines.push(
-      `SGMan: ${sgmanDailySummaryText(state.analysis.sgmanSummary)}.`
+      `SGMan 3 dias — MTTR: ${formatReliabilityTime(state.analysis.reliability3Days.mttrMinutes)} | `+
+      `MTBF: ${formatReliabilityTime(state.analysis.reliability3Days.mtbfMinutes)} | `+
+      `Confiabilidade 12h: ${formatReliabilityPercent(state.analysis.reliability3Days.reliabilityPercent)} | `+
+      `OS concluídas no turno atual: ${Number(state.analysis.reliability3Days.completedCurrentShift||0)}.`
     );
   }
 
-  if (state.analysis.reliability3Days) {
-    lines.push(
-      `SGMan 3 dias — MTTR: ${formatReliabilityTime(state.analysis.reliability3Days.mttrMinutes)} | ` +
-      `MTBF: ${formatReliabilityTime(state.analysis.reliability3Days.mtbfMinutes)} | ` +
-      `Confiabilidade 12h: ${formatReliabilityPercent(state.analysis.reliability3Days.reliabilityPercent)} | ` +
-      `OS concluídas no turno atual: ${Number(state.analysis.reliability3Days.completedCurrentShift || 0)}.`
-    );
-  }
-
-  if (state.analysis.boardScope?.label) {
+  if(state.analysis.boardScope?.label){
     lines.push(`Quadro OEE: ${state.analysis.boardScope.label}.`);
   }
 
-  const dashboard = getRecentOeeDashboard();
-
-  if (dashboard.companyAverage != null) {
+  const dashboard=getRecentOeeDashboard();
+  if(dashboard.companyAverage!=null){
     lines.push(`OEE geral 3 dias: ${formatOee(dashboard.companyAverage)}.`);
   }
 
   lines.push('');
   lines.push('*AÇÕES PARA CORREÇÃO*');
 
-  if (!shown.length) {
-    lines.push('Sem ação técnica pendente.');
-  } else {
-    shown.forEach((action, index) => {
-      lines.push(
-        `${index + 1}. *${action.machine}* — ${conciseMaintenanceRepairActions(action)}`
-      );
+  if(!supervisorRows.length){
+    lines.push('Nenhuma prioridade confirmada. Revise o quadro OEE e o relatório da produção.');
+  }else{
+    supervisorRows.forEach((row,index)=>{
+      const oeeText=row.oee!==null?` — OEE ${row.oee.toFixed(1).replace('.', ',')}%`:'';
+      const actions=(row.actions||[]).slice(0,4);
+
+      lines.push(`${index+1}. *${row.machine}*${oeeText}`);
+      actions.forEach(action=>lines.push(`   • ${action}`));
+      lines.push(`   Histórico técnico: ${row.historyCount||0} OS semelhante(s) no SGMan.`);
     });
   }
 
-  if (lowOee.length) {
-    lines.push(`OEE abaixo de 65: ${oeeLowListText(lowOee)}.`);
+  if(lowOee.length){
+    lines.push(`OEE abaixo ou igual a 65: ${lowOee.map(row=>`${row.machine} ${row.oee.toFixed(1).replace('.', ',')}%`).join(' | ')}.`);
   }
 
-  if (recurrence.length) {
-    lines.push(`Reincidência: ${recurrence.join(', ')}.`);
+  if(recurrence.length){
+    lines.push(`Reincidência entre as prioridades atuais: ${recurrence.join(', ')}.`);
   }
 
-  lines.push('*Foco:* concluir as correções, testar estabilidade e registrar a causa real no SGMan.');
+  lines.push('*Foco:* concluir as três prioridades confirmadas, testar estabilidade e registrar a causa real no SGMan.');
 
   return lines.join('\n');
 }
@@ -5829,7 +5840,10 @@ function supervisorFusionRanking(limit=5){
   return rows
     .sort((a,b)=>b.score-a.score || (a.oee??999)-(b.oee??999))
     .slice(0,limit)
-    .map((row,index)=>({...row,selected:index<3}));
+    .map((row,index)=>({
+      ...row,
+      selected:index<3 && !(row.oee!==null && row.oee>65 && !row.sources.includes('production'))
+    }));
 }
 
 function sourceBadge(source){
@@ -10983,7 +10997,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=72.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=73.0.0');
         registration.update();
       } catch {}
     });
