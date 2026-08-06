@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=69.0.0" />
+  <link rel="stylesheet" href="style.css?v=70.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -20,7 +20,7 @@
       <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V69.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V70.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -167,7 +167,40 @@
         <p class="muted">O objetivo é orientar treinamento e acompanhamento, não punir.</p>
         <div id="focusedMechanicPlan" class="focused-mechanic-list"></div>
       </div>
-    </section>
+    
+<div class="card monthly-management-card">
+  <div class="section-head">
+    <div>
+      <span class="eyebrow">GESTÃO HISTÓRICA</span>
+      <h2>Evolução mensal da manutenção</h2>
+      <p class="muted">Dados do SGMan desde setembro de 2025 ou desde o primeiro registro disponível.</p>
+    </div>
+    <div class="history-controls">
+      <label>Início
+        <input id="managementHistoryStart" type="month" value="2025-09">
+      </label>
+      <button id="refreshManagementHistoryBtn" class="secondary" type="button">Atualizar evolução</button>
+    </div>
+  </div>
+
+  <div id="managementHistorySummary" class="monthly-summary"></div>
+
+  <div class="monthly-table-wrap">
+    <table class="monthly-table">
+      <thead>
+        <tr>
+          <th>Mês</th><th>OS abertas</th><th>Concluídas</th>
+          <th>Corretivas</th><th>Com parada</th><th>Reincidências</th>
+          <th>MTTR</th><th>MTBF</th>
+        </tr>
+      </thead>
+      <tbody id="managementMonthlyTable"></tbody>
+    </table>
+  </div>
+
+  <div id="managementMonthlyInsights" class="monthly-insights"></div>
+</div>
+</section>
 
     <section id="view-novo" class="view">
       <div class="hero card">
@@ -1070,6 +1103,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=69.0.0"></script>
+  <script src="app.js?v=70.0.0"></script>
 </body>
 </html>

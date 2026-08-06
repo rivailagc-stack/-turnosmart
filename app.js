@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '69.0.0';
+const APP_VERSION = '70.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v69.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v70.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -3127,6 +3127,7 @@ function initializeViewModule(name) {
 
   if (name === 'inteligencia') {
     initializeIntelligenceOnlyWhenNeeded();
+    setTimeout(renderManagementHistory,100);
   }
 
   if (name === 'mecanico') {
@@ -5243,7 +5244,421 @@ function renderKnowledgeGapDashboard(){
   });
 }
 
+
+function smartDate(order={}){
+  const values=[
+    order.completedAt,order.concludedAt,order.dataConclusao,
+    order.endDate,order.dataFim,order.closedAt,
+    order.createdAt,order.openedAt,order.dataAbertura,
+    order.date,order.data
+  ].filter(Boolean);
+
+  for(const value of values){
+    const date=new Date(value);
+    if(!Number.isNaN(date.getTime()))return date;
+  }
+  return null;
+}
+
+function smartCompleted(order={}){
+  const status=normalizeKey(order.status||order.situacao||order.state||'');
+  return order.completed===true ||
+    order.concluded===true ||
+    status.includes('conclu') ||
+    status.includes('finaliz') ||
+    status.includes('fechad');
+}
+
+function smartCorrective(order={}){
+  const text=normalizeKey([
+    order.type,order.tipo,order.maintenanceType,
+    order.tipoManutencao,order.serviceType,order.tipoServico
+  ].filter(Boolean).join(' '));
+  return text.includes('corret')||text.includes('quebra')||text.includes('emerg');
+}
+
+function smartStopped(order={}){
+  if(order.machineStopped===true||order.maquinaParada===true)return true;
+  const minutes=Number(
+    order.downtimeMinutes||order.stopMinutes||order.tempoParadaMinutos||0
+  );
+  return Number.isFinite(minutes)&&minutes>0;
+}
+
+function smartRepairMinutes(order={}){
+  const direct=Number(
+    order.repairMinutes||order.mttrMinutes||
+    order.durationMinutes||order.tempoReparoMinutos
+  );
+  if(Number.isFinite(direct)&&direct>=0)return direct;
+
+  const start=new Date(
+    order.startedAt||order.executionStart||
+    order.dataInicio||order.openedAt||order.createdAt||''
+  );
+  const end=new Date(
+    order.completedAt||order.concludedAt||
+    order.dataConclusao||order.endDate||''
+  );
+
+  if(!Number.isNaN(start.getTime())&&!Number.isNaN(end.getTime())&&end>=start){
+    return (end-start)/60000;
+  }
+  return null;
+}
+
+function smartMonthKey(date){
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}`;
+}
+
+function smartMonthLabel(key){
+  const [year,month]=key.split('-').map(Number);
+  return new Intl.DateTimeFormat('pt-BR',{
+    month:'short',year:'2-digit'
+  }).format(new Date(year,month-1,1));
+}
+
+function smartMonthlyEvolution(startMonth='2025-09'){
+  const groups=new Map();
+
+  for(const order of smartSgmanItems()){
+    const date=smartDate(order);
+    if(!date)continue;
+    const key=smartMonthKey(date);
+    if(key<startMonth)continue;
+
+    if(!groups.has(key)){
+      groups.set(key,{
+        key,opened:0,completed:0,corrective:0,
+        stopped:0,repairs:[],machines:new Map(),dates:[]
+      });
+    }
+
+    const row=groups.get(key);
+    row.opened++;
+    if(smartCompleted(order))row.completed++;
+    if(smartCorrective(order))row.corrective++;
+    if(smartStopped(order))row.stopped++;
+
+    const repair=smartRepairMinutes(order);
+    if(repair!==null&&repair<4320)row.repairs.push(repair);
+
+    const machine=normalizeMachineCode(
+      order.machine||order.tag||order.equipment||order.maquina||''
+    );
+    if(machine)row.machines.set(machine,(row.machines.get(machine)||0)+1);
+
+    if(smartStopped(order))row.dates.push(date);
+  }
+
+  return [...groups.values()]
+    .sort((a,b)=>a.key.localeCompare(b.key))
+    .map(row=>{
+      row.mttr=row.repairs.length
+        ? row.repairs.reduce((a,b)=>a+b,0)/row.repairs.length
+        : null;
+      row.recurrences=[...row.machines.values()].filter(count=>count>=2).length;
+
+      row.dates.sort((a,b)=>a-b);
+      const intervals=[];
+      for(let i=1;i<row.dates.length;i++){
+        intervals.push((row.dates[i]-row.dates[i-1])/3600000);
+      }
+      row.mtbf=intervals.length
+        ? intervals.reduce((a,b)=>a+b,0)/intervals.length
+        : null;
+
+      return row;
+    });
+}
+
+function smartFmtMinutes(value){
+  if(value===null||!Number.isFinite(value))return '—';
+  const total=Math.round(value);
+  return `${Math.floor(total/60)}h ${String(total%60).padStart(2,'0')}min`;
+}
+
+function smartFmtHours(value){
+  if(value===null||!Number.isFinite(value))return '—';
+  const h=Math.floor(value);
+  const m=Math.round((value-h)*60);
+  return `${h}h ${String(m).padStart(2,'0')}min`;
+}
+
+function renderManagementHistory(){
+  const start=$('managementHistoryStart')?.value||'2025-09';
+  const rows=smartMonthlyEvolution(start);
+  const summary=$('managementHistorySummary');
+  const table=$('managementMonthlyTable');
+  const insights=$('managementMonthlyInsights');
+
+  if(summary){
+    const totals=rows.reduce((acc,row)=>{
+      acc.opened+=row.opened;
+      acc.completed+=row.completed;
+      acc.stopped+=row.stopped;
+      return acc;
+    },{opened:0,completed:0,stopped:0});
+
+    summary.innerHTML=`
+      <div class="manager-kpi"><span>Período</span><strong>${rows.length} mês(es)</strong><small>${rows.length?`${smartMonthLabel(rows[0].key)} até ${smartMonthLabel(rows[rows.length-1].key)}`:'Sem dados'}</small></div>
+      <div class="manager-kpi"><span>OS abertas</span><strong>${totals.opened}</strong><small>Histórico</small></div>
+      <div class="manager-kpi"><span>Concluídas</span><strong>${totals.completed}</strong><small>${totals.opened?Math.round(totals.completed/totals.opened*100):0}%</small></div>
+      <div class="manager-kpi"><span>Com parada</span><strong>${totals.stopped}</strong><small>Impacto na produção</small></div>
+    `;
+  }
+
+  if(table){
+    table.innerHTML=rows.map(row=>`
+      <tr>
+        <td>${smartMonthLabel(row.key)}</td>
+        <td>${row.opened}</td>
+        <td>${row.completed}</td>
+        <td>${row.corrective}</td>
+        <td>${row.stopped}</td>
+        <td>${row.recurrences}</td>
+        <td>${smartFmtMinutes(row.mttr)}</td>
+        <td>${smartFmtHours(row.mtbf)}</td>
+      </tr>
+    `).join('');
+  }
+
+  if(insights){
+    if(rows.length<2){
+      insights.innerHTML='<div class="management-insight">Ainda não há meses suficientes para comparar a evolução.</div>';
+    }else{
+      const first=rows[0],last=rows[rows.length-1];
+      const firstRate=first.opened?first.completed/first.opened*100:0;
+      const lastRate=last.opened?last.completed/last.opened*100:0;
+      const delta=lastRate-firstRate;
+      insights.innerHTML=`
+        <div class="management-insight">${
+          delta>=0
+            ? `A taxa de conclusão evoluiu ${delta.toFixed(1)} ponto(s).`
+            : `A taxa de conclusão caiu ${Math.abs(delta).toFixed(1)} ponto(s).`
+        }</div>
+        <div class="management-insight">Use os meses com mais OS com parada para definir planos de causa raiz e preventiva.</div>
+      `;
+    }
+  }
+}
+
+function smartNumeric(value){
+  const n=parseFloat(String(value??'').replace('%','').replace(',','.'));
+  return Number.isFinite(n)?n:null;
+}
+
+function smartMachineRows(){
+  const sources=[
+    state.oeeLast12Hours,
+    state.oeeCurrent,
+    state.oeeData,
+    state.oeeMachines,
+    state.analysis?.machines,
+    state.reportAnalysis?.machines
+  ];
+
+  const result=[];
+
+  for(const source of sources){
+    const rows=Array.isArray(source)
+      ? source
+      : Array.isArray(source?.items)
+        ? source.items
+        : Array.isArray(source?.machines)
+          ? source.machines
+          : [];
+
+    for(const row of rows){
+      const machine=normalizeMachineCode(
+        row.machine||row.macchina||row.code||row.name||row.tag||''
+      );
+      const oee=smartNumeric(
+        row.oee??row.efficiency??row.eficiencia??row.value??row.current
+      );
+      if(!machine || oee===null)continue;
+
+      const previous=smartNumeric(
+        row.previousOee??row.previous??row.oeePrevious??row.lastShift
+      );
+
+      result.push({
+        machine,
+        oee,
+        previous,
+        trend:previous===null?null:oee-previous,
+        stoppedMinutes:Number(
+          row.stoppedMinutes??row.downtimeMinutes??row.downtime??0
+        )||0,
+        failures:Number(
+          row.failures??row.stops??row.failureCount??0
+        )||0,
+        raw:row
+      });
+    }
+  }
+
+  const map=new Map();
+  result.forEach(item=>map.set(item.machine,item));
+  return [...map.values()];
+}
+
+function smartPriorityScore(item){
+  let score=0;
+  const reasons=[];
+
+  if(item.oee<50){score+=60;reasons.push(`OEE crítico ${item.oee.toFixed(1)}%`);}
+  else if(item.oee<60){score+=45;reasons.push(`OEE muito baixo ${item.oee.toFixed(1)}%`);}
+  else if(item.oee<65){score+=32;reasons.push(`OEE abaixo de 65%`);}
+  else if(item.oee<70){score+=12;reasons.push(`OEE abaixo da meta`);}
+  else score-=25;
+
+  if(item.trend!==null){
+    if(item.trend<=-10){score+=30;reasons.push(`queda de ${Math.abs(item.trend).toFixed(1)} pontos`);}
+    else if(item.trend<=-5){score+=20;reasons.push(`queda de ${Math.abs(item.trend).toFixed(1)} pontos`);}
+    else if(item.trend<0){score+=8;reasons.push('tendência de piora');}
+    else if(item.trend>=5)score-=12;
+  }
+
+  if(item.stoppedMinutes>=60){score+=25;reasons.push(`${Math.round(item.stoppedMinutes)} min parados`);}
+  else if(item.stoppedMinutes>=20){score+=14;reasons.push(`${Math.round(item.stoppedMinutes)} min parados`);}
+
+  if(item.failures>=3){score+=18;reasons.push(`${item.failures} falhas`);}
+  else score+=item.failures*4;
+
+  return {...item,score:Math.max(0,Math.round(score)),reasons};
+}
+
+function smartPriorityRanking(limit=3){
+  return smartMachineRows()
+    .map(smartPriorityScore)
+    .filter(item=>
+      item.oee<70 ||
+      (item.trend!==null && item.trend<0) ||
+      item.stoppedMinutes>0 ||
+      item.failures>0
+    )
+    .sort((a,b)=>b.score-a.score || a.oee-b.oee)
+    .slice(0,limit);
+}
+
+function smartSgmanItems(){
+  return state.sgmanHistory?.items||
+    state.sgmanHistory?.orders||
+    state.sgmanOrders||
+    [];
+}
+
+function smartOrderText(order={}){
+  return normalizeKey([
+    order.description,order.descricao,order.problem,order.problema,
+    order.cause,order.causa,order.service,order.servico,
+    order.conclusion,order.conclusao,order.comment,order.comentario
+  ].filter(Boolean).join(' '));
+}
+
+function smartHistoryFor(machine,issue=''){
+  const machineCode=normalizeMachineCode(machine);
+  const words=normalizeKey(issue)
+    .split(/\s+/)
+    .filter(word=>word.length>=4);
+
+  return smartSgmanItems()
+    .filter(order=>
+      normalizeMachineCode(
+        order.machine||order.tag||order.equipment||order.maquina||''
+      )===machineCode
+    )
+    .map(order=>{
+      const text=smartOrderText(order);
+      const matches=words.filter(word=>text.includes(word)).length;
+      return {order,text,score:matches*10};
+    })
+    .filter(item=>item.score>0 || !words.length)
+    .sort((a,b)=>b.score-a.score)
+    .slice(0,250)
+    .map(item=>item.order);
+}
+
+function smartActionsFromHistory(orders,issue=''){
+  const text=normalizeKey(orders.map(smartOrderText).join(' '));
+  const catalog=[
+    ['mola','Conferir tensão, deformação e quebra da mola da rotulatriz.'],
+    ['posicao faca','Conferir posição, alinhamento e aperto da faca.'],
+    ['faca','Verificar corte, desgaste, folga e condição da contrafaca.'],
+    ['calco','Conferir calços e nivelamento do conjunto.'],
+    ['sensor','Verificar posição, leitura, fixação e repetibilidade dos sensores.'],
+    ['vacuo','Medir vácuo e verificar mangueiras, ventosas, válvulas e vazamentos.'],
+    ['bobina','Conferir alinhamento, tensão, freio e roletes da bobina.'],
+    ['came','Inspecionar came, leva, sincronismo, folga e fixação.'],
+    ['carrinho','Conferir alinhamento, folga, curso e sincronismo do carrinho.'],
+    ['rolamento','Inspecionar rolamentos, folgas, ruído, temperatura e lubrificação.']
+  ];
+
+  const actions=catalog
+    .filter(([word])=>text.includes(normalizeKey(word)))
+    .map(([,action])=>action);
+
+  const issueKey=normalizeKey(issue);
+  if(issueKey.includes('variacao') && issueKey.includes('altura')){
+    actions.push(
+      'Conferir mola e sincronismo da rotulatriz.',
+      'Conferir posição, alinhamento e corte da faca.',
+      'Verificar calços, sensores e estabilidade do vácuo.'
+    );
+  }
+
+  return uniqueStrings(actions).slice(0,4);
+}
+
+function smartNextShiftPlan(){
+  return smartPriorityRanking(3).map(item=>{
+    const issue=compactIssue(
+      item.raw.problem||
+      item.raw.issue||
+      item.raw.mainLoss||
+      item.raw.cause||
+      item.raw.causale_standard||
+      ''
+    );
+
+    const history=smartHistoryFor(item.machine,issue);
+    const actions=smartActionsFromHistory(history,issue);
+
+    return {
+      ...item,
+      issue,
+      historyCount:history.length,
+      actions:actions.length
+        ? actions
+        : [
+            'Analisar e resolver o problema durante o turno.',
+            'Testar, acompanhar a produção e confirmar estabilidade.',
+            'Registrar causa, serviço e resultado no SGMan.'
+          ]
+    };
+  });
+}
+
+function smartFormatNextShiftPlan(){
+  const plan=smartNextShiftPlan();
+  if(!plan.length){
+    return 'Sem leitura atual suficiente. Analisar e resolver os problemas do turno.';
+  }
+
+  return plan.map((item,index)=>{
+    const reason=item.reasons.length
+      ? item.reasons.join(' | ')
+      : `OEE ${item.oee.toFixed(1)}%`;
+
+    return `${index+1}. *${item.machine}* — ${reason}.
+${item.actions.map(action=>`   • ${action}`).join('\n')}
+   Base SGMan: ${item.historyCount} OS semelhante(s) usadas apenas como histórico técnico.`;
+  }).join('\n');
+}
 function renderEfficiencyTrendAndPlan(metrics) {
+  state.realNextShiftPlanText=smartFormatNextShiftPlan();
+
   const trend = metrics.efficiencyTrend || {};
   const trendTarget = $('efficiencyTrendCard');
   const planTarget = $('dailyPlanList');
@@ -9855,6 +10270,12 @@ function init() {
     renderKnowledgeGapDashboard();
     showToast('Lacunas de conhecimento atualizadas.');
   });
+  $('refreshManagementHistoryBtn')?.addEventListener('click',()=>{
+    renderManagementHistory();
+    showToast('Evolução mensal atualizada.');
+  });
+  $('managementHistoryStart')?.addEventListener('change',renderManagementHistory);
+
 
   $('virtualMechanicProblem')?.addEventListener('input',event=>{
     const machine=machineKeyFromText(event.target.value);
@@ -10240,7 +10661,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=69.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=70.0.0');
         registration.update();
       } catch {}
     });
@@ -10267,5 +10688,43 @@ document.addEventListener('DOMContentLoaded', () => {
       `A navegação e as outras páginas continuam disponíveis.`;
 
     document.body.prepend(banner);
+  }
+});
+
+function applySmartRealPlan(){
+  const plan=smartFormatNextShiftPlan();
+  state.realNextShiftPlanText=plan;
+
+  const selectors=[
+    '#maintenanceActionsText','#actionsText',
+    '#dailyReportText','#maintenanceReportText'
+  ];
+
+  for(const selector of selectors){
+    const el=document.querySelector(selector);
+    if(!el)continue;
+    const current=('value' in el?el.value:el.textContent)||'';
+    if(!current)continue;
+
+    const markers=[
+      '*COMPROMISSOS DAS MÁQUINAS*',
+      '*PLANO DO PRÓXIMO TURNO*',
+      '*PRIORIDADES DO TURNO*'
+    ];
+    const marker=markers.find(item=>current.includes(item));
+    if(!marker)continue;
+
+    const before=current.split(marker)[0];
+    const next=`${marker}\n${plan}\n\n*Resolver durante o turno.*\n*SGMan:* registrar causa real, serviço executado e resultado do teste.`;
+
+    if('value' in el)el.value=before+next;
+    else el.textContent=before+next;
+  }
+}
+
+document.addEventListener('click',event=>{
+  const text=normalizeKey(event.target?.textContent||'');
+  if(text.includes('analisar relatorio')||text.includes('gerar relatorio')||text==='acoes'){
+    setTimeout(applySmartRealPlan,500);
   }
 });

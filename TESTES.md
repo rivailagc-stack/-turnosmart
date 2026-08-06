@@ -1,23 +1,8 @@
-# Testes TurnoSmart V69
-
-## Mecânico IA
-1. Confirme V69.0.0.
-2. Abra Mecânico.
-3. Escolha uma máquina.
-4. Informe válvula 5/3.
-5. Pergunte: recebe 24 V, mas o cilindro não retorna.
-6. Toque em Analisar com IA.
-7. Confira testes, causas, segurança e critério de liberação.
-8. Teste o botão Falar.
-9. Teste sem máquina para orientação geral.
-
-## Lacunas de conhecimento
-1. Atualize os dados do SGMan.
-2. Abra Mecânico.
-3. Confira cobertura técnica e falhas sem procedimento.
-4. Toque em Criar treinamento.
-5. Confirme que a tela de Treinamentos abre preenchida.
-
-## Fallback
-1. Remova temporariamente OPENAI_API_KEY em um ambiente de teste.
-2. Confirme que ainda existe orientação técnica local.
+# Testes V70
+1. Confirme V70.0.0.
+2. Carregue OEE atual.
+3. Verifique que máquina estável acima de 70% não aparece como prioridade.
+4. Verifique que a pior máquina entra primeiro.
+5. Teste uma falha de variação de altura.
+6. Confira sugestões baseadas nas OS históricas.
+7. Abra Inteligência e atualize a evolução desde 2025-09.
