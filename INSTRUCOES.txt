@@ -1,0 +1,12 @@
+PATCH TurnoSmart V71
+
+Substitua somente estes arquivos no projeto:
+- app.js
+- index.html
+- sw.js
+- api/health.js
+
+Depois faça novo deploy na Vercel.
+Confirme que aparece V71.0.0.
+
+Não precisa substituir setup_training.sql, CSS ou os demais arquivos.

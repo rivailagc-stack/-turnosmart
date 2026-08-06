@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '70.0.0';
+const APP_VERSION = '71.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v70.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v71.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -1955,11 +1955,15 @@ function dataUrlFromFile(file) {
 }
 
 
+// ORDEM FIXA DAS LINHAS DO QUADRO DA ECOPACK.
+// A primeira linha visível é MK-138.
+// MK-02 e MK-08 ficam no cabeçalho/área superior e NÃO pertencem
+// à grade usada para associar OEE por máquina.
 const OEE_BOARD_MACHINES = [
-  'MK-02', 'MK-08', 'MK-138', 'MK-105', 'MK-108', 'MK-223',
-  'MK-192', 'MK-69', 'MK-172', 'MK-173', 'MK-178', 'MK-179',
-  'MK-212', 'MK-214', 'MK-217', 'MK-220', 'MK-159', 'MK-222',
-  'MK-170', 'MK-176', 'MK-188', 'MK-149'
+  'MK-138', 'MK-105', 'MK-108', 'MK-223', 'MK-192',
+  'MK-69', 'MK-172', 'MK-173', 'MK-178', 'MK-179',
+  'MK-212', 'MK-214', 'MK-217', 'MK-220', 'MK-159',
+  'MK-222', 'MK-170', 'MK-176', 'MK-188', 'MK-149'
 ];
 
 function loadImageElement(dataUrl) {
@@ -2151,17 +2155,29 @@ function numericOeeFromWord(text = '') {
 
 function mapOcrWordsToMachineRows(words = [], canvasHeight = 1) {
   const rowCount = OEE_BOARD_MACHINES.length;
+  const rowHeight = Math.max(1, canvasHeight / rowCount);
   const rowBuckets = Array.from({ length: rowCount }, () => []);
 
   for (const word of words) {
     const parsed = numericOeeFromWord(word.text);
     if (!parsed) continue;
+
     const bbox = word.bbox || {};
     const y0 = Number(bbox.y0 ?? bbox.top ?? 0);
     const y1 = Number(bbox.y1 ?? bbox.bottom ?? y0);
     const centerY = (y0 + y1) / 2;
-    const normalizedY = Math.min(0.999, Math.max(0, centerY / Math.max(1, canvasHeight)));
-    const rowIndex = Math.min(rowCount - 1, Math.floor(normalizedY * rowCount));
+
+    // A linha é definida somente pela faixa horizontal onde está o centro
+    // do percentual. Não permite buscar valor em linha vizinha.
+    const rowIndex = Math.floor(centerY / rowHeight);
+    if (rowIndex < 0 || rowIndex >= rowCount) continue;
+
+    const rowTop = rowIndex * rowHeight;
+    const positionInsideRow = (centerY - rowTop) / rowHeight;
+
+    // Ignora textos colados nas linhas horizontais da grade, pois podem
+    // pertencer à célula de cima ou de baixo.
+    if (positionInsideRow < 0.10 || positionInsideRow > 0.90) continue;
 
     rowBuckets[rowIndex].push({
       value: parsed.value,
@@ -2175,18 +2191,28 @@ function mapOcrWordsToMachineRows(words = [], canvasHeight = 1) {
 
   return OEE_BOARD_MACHINES.map((machine, index) => {
     const candidates = rowBuckets[index];
+
     if (!candidates.length) {
-      return { machine, oee: '', confidence: 0, source: 'Não identificado' };
+      return {
+        machine,
+        oee: '',
+        confidence: 0,
+        source: 'Não identificado'
+      };
     }
 
-    // Percentual explícito ganha prioridade; caso contrário usa o último número da linha.
+    // Ordem de preferência:
+    // 1. valor com símbolo %
+    // 2. maior confiança do OCR
+    // 3. valor mais à direita dentro da mesma linha
     candidates.sort((a, b) => {
       if (a.hasPercent !== b.hasPercent) return a.hasPercent ? -1 : 1;
-      if (a.y !== b.y) return b.y - a.y;
+      if (a.confidence !== b.confidence) return b.confidence - a.confidence;
       return b.x - a.x;
     });
 
     const chosen = candidates[0];
+
     return {
       machine,
       oee: chosen.value,
@@ -5532,12 +5558,24 @@ function smartPriorityScore(item){
 function smartPriorityRanking(limit=3){
   return smartMachineRows()
     .map(smartPriorityScore)
-    .filter(item=>
-      item.oee<70 ||
-      (item.trend!==null && item.trend<0) ||
-      item.stoppedMinutes>0 ||
-      item.failures>0
-    )
+    .filter(item=>{
+      // Máquina acima de 65%, sem queda, sem parada e sem falha recente
+      // não pode entrar no plano do próximo turno por histórico antigo.
+      const stableAbove65=
+        item.oee>65 &&
+        (item.trend===null || item.trend>=0) &&
+        item.stoppedMinutes===0 &&
+        item.failures===0;
+
+      if(stableAbove65)return false;
+
+      return (
+        item.oee<70 ||
+        (item.trend!==null && item.trend<0) ||
+        item.stoppedMinutes>0 ||
+        item.failures>0
+      );
+    })
     .sort((a,b)=>b.score-a.score || a.oee-b.oee)
     .slice(0,limit);
 }
@@ -10661,7 +10699,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=70.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=71.0.0');
         registration.update();
       } catch {}
     });
