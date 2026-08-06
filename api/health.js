@@ -1,7 +1,7 @@
 module.exports=(req,res)=>res.status(200).json({
   ok:true,
   app:'TurnoSmart',
-  version:'73.0.0',
+  version:'74.0.0',
   normalize_machine_code_fixed:true,
   visual_training_save_fixed:true,
   industrial_knowledge_center_enabled:true,
@@ -13,6 +13,8 @@ module.exports=(req,res)=>res.status(200).json({
   ecopack_theme_enabled:true,
   supervisor_fusion_priority_enabled:true,
   manual_priority_confirmation_enabled:true,
+  automatic_priority_selection_enabled:true,
+  priority_persistence_enabled:true,
   legacy_maintenance_action_list_disabled:true,
   max_three_confirmed_priorities:true,
   monthly_management_evolution_enabled:true,
