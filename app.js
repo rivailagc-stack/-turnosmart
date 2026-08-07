@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '74.0.0';
+const APP_VERSION = '75.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v74.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v75.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -3525,6 +3525,10 @@ function maintenanceMessage() {
     : supervisorFusionRanking(5)
   );
 
+  if(!fusionRows.length){
+    fusionRows=fallbackCurrentShiftPriorities(3);
+  }
+
   let supervisorRows=fusionRows.filter(row=>row.selected).slice(0,3);
 
   if(!supervisorRows.length){
@@ -3532,6 +3536,13 @@ function maintenanceMessage() {
     state.supervisorFusionRows=fusionRows;
     supervisorRows=fusionRows.filter(row=>row.selected).slice(0,3);
   }
+
+  if(!supervisorRows.length){
+    supervisorRows=fallbackCurrentShiftPriorities(3);
+    fusionRows=supervisorRows;
+  }
+
+  state.supervisorFusionRows=fusionRows;
 
   // Segunda barreira: uma máquina acima de 65%, estável e não citada
   // pelo relatório da produção não pode voltar pela lista antiga.
@@ -3589,7 +3600,7 @@ function maintenanceMessage() {
   lines.push('*AÇÕES PARA CORREÇÃO*');
 
   if(!supervisorRows.length){
-    lines.push('Nenhuma prioridade confirmada. Revise o quadro OEE e o relatório da produção.');
+    lines.push('Nenhuma máquina abaixo de 65% foi identificada no quadro atual. Confira os valores do OEE.');
   }else{
     supervisorRows.forEach((row,index)=>{
       const oeeText=row.oee!==null?` — OEE ${row.oee.toFixed(1).replace('.', ',')}%`:'';
@@ -5680,6 +5691,8 @@ function productionReportMachineMentions(){
     state.latestProductionReport,
     state.analysisInput,
     state.rawReportText,
+    state.analysis?.rawText,
+    $('reportText')?.value,
     $('productionReportInput')?.value,
     $('reportInput')?.value,
     $('analysisInput')?.value
@@ -5728,6 +5741,9 @@ function currentBoardMap(){
   }
 
   const boardRows=[
+    ...(state.analysis?.machineOee||[]),
+    ...(state.analysis?.lowOeeMachines||[]),
+    ...(state.oeeMachineEditorData||[]),
     ...(state.oeeBoardRows||[]),
     ...(state.ocrOeeRows||[]),
     ...(state.boardAnalysis?.machines||[])
@@ -5806,6 +5822,62 @@ function applyAutomaticSupervisorSelection(rows=[]){
     ...row,
     selected:selected.includes(row.machine)
   }));
+}
+
+
+function fallbackCurrentShiftPriorities(limit=3){
+  const machineOee=[
+    ...(state.analysis?.machineOee||[]),
+    ...(machineOeeFromEditor?.()||[])
+  ];
+
+  const map=new Map();
+
+  for(const item of machineOee){
+    const machine=normalizeMachineCode(item.machine||item.maquina||'');
+    const oee=smartNumeric(item.oee??item.value);
+    if(!machine || oee===null)continue;
+    map.set(machine,{machine,oee});
+  }
+
+  const report=productionReportMachineMentions();
+
+  return [...map.values()]
+    .filter(item=>item.oee<65 || report.has(item.machine))
+    .map(item=>{
+      const reportRow=report.get(item.machine);
+      const issue=compactIssue(reportRow?.problem||'');
+      const history=smartHistoryFor(item.machine,issue);
+      const actions=smartActionsFromHistory(history,issue);
+
+      return {
+        machine:item.machine,
+        oee:item.oee,
+        trend:null,
+        score:item.oee<50?80:item.oee<60?60:45,
+        reasons:uniqueStrings([
+          item.oee<65?`OEE abaixo de 65% (${item.oee.toFixed(1)}%)`:'',
+          reportRow?.mentioned?'citada no relatório da produção':''
+        ].filter(Boolean)),
+        issue,
+        actions:actions.length
+          ? actions
+          : [
+              'Analisar e resolver o problema durante o turno.',
+              'Testar, acompanhar a produção e confirmar estabilidade.',
+              'Registrar causa, serviço executado e resultado no SGMan.'
+            ],
+        historyCount:history.length,
+        sources:uniqueStrings([
+          'board',
+          reportRow?.mentioned?'production':'',
+          history.length?'sgman':''
+        ].filter(Boolean)),
+        selected:true
+      };
+    })
+    .sort((a,b)=>a.oee-b.oee)
+    .slice(0,limit);
 }
 
 function supervisorFusionRanking(limit=5){
@@ -5919,7 +5991,11 @@ function renderSupervisorFusionPanel(){
   const target=$('supervisorFusionPanel');
   if(!target)return;
 
-  const rows=supervisorFusionRanking(5);
+  let rows=supervisorFusionRanking(5);
+  if(!rows.length){
+    rows=fallbackCurrentShiftPriorities(5);
+  }
+  rows=applyAutomaticSupervisorSelection(rows);
   state.supervisorFusionRows=rows;
 
   target.innerHTML=`
@@ -5984,6 +6060,10 @@ function confirmedSupervisorPlan(){
     ? state.supervisorFusionRows
     : supervisorFusionRanking(5)
   );
+
+  if(!rows.length){
+    rows=fallbackCurrentShiftPriorities(3);
+  }
 
   let selected=rows.filter(row=>row.selected).slice(0,3);
 
@@ -7930,6 +8010,19 @@ async function analyzeCurrentReport() {
 
     state.analysis = analysis;
     state.actions = generateActions(analysis);
+
+    // Novo turno/análise: recalcula as prioridades com o quadro atual
+    // e o relatório da produção. Não reutiliza máquina do turno anterior.
+    try{
+      localStorage.removeItem(supervisorPriorityStorageKey());
+    }catch{}
+    state.supervisorFusionRows=supervisorFusionRanking(5);
+    if(!state.supervisorFusionRows.length){
+      state.supervisorFusionRows=fallbackCurrentShiftPriorities(3);
+    }
+    state.supervisorFusionRows=applyAutomaticSupervisorSelection(
+      state.supervisorFusionRows
+    );
 
     // Aplica histórico já armazenado no aparelho, quando existir.
     applySgmanHistoryToActions();
@@ -11065,7 +11158,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=74.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=75.0.0');
         registration.update();
       } catch {}
     });

@@ -1,4 +1,4 @@
-PATCH V74
+PATCH V75
 
 Substitua:
 - app.js
@@ -6,4 +6,11 @@ Substitua:
 - sw.js
 - api/health.js
 
-Depois faça novo deploy e confirme V74.0.0.
+Depois faça novo deploy e confirme V75.0.0.
+
+Depois de atualizar:
+1. carregue novamente a foto do quadro;
+2. confirme os OEE;
+3. cole o relatório da produção;
+4. toque em Analisar relatório;
+5. abra Ações.
