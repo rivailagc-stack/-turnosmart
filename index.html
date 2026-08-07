@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=77.0.0" />
+  <link rel="stylesheet" href="style.css?v=78.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -20,7 +20,7 @@
       <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V77.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V78.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -214,14 +214,86 @@
 
   <div class="sgman-orders-table-wrap">
     <table class="sgman-orders-table powerbi-cross-table">
-      <thead><tr><th>Máquina</th><th>OEE</th><th>Produção</th><th>Horas efetivas</th><th>Perda manutenção</th><th>OS SGMan</th><th>Corretivas</th><th>MTTR</th><th>Custo SGMan</th></tr></thead>
+      <thead><tr><th>Máquina</th><th>OEE</th><th>Produção</th><th>Horas efetivas</th><th>Perda manutenção</th><th>OS SGMan</th><th>Corretivas</th><th>MTTR</th><th>Custo SGMan</th><th>Mão de obra</th></tr></thead>
       <tbody id="powerBiCrossTableBody"></tbody>
     </table>
   </div>
 </div>
 <div class="card sgman-management-card">
   <div class="section-head sgman-management-head"><div><span class="eyebrow">GESTÃO SGMAN</span><h2>Gestão dinâmica da manutenção</h2><p class="muted">Consulte período, dia, máquina e mecânico. Custos aparecem quando retornados pelo SGMan.</p></div><button id="refreshDynamicSgmanBtn" class="primary" type="button">Atualizar período no SGMan</button></div>
-  <div class="sgman-management-filters">
+  
+  <div class="labor-cost-lock-card">
+    <div class="section-head">
+      <div>
+        <span class="eyebrow">CUSTO DE MÃO DE OBRA</span>
+        <h3>Custo do mecânico por máquina</h3>
+        <p class="muted">Área gerencial protegida. O custo é calculado pelo tempo das OS do SGMan × custo/hora do mecânico.</p>
+      </div>
+      <span id="laborCostSecurityBadge" class="labor-security-badge">🔒 Protegido</span>
+    </div>
+
+    <div id="laborCostUnlockPanel" class="labor-unlock-grid">
+      <label>PIN de gestão
+        <input id="laborManagementPin" type="password" inputmode="numeric" placeholder="PIN">
+      </label>
+      <label>Horas mensais
+        <input id="laborHoursPerMonth" type="number" min="1" step="1" value="220">
+      </label>
+      <label>Fator custo empresa
+        <input id="laborEmployerMultiplier" type="number" min="0.1" step="0.01" value="1.00">
+      </label>
+      <button id="unlockLaborCostBtn" class="primary" type="button">Desbloquear custos</button>
+    </div>
+
+    <p class="muted labor-formula-note">
+      Fator 1,00 = somente salário-base. Ex.: 1,80 considera custo empresa equivalente a 180% do salário. Ajuste para o valor real usado pela empresa.
+    </p>
+
+    <div id="laborCostDashboard" class="hidden">
+      <div id="laborCostKpis" class="labor-cost-kpis"></div>
+
+      <div class="labor-cost-grid">
+        <section>
+          <div class="section-head">
+            <div><span class="eyebrow">POR MÁQUINA</span><h3>Onde a mão de obra custa mais</h3></div>
+          </div>
+          <div id="laborMachineRanking" class="sgman-ranking-list"></div>
+        </section>
+
+        <section>
+          <div class="section-head">
+            <div><span class="eyebrow">POR MECÂNICO</span><h3>Horas e custo no período</h3></div>
+          </div>
+          <div id="laborMechanicRanking" class="sgman-ranking-list"></div>
+        </section>
+      </div>
+
+      <div class="section-head sgman-orders-head">
+        <div>
+          <span class="eyebrow">MECÂNICO × MÁQUINA</span>
+          <h3>Detalhamento do custo da equipe</h3>
+        </div>
+      </div>
+
+      <div class="sgman-orders-table-wrap">
+        <table class="sgman-orders-table">
+          <thead>
+            <tr>
+              <th>Mecânico</th>
+              <th>Máquina</th>
+              <th>OS</th>
+              <th>Horas</th>
+              <th>Custo/hora</th>
+              <th>Custo no período</th>
+            </tr>
+          </thead>
+          <tbody id="laborMechanicMachineBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<div class="sgman-management-filters">
     <label>Mês<input id="sgmanManagementMonth" type="month"></label>
     <label>Data inicial<input id="sgmanManagementStart" type="date"></label>
     <label>Data final<input id="sgmanManagementEnd" type="date"></label>
@@ -1155,6 +1227,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=77.0.0"></script>
+  <script src="app.js?v=78.0.0"></script>
 </body>
 </html>

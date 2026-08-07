@@ -1,10 +1,18 @@
-PATCH V77
+PATCH V78
+
 Substitua/adicone:
 - app.js
 - index.html
 - style.css
 - sw.js
 - api/health.js
-- oee-powerbi-2026.json (NOVO)
+- api/management-cost.js  (NOVO)
 
-Depois faça deploy e confirme V77.0.0.
+NA VERCEL:
+Settings > Environment Variables
+Key: MANAGEMENT_PIN
+Value: escolha um PIN somente da gestão
+
+Depois faça novo deploy e confirme V78.0.0.
+
+O arquivo de salários NÃO precisa ser enviado para a Vercel.

@@ -2001,3 +2001,93 @@ button.secondary,
 @media(max-width:1000px){.powerbi-sgman-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.powerbi-sgman-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.powerbi-sgman-grid,.powerbi-sgman-ranking-grid{grid-template-columns:1fr}}
 @media(max-width:560px){.powerbi-sgman-filters,.powerbi-sgman-kpis{grid-template-columns:1fr}}
+
+
+/* ==========================================================
+   CUSTO DE MÃO DE OBRA — ÁREA GERENCIAL
+   ========================================================== */
+.labor-cost-lock-card{
+  margin:16px 0 20px;
+  padding:16px;
+  border:1px solid #f4c27a;
+  border-radius:16px;
+  background:linear-gradient(135deg,#fff9f0,#fff);
+}
+
+.labor-security-badge{
+  display:inline-flex;
+  align-items:center;
+  padding:7px 11px;
+  border-radius:999px;
+  font-size:.78rem;
+  font-weight:900;
+  background:#f2f4f7;
+  color:#475467;
+  border:1px solid #d0d5dd;
+}
+
+.labor-security-badge.is-unlocked{
+  color:#176b3a;
+  background:#ecfdf3;
+  border-color:#abefc6;
+}
+
+.labor-unlock-grid{
+  display:grid;
+  grid-template-columns:2fr 1fr 1fr auto;
+  gap:12px;
+  align-items:end;
+  margin:14px 0 8px;
+}
+
+.labor-formula-note{
+  margin:6px 0 12px;
+  font-size:.83rem;
+}
+
+.labor-cost-kpis{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:12px;
+  margin:18px 0;
+}
+
+.labor-cost-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:14px;
+  margin:18px 0;
+}
+
+.labor-cost-grid>section{
+  border:1px solid var(--line);
+  background:#fff;
+  border-radius:16px;
+  padding:14px;
+}
+
+.hidden{
+  display:none !important;
+}
+
+@media(max-width:900px){
+  .labor-unlock-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .labor-cost-kpis{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
+
+@media(max-width:700px){
+  .labor-cost-grid{
+    grid-template-columns:1fr;
+  }
+}
+
+@media(max-width:560px){
+  .labor-unlock-grid,
+  .labor-cost-kpis{
+    grid-template-columns:1fr;
+  }
+}

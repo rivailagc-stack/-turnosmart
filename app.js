@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '77.0.0';
+const APP_VERSION = '78.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v77.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v78.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -5324,7 +5324,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=77.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=78.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -5448,7 +5448,8 @@ function aggregatePowerBiMachines(rows=[]){
       sgmanOrders:related.length,
       corrective:related.filter(smartCorrective).length,
       mttr:durations.length?averageNumbers(durations):null,
-      cost:related.reduce((s,o)=>s+sgmanOrderCost(o).total,0)
+      cost:related.reduce((s,o)=>s+sgmanOrderCost(o).total,0),
+      laborCost:laborCostState().unlocked?laborCostForMachineOrders(related):0
     };
   }).sort((a,b)=>(a.oee??999)-(b.oee??999));
 }
@@ -5531,6 +5532,7 @@ function renderPowerBiSgmanDashboard(){
   const maintenance=rows.reduce((s,r)=>s+Number(r.maintenanceHours||0),0);
   const sgmanCount=machines.reduce((s,r)=>s+r.sgmanOrders,0);
   const sgmanCost=machines.reduce((s,r)=>s+r.cost,0);
+  const laborCost=machines.reduce((s,r)=>s+Number(r.laborCost||0),0);
 
   const kpis=$('powerBiSgmanKpis');
   if(kpis){
@@ -5541,6 +5543,7 @@ function renderPowerBiSgmanDashboard(){
       <div class="manager-kpi"><span>Perda manutenção</span><strong>${maintenance.toFixed(1)} h</strong><small>Power BI</small></div>
       <div class="manager-kpi"><span>OS SGMan cruzadas</span><strong>${sgmanCount}</strong><small>Mesma máquina + data</small></div>
       <div class="manager-kpi cost-kpi"><span>Custo SGMan</span><strong>${escapeHtml(sgmanFormatMoney(sgmanCost))}</strong><small>Quando disponível</small></div>
+      <div class="manager-kpi cost-kpi"><span>Mão de obra calculada</span><strong>${laborCostState().unlocked?escapeHtml(sgmanFormatMoney(laborCost)):'🔒'}</strong><small>${laborCostState().unlocked?'Tempo SGMan × custo/h':'Desbloqueie Gestão SGMan'}</small></div>
     `;
   }
 
@@ -5553,7 +5556,11 @@ function renderPowerBiSgmanDashboard(){
           <div>
             <strong>${escapeHtml(row.machine)} — ${row.oee===null?'—':`${row.oee.toFixed(1)}%`}</strong>
             <p>${row.sgmanOrders} OS • ${row.corrective} corretiva(s) • ${row.maintenanceHours.toFixed(1)} h manutenção</p>
-            <small>MTTR ${escapeHtml(smartFmtMinutes(row.mttr))} • Custo ${escapeHtml(sgmanFormatMoney(row.cost))}</small>
+            <small>MTTR ${escapeHtml(smartFmtMinutes(row.mttr))} • Custo SGMan ${escapeHtml(sgmanFormatMoney(row.cost))}${
+              laborCostState().unlocked
+                ? ` • Mão de obra ${escapeHtml(sgmanFormatMoney(row.laborCost))}`
+                : ''
+            }</small>
           </div>
         </article>
       `).join('')
@@ -5610,6 +5617,7 @@ function renderPowerBiSgmanDashboard(){
         <td>${row.corrective}</td>
         <td>${escapeHtml(smartFmtMinutes(row.mttr))}</td>
         <td>${escapeHtml(sgmanFormatMoney(row.cost))}</td>
+        <td>${laborCostState().unlocked?escapeHtml(sgmanFormatMoney(row.laborCost)):'🔒'}</td>
       </tr>
     `).join('');
   }
@@ -5635,6 +5643,331 @@ function clearPowerBiOeeFilters(){
   if($('powerBiOeeProduct'))$('powerBiOeeProduct').value='';
   if($('powerBiOeeOp'))$('powerBiOeeOp').value='';
   renderPowerBiSgmanDashboard();
+}
+
+
+function laborCostState(){
+  state.laborCost ||= {
+    unlocked:false,
+    rates:[],
+    hoursPerMonth:220,
+    employerMultiplier:1
+  };
+  return state.laborCost;
+}
+
+function laborNormalize(value){
+  return String(value||'')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g,'');
+}
+
+function findLaborRate(mechanic){
+  const key=laborNormalize(mechanic);
+  if(!key)return null;
+
+  const rates=laborCostState().rates||[];
+
+  let match=rates.find(rate=>
+    laborNormalize(rate.name)===key ||
+    (rate.aliases||[]).some(alias=>laborNormalize(alias)===key)
+  );
+
+  if(match)return match;
+
+  // SGMan commonly uses first name only.
+  match=rates.find(rate=>{
+    const aliases=(rate.aliases||[]).map(laborNormalize);
+    return aliases.some(alias=>
+      alias && (
+        key.startsWith(alias) ||
+        alias.startsWith(key)
+      )
+    );
+  });
+
+  return match||null;
+}
+
+function laborOrderMinutes(order){
+  const duration=typeof sgmanRepairDuration==='function'
+    ? sgmanRepairDuration(order)
+    : smartRepairMinutes(order);
+
+  return duration!==null && Number.isFinite(duration) && duration>=0 && duration<4320
+    ? duration
+    : 0;
+}
+
+function laborCostForOrder(order){
+  const mechanic=sgmanManagementMechanic(order);
+  const rate=findLaborRate(mechanic);
+  const minutes=laborOrderMinutes(order);
+
+  if(!rate || minutes<=0){
+    return {
+      mechanic,
+      rate:null,
+      minutes,
+      hours:minutes/60,
+      cost:0,
+      matched:false
+    };
+  }
+
+  const hours=minutes/60;
+
+  return {
+    mechanic,
+    rate,
+    minutes,
+    hours,
+    cost:hours*Number(rate.hourlyCost||0),
+    matched:true
+  };
+}
+
+async function unlockLaborCosts(){
+  const pin=$('laborManagementPin')?.value||'';
+  const hoursPerMonth=Number($('laborHoursPerMonth')?.value||220);
+  const employerMultiplier=Number($('laborEmployerMultiplier')?.value||1);
+  const button=$('unlockLaborCostBtn');
+
+  if(!pin){
+    showToast('Informe o PIN de gestão.');
+    return;
+  }
+
+  if(button){
+    button.disabled=true;
+    button.textContent='Validando...';
+  }
+
+  try{
+    const response=await fetch('/api/management-cost',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        pin,
+        hoursPerMonth,
+        employerMultiplier
+      })
+    });
+
+    const data=await response.json().catch(()=>({}));
+
+    if(!response.ok || data.ok===false){
+      throw new Error(data.error||`HTTP ${response.status}`);
+    }
+
+    const store=laborCostState();
+    store.unlocked=true;
+    store.rates=Array.isArray(data.rates)?data.rates:[];
+    store.hoursPerMonth=Number(data.hoursPerMonth||hoursPerMonth);
+    store.employerMultiplier=Number(data.employerMultiplier||employerMultiplier);
+
+    if($('laborManagementPin'))$('laborManagementPin').value='';
+    if($('laborCostDashboard'))$('laborCostDashboard').classList.remove('hidden');
+    if($('laborCostSecurityBadge')){
+      $('laborCostSecurityBadge').textContent='🔓 Gestão desbloqueada';
+      $('laborCostSecurityBadge').classList.add('is-unlocked');
+    }
+
+    renderDynamicSgmanManagement();
+    renderPowerBiSgmanDashboard();
+    renderLaborCostManagement();
+
+    showToast('Custos de mão de obra desbloqueados.');
+  }catch(error){
+    showToast(error.message);
+  }finally{
+    if(button){
+      button.disabled=false;
+      button.textContent='Desbloquear custos';
+    }
+  }
+}
+
+function laborFilteredOrders(){
+  return filteredDynamicSgmanOrders();
+}
+
+function laborAggregates(orders=[]){
+  const mechanicMachine=new Map();
+  const mechanics=new Map();
+  const machines=new Map();
+  let totalCost=0;
+  let totalHours=0;
+  let matchedOrders=0;
+
+  for(const order of orders){
+    const calc=laborCostForOrder(order);
+    const mechanic=sgmanUserLabel(calc.mechanic)||calc.mechanic||'Sem executante';
+    const machine=sgmanManagementMachine(order)||'Sem máquina';
+
+    if(calc.matched)matchedOrders++;
+    totalCost+=calc.cost;
+    totalHours+=calc.hours;
+
+    const pairKey=`${mechanic}||${machine}`;
+    if(!mechanicMachine.has(pairKey)){
+      mechanicMachine.set(pairKey,{
+        mechanic,
+        machine,
+        orders:0,
+        hours:0,
+        cost:0,
+        hourlyCost:calc.rate?.hourlyCost||0,
+        matched:calc.matched
+      });
+    }
+    const pair=mechanicMachine.get(pairKey);
+    pair.orders++;
+    pair.hours+=calc.hours;
+    pair.cost+=calc.cost;
+    if(calc.rate?.hourlyCost)pair.hourlyCost=calc.rate.hourlyCost;
+    pair.matched=pair.matched||calc.matched;
+
+    if(!mechanics.has(mechanic)){
+      mechanics.set(mechanic,{
+        mechanic,
+        orders:0,
+        hours:0,
+        cost:0,
+        hourlyCost:calc.rate?.hourlyCost||0,
+        matched:calc.matched
+      });
+    }
+    const mech=mechanics.get(mechanic);
+    mech.orders++;
+    mech.hours+=calc.hours;
+    mech.cost+=calc.cost;
+    if(calc.rate?.hourlyCost)mech.hourlyCost=calc.rate.hourlyCost;
+    mech.matched=mech.matched||calc.matched;
+
+    if(!machines.has(machine)){
+      machines.set(machine,{
+        machine,
+        orders:0,
+        hours:0,
+        cost:0
+      });
+    }
+    const mk=machines.get(machine);
+    mk.orders++;
+    mk.hours+=calc.hours;
+    mk.cost+=calc.cost;
+  }
+
+  return {
+    totalCost,
+    totalHours,
+    matchedOrders,
+    totalOrders:orders.length,
+    mechanicMachine:[...mechanicMachine.values()]
+      .sort((a,b)=>b.cost-a.cost),
+    mechanics:[...mechanics.values()]
+      .sort((a,b)=>b.cost-a.cost),
+    machines:[...machines.values()]
+      .sort((a,b)=>b.cost-a.cost)
+  };
+}
+
+function renderLaborCostManagement(){
+  const store=laborCostState();
+  const dashboard=$('laborCostDashboard');
+
+  if(!store.unlocked){
+    if(dashboard)dashboard.classList.add('hidden');
+    return;
+  }
+
+  if(dashboard)dashboard.classList.remove('hidden');
+
+  const orders=laborFilteredOrders();
+  const agg=laborAggregates(orders);
+
+  const kpis=$('laborCostKpis');
+  if(kpis){
+    kpis.innerHTML=`
+      <div class="manager-kpi cost-kpi">
+        <span>Custo mão de obra</span>
+        <strong>${escapeHtml(sgmanFormatMoney(agg.totalCost))}</strong>
+        <small>OS filtradas</small>
+      </div>
+      <div class="manager-kpi">
+        <span>Horas da equipe</span>
+        <strong>${agg.totalHours.toFixed(1)} h</strong>
+        <small>Tempo das OS</small>
+      </div>
+      <div class="manager-kpi">
+        <span>OS com custo calculado</span>
+        <strong>${agg.matchedOrders}/${agg.totalOrders}</strong>
+        <small>Executante identificado</small>
+      </div>
+      <div class="manager-kpi">
+        <span>Fator custo empresa</span>
+        <strong>${store.employerMultiplier.toFixed(2)}×</strong>
+        <small>${store.hoursPerMonth} h/mês</small>
+      </div>
+    `;
+  }
+
+  const machineTarget=$('laborMachineRanking');
+  if(machineTarget){
+    machineTarget.innerHTML=agg.machines.length
+      ? agg.machines.slice(0,12).map((row,index)=>`
+        <article class="sgman-ranking-row">
+          <span class="priority-number">${index+1}</span>
+          <div>
+            <strong>${escapeHtml(row.machine)}</strong>
+            <p>${row.orders} OS • ${row.hours.toFixed(1)} h</p>
+            <small>Custo de mão de obra: ${escapeHtml(sgmanFormatMoney(row.cost))}</small>
+          </div>
+        </article>
+      `).join('')
+      : '<p class="muted">Sem dados no filtro.</p>';
+  }
+
+  const mechanicTarget=$('laborMechanicRanking');
+  if(mechanicTarget){
+    mechanicTarget.innerHTML=agg.mechanics.length
+      ? agg.mechanics.slice(0,20).map((row,index)=>`
+        <article class="sgman-ranking-row">
+          <span class="priority-number">${index+1}</span>
+          <div>
+            <strong>${escapeHtml(row.mechanic)}</strong>
+            <p>${row.orders} OS • ${row.hours.toFixed(1)} h</p>
+            <small>${
+              row.matched
+                ? `Custo/h ${escapeHtml(sgmanFormatMoney(row.hourlyCost))} • Período ${escapeHtml(sgmanFormatMoney(row.cost))}`
+                : 'Salário não localizado na base'
+            }</small>
+          </div>
+        </article>
+      `).join('')
+      : '<p class="muted">Sem mecânicos no filtro.</p>';
+  }
+
+  const tbody=$('laborMechanicMachineBody');
+  if(tbody){
+    tbody.innerHTML=agg.mechanicMachine.map(row=>`
+      <tr>
+        <td>${escapeHtml(row.mechanic)}</td>
+        <td>${escapeHtml(row.machine)}</td>
+        <td>${row.orders}</td>
+        <td>${row.hours.toFixed(2)} h</td>
+        <td>${row.matched?escapeHtml(sgmanFormatMoney(row.hourlyCost)):'—'}</td>
+        <td>${row.matched?escapeHtml(sgmanFormatMoney(row.cost)):'—'}</td>
+      </tr>
+    `).join('');
+  }
+}
+
+function laborCostForMachineOrders(orders=[]){
+  return orders.reduce((sum,order)=>sum+laborCostForOrder(order).cost,0);
 }
 
 function sgmanManagementState(){
@@ -5719,6 +6052,10 @@ function renderDynamicSgmanManagement(){
   if(insights)insights.innerHTML=dynamicManagementInsights(orders,summary).map(t=>`<div class="management-insight">${escapeHtml(t)}</div>`).join('');
   if(tbody)tbody.innerHTML=orders.slice().sort((a,b)=>(sgmanManagementOrderDate(b)?.getTime()||0)-(sgmanManagementOrderDate(a)?.getTime()||0)).slice(0,250).map(o=>{const date=sgmanManagementOrderDate(o),repair=typeof sgmanRepairDuration==='function'?sgmanRepairDuration(o):smartRepairMinutes(o),cost=sgmanOrderCost(o),description=compactIssue(o.description||o.comment||o.solution||'');return `<tr><td>${date?escapeHtml(date.toLocaleDateString('pt-BR')):'—'}</td><td>${escapeHtml(o.id||'—')}</td><td>${escapeHtml(sgmanManagementMachine(o)||'—')}</td><td>${escapeHtml(sgmanUserLabel(sgmanManagementMechanic(o))||'—')}</td><td>${escapeHtml(o.status||o.statusKey||'—')}</td><td>${escapeHtml(sgmanManagementMaintenanceType(o)||'—')}</td><td>${escapeHtml(smartFmtMinutes(repair))}</td><td>${escapeHtml(sgmanFormatMoney(cost.total))}</td><td class="sgman-description-cell">${escapeHtml(description||'—')}</td></tr>`}).join('');
   if(count)count.textContent=`${orders.length} OS`; const m=sgmanManagementState(); if(status)status.textContent=m.loadedAt?`Base de gestão atualizada em ${new Date(m.loadedAt).toLocaleString('pt-BR')} • período carregado: ${m.queryStart||'—'} até ${m.queryEnd||'—'}`:'Usando os dados SGMan já carregados no aplicativo. Escolha um período e atualize.'; const daily=dynamicDailyRows(orders); drawDynamicLineChart('sgmanMttrChart',daily,'mttr',v=>smartFmtMinutes(v)); drawDynamicLineChart('sgmanCostChart',daily,'cost',v=>sgmanFormatMoney(v));
+
+  if(laborCostState().unlocked){
+    renderLaborCostManagement();
+  }
 }
 function sgmanMonthChunks(startDate,endDate){ const chunks=[]; let cursor=new Date(startDate.getFullYear(),startDate.getMonth(),1); while(cursor<=endDate){const ms=new Date(cursor),me=new Date(cursor.getFullYear(),cursor.getMonth()+1,0,23,59,59,999);chunks.push({start:ms<startDate?new Date(startDate):ms,end:me>endDate?new Date(endDate):me});cursor=new Date(cursor.getFullYear(),cursor.getMonth()+1,1);} return chunks; }
 function dedupeManagementOrders(orders=[]){ const seen=new Set(); return orders.filter(o=>{const key=[o.id,o.tag,o.startDate,o.endDate,o.description].join('|');if(seen.has(key))return false;seen.add(key);return true;}); }
@@ -11584,7 +11921,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=77.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=78.0.0');
         registration.update();
       } catch {}
     });
@@ -11679,5 +12016,21 @@ document.addEventListener('click',event=>{
 document.addEventListener('change',event=>{
   if(['powerBiOeeStart','powerBiOeeEnd','powerBiOeeMachine','powerBiOeeProduct'].includes(event.target?.id)){
     renderPowerBiSgmanDashboard();
+  }
+});
+
+document.addEventListener('click',event=>{
+  if(event.target?.id==='unlockLaborCostBtn'){
+    unlockLaborCosts();
+  }
+});
+
+document.addEventListener('change',event=>{
+  if([
+    'laborHoursPerMonth',
+    'laborEmployerMultiplier'
+  ].includes(event.target?.id) && laborCostState().unlocked){
+    const badge=$('laborCostSecurityBadge');
+    if(badge)badge.textContent='🔐 Revalide para recalcular';
   }
 });
