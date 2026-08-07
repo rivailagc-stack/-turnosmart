@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=75.0.0" />
+  <link rel="stylesheet" href="style.css?v=77.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -20,7 +20,7 @@
       <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V75.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V77.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -168,37 +168,77 @@
         <div id="focusedMechanicPlan" class="focused-mechanic-list"></div>
       </div>
     
-<div class="card monthly-management-card">
+
+<div class="card powerbi-sgman-card">
   <div class="section-head">
     <div>
-      <span class="eyebrow">GESTÃO HISTÓRICA</span>
-      <h2>Evolução mensal da manutenção</h2>
-      <p class="muted">Dados do SGMan desde setembro de 2025 ou desde o primeiro registro disponível.</p>
+      <span class="eyebrow">POWER BI + SGMAN</span>
+      <h2>OEE 2026 cruzado com manutenção</h2>
+      <p class="muted">Base Power BI: 2026-01-02 até 2026-07-31. A foto do quadro continua sendo a referência do turno atual.</p>
     </div>
-    <div class="history-controls">
-      <label>Início
-        <input id="managementHistoryStart" type="month" value="2025-09">
-      </label>
-      <button id="refreshManagementHistoryBtn" class="secondary" type="button">Atualizar evolução</button>
-    </div>
+    <button id="reloadPowerBiOeeBtn" class="secondary" type="button">Recarregar OEE</button>
   </div>
 
-  <div id="managementHistorySummary" class="monthly-summary"></div>
+  <div class="powerbi-sgman-filters">
+    <label>Data inicial<input id="powerBiOeeStart" type="date" value="2026-01-02"></label>
+    <label>Data final<input id="powerBiOeeEnd" type="date" value="2026-07-31"></label>
+    <label>Máquina<select id="powerBiOeeMachine"><option value="">Todas as máquinas</option></select></label>
+    <label>Produto<select id="powerBiOeeProduct"><option value="">Todos os produtos</option></select></label>
+    <label>OP<input id="powerBiOeeOp" type="text" placeholder="Ex.: 26/02068/ODPBR"></label>
+  </div>
 
-  <div class="monthly-table-wrap">
-    <table class="monthly-table">
-      <thead>
-        <tr>
-          <th>Mês</th><th>OS abertas</th><th>Concluídas</th>
-          <th>Corretivas</th><th>Com parada</th><th>Reincidências</th>
-          <th>MTTR</th><th>MTBF</th>
-        </tr>
-      </thead>
-      <tbody id="managementMonthlyTable"></tbody>
+  <div class="button-row compact-row">
+    <button id="applyPowerBiOeeFiltersBtn" class="primary" type="button">Aplicar filtros</button>
+    <button id="clearPowerBiOeeFiltersBtn" class="ghost" type="button">Limpar</button>
+  </div>
+
+  <p id="powerBiOeeStatus" class="muted"></p>
+  <div id="powerBiSgmanKpis" class="powerbi-sgman-kpis"></div>
+
+  <div class="powerbi-sgman-grid">
+    <section class="sgman-chart-card"><div class="section-head"><div><span class="eyebrow">OEE</span><h3>Evolução diária</h3></div></div><canvas id="powerBiOeeChart" height="220"></canvas></section>
+    <section class="sgman-chart-card"><div class="section-head"><div><span class="eyebrow">MANUTENÇÃO</span><h3>Horas de manutenção por dia</h3></div></div><canvas id="powerBiMaintenanceChart" height="220"></canvas></section>
+  </div>
+
+  <div class="powerbi-sgman-ranking-grid">
+    <section><div class="section-head"><div><span class="eyebrow">MÁQUINAS</span><h3>Piores OEE + SGMan</h3></div></div><div id="powerBiMachineCrossRanking" class="sgman-ranking-list"></div></section>
+    <section><div class="section-head"><div><span class="eyebrow">PRODUTOS</span><h3>Produtos com menor OEE</h3></div></div><div id="powerBiProductRanking" class="sgman-ranking-list"></div></section>
+  </div>
+
+  <div class="sgman-management-insight-box"><span class="eyebrow">LEITURA CRUZADA</span><div id="powerBiSgmanInsights"></div></div>
+
+  <div class="section-head sgman-orders-head">
+    <div><span class="eyebrow">CRUZAMENTO</span><h3>OEE, produção e manutenção por máquina</h3></div>
+    <span id="powerBiFilteredCount" class="ecopack-source-badge source-board">0 registros</span>
+  </div>
+
+  <div class="sgman-orders-table-wrap">
+    <table class="sgman-orders-table powerbi-cross-table">
+      <thead><tr><th>Máquina</th><th>OEE</th><th>Produção</th><th>Horas efetivas</th><th>Perda manutenção</th><th>OS SGMan</th><th>Corretivas</th><th>MTTR</th><th>Custo SGMan</th></tr></thead>
+      <tbody id="powerBiCrossTableBody"></tbody>
     </table>
   </div>
-
-  <div id="managementMonthlyInsights" class="monthly-insights"></div>
+</div>
+<div class="card sgman-management-card">
+  <div class="section-head sgman-management-head"><div><span class="eyebrow">GESTÃO SGMAN</span><h2>Gestão dinâmica da manutenção</h2><p class="muted">Consulte período, dia, máquina e mecânico. Custos aparecem quando retornados pelo SGMan.</p></div><button id="refreshDynamicSgmanBtn" class="primary" type="button">Atualizar período no SGMan</button></div>
+  <div class="sgman-management-filters">
+    <label>Mês<input id="sgmanManagementMonth" type="month"></label>
+    <label>Data inicial<input id="sgmanManagementStart" type="date"></label>
+    <label>Data final<input id="sgmanManagementEnd" type="date"></label>
+    <label>Dia específico<input id="sgmanManagementDay" type="date"></label>
+    <label>Máquina<select id="sgmanManagementMachine"><option value="">Todas as máquinas</option></select></label>
+    <label>Mecânico<select id="sgmanManagementMechanic"><option value="">Todos os mecânicos</option></select></label>
+    <label>Manutenção<select id="sgmanManagementType"><option value="">Todos os tipos</option></select></label>
+    <label>Status<select id="sgmanManagementStatus"><option value="">Todos os status</option><option value="completed">Concluídas</option><option value="open">Abertas</option><option value="overdue">Em atraso</option><option value="other">Outros</option></select></label>
+  </div>
+  <div class="button-row compact-row sgman-management-actions"><button id="applyDynamicSgmanFiltersBtn" class="secondary" type="button">Aplicar filtros</button><button id="clearDynamicSgmanFiltersBtn" class="ghost" type="button">Limpar filtros</button><button id="loadAllSgmanHistoryBtn" class="ghost" type="button">Carregar desde 09/2025</button></div>
+  <p id="sgmanManagementStatusText" class="muted"></p>
+  <div id="sgmanManagementKpis" class="sgman-management-kpis"></div>
+  <div class="sgman-management-chart-grid"><section class="sgman-chart-card"><div class="section-head"><div><span class="eyebrow">EVOLUÇÃO</span><h3>MTTR por dia</h3></div></div><canvas id="sgmanMttrChart" height="220"></canvas></section><section class="sgman-chart-card"><div class="section-head"><div><span class="eyebrow">CUSTOS</span><h3>Custo por dia</h3></div></div><canvas id="sgmanCostChart" height="220"></canvas></section></div>
+  <div class="sgman-management-ranking-grid"><section><div class="section-head"><div><span class="eyebrow">MÁQUINAS</span><h3>Ranking do período</h3></div></div><div id="sgmanMachineRanking" class="sgman-ranking-list"></div></section><section><div class="section-head"><div><span class="eyebrow">EQUIPE</span><h3>Desempenho por mecânico</h3></div></div><div id="sgmanMechanicRanking" class="sgman-ranking-list"></div></section></div>
+  <div class="sgman-management-insight-box"><span class="eyebrow">LEITURA DO GESTOR</span><div id="sgmanManagementInsights"></div></div>
+  <div class="section-head sgman-orders-head"><div><span class="eyebrow">ORDENS FILTRADAS</span><h3>Detalhamento</h3></div><span id="sgmanFilteredCount" class="ecopack-source-badge source-sgman">0 OS</span></div>
+  <div class="sgman-orders-table-wrap"><table class="sgman-orders-table"><thead><tr><th>Data</th><th>OS</th><th>Máquina</th><th>Mecânico</th><th>Status</th><th>Tipo</th><th>MTTR</th><th>Custo</th><th>Problema / solução</th></tr></thead><tbody id="sgmanManagementOrdersBody"></tbody></table></div>
 </div>
 </section>
 
@@ -1115,6 +1155,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=75.0.0"></script>
+  <script src="app.js?v=77.0.0"></script>
 </body>
 </html>

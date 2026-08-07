@@ -1,16 +1,10 @@
-PATCH V75
-
-Substitua:
+PATCH V77
+Substitua/adicone:
 - app.js
 - index.html
+- style.css
 - sw.js
 - api/health.js
+- oee-powerbi-2026.json (NOVO)
 
-Depois faça novo deploy e confirme V75.0.0.
-
-Depois de atualizar:
-1. carregue novamente a foto do quadro;
-2. confirme os OEE;
-3. cole o relatório da produção;
-4. toque em Analisar relatório;
-5. abra Ações.
+Depois faça deploy e confirme V77.0.0.

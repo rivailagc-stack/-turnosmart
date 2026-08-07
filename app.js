@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '75.0.0';
+const APP_VERSION = '77.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v75.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v77.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -3153,7 +3153,12 @@ function initializeViewModule(name) {
 
   if (name === 'inteligencia') {
     initializeIntelligenceOnlyWhenNeeded();
-    setTimeout(renderManagementHistory,100);
+    setTimeout(async()=>{
+      initializeDynamicSgmanDates();
+      renderDynamicSgmanManagement();
+      await loadEmbeddedPowerBiOee();
+      renderPowerBiSgmanDashboard();
+    },100);
   }
 
   if (name === 'mecanico') {
@@ -5305,6 +5310,426 @@ function renderKnowledgeGapDashboard(){
 }
 
 
+
+function powerBiOeeState(){
+  state.powerBiOee ||= {loaded:false,source:'',range:{start:'',end:''},rows:[]};
+  return state.powerBiOee;
+}
+
+async function loadEmbeddedPowerBiOee(force=false){
+  const store=powerBiOeeState();
+  if(store.loaded&&!force)return store;
+
+  const status=$('powerBiOeeStatus');
+  if(status)status.textContent='Carregando histórico OEE do Power BI...';
+
+  try{
+    const response=await fetch('/oee-powerbi-2026.json?v=77.0.0',{cache:force?'reload':'default'});
+    if(!response.ok)throw new Error(`HTTP ${response.status}`);
+
+    const data=await response.json();
+    store.loaded=true;
+    store.source=data.source||'Power BI OEE';
+    store.range=data.range||{};
+    store.rows=Array.isArray(data.rows)?data.rows:[];
+
+    populatePowerBiOeeFilters();
+    renderPowerBiSgmanDashboard();
+    return store;
+  }catch(error){
+    if(status)status.textContent=`Falha ao carregar OEE: ${error.message}`;
+    return store;
+  }
+}
+
+function powerBiOeeRows(){ return powerBiOeeState().rows||[]; }
+
+function populatePowerBiOeeFilters(){
+  const rows=powerBiOeeRows();
+
+  const machines=uniqueStrings(
+    rows.map(row=>normalizeMachineCode(row.machine)).filter(Boolean)
+  ).sort((a,b)=>a.localeCompare(b,'pt-BR',{numeric:true}));
+
+  const products=uniqueStrings(
+    rows.map(row=>String(row.productCode||'').trim()).filter(Boolean)
+  ).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+
+  const machineEl=$('powerBiOeeMachine');
+  if(machineEl){
+    const current=machineEl.value;
+    machineEl.innerHTML='<option value="">Todas as máquinas</option>'+
+      machines.map(machine=>`<option value="${escapeHtml(machine)}">${escapeHtml(machine)}</option>`).join('');
+    if(machines.includes(current))machineEl.value=current;
+  }
+
+  const productEl=$('powerBiOeeProduct');
+  if(productEl){
+    const current=productEl.value;
+    productEl.innerHTML='<option value="">Todos os produtos</option>'+
+      products.map(product=>`<option value="${escapeHtml(product)}">${escapeHtml(product)}</option>`).join('');
+    if(products.includes(current))productEl.value=current;
+  }
+}
+
+function powerBiOeeFilters(){
+  const store=powerBiOeeState();
+  return {
+    start:$('powerBiOeeStart')?.value||store.range.start||'',
+    end:$('powerBiOeeEnd')?.value||store.range.end||'',
+    machine:normalizeMachineCode($('powerBiOeeMachine')?.value||''),
+    product:String($('powerBiOeeProduct')?.value||'').trim(),
+    op:normalizeKey($('powerBiOeeOp')?.value||'')
+  };
+}
+
+function filteredPowerBiOeeRows(){
+  const f=powerBiOeeFilters();
+
+  return powerBiOeeRows().filter(row=>{
+    if(f.start&&row.date<f.start)return false;
+    if(f.end&&row.date>f.end)return false;
+    if(f.machine&&normalizeMachineCode(row.machine)!==f.machine)return false;
+    if(f.product&&String(row.productCode||'')!==f.product)return false;
+    if(f.op&&!normalizeKey(row.productionOrder||'').includes(f.op))return false;
+    return true;
+  });
+}
+
+function weightedPowerBiAverage(rows,valueKey,weightKey='plannedHours'){
+  let total=0,weight=0;
+
+  for(const row of rows){
+    const value=Number(row[valueKey]);
+    if(!Number.isFinite(value))continue;
+    const rawWeight=Number(row[weightKey]);
+    const w=Number.isFinite(rawWeight)&&rawWeight>0?rawWeight:1;
+    total+=value*w;
+    weight+=w;
+  }
+
+  return weight?total/weight:null;
+}
+
+function aggregatePowerBiMachines(rows=[]){
+  const groups=new Map();
+
+  rows.forEach(row=>{
+    const machine=normalizeMachineCode(row.machine);
+    if(!machine)return;
+    if(!groups.has(machine))groups.set(machine,[]);
+    groups.get(machine).push(row);
+  });
+
+  const sgmanOrders=sgmanManagementOrdersSource();
+
+  return [...groups.entries()].map(([machine,items])=>{
+    const dates=new Set(items.map(item=>item.date));
+
+    const related=sgmanOrders.filter(order=>{
+      if(sgmanManagementMachine(order)!==machine)return false;
+      const d=sgmanManagementOrderDate(order);
+      return d&&dates.has(sgmanManagementDateKey(d));
+    });
+
+    const durations=related
+      .filter(order=>order.statusKey==='completed')
+      .map(order=>typeof sgmanRepairDuration==='function'
+        ? sgmanRepairDuration(order)
+        : smartRepairMinutes(order))
+      .filter(value=>value!==null&&Number.isFinite(value)&&value>=0&&value<4320);
+
+    return {
+      machine,
+      oee:weightedPowerBiAverage(items,'oee'),
+      produced:items.reduce((s,r)=>s+Number(r.producedQuantity||0),0),
+      effectiveHours:items.reduce((s,r)=>s+Number(r.effectiveHours||0),0),
+      maintenanceHours:items.reduce((s,r)=>s+Number(r.maintenanceHours||0),0),
+      sgmanOrders:related.length,
+      corrective:related.filter(smartCorrective).length,
+      mttr:durations.length?averageNumbers(durations):null,
+      cost:related.reduce((s,o)=>s+sgmanOrderCost(o).total,0)
+    };
+  }).sort((a,b)=>(a.oee??999)-(b.oee??999));
+}
+
+function aggregatePowerBiProducts(rows=[]){
+  const groups=new Map();
+
+  rows.forEach(row=>{
+    const product=String(row.productCode||'').trim();
+    if(!product)return;
+    if(!groups.has(product))groups.set(product,[]);
+    groups.get(product).push(row);
+  });
+
+  return [...groups.entries()].map(([product,items])=>({
+    product,
+    oee:weightedPowerBiAverage(items,'oee'),
+    produced:items.reduce((s,r)=>s+Number(r.producedQuantity||0),0),
+    maintenanceHours:items.reduce((s,r)=>s+Number(r.maintenanceHours||0),0),
+    machines:uniqueStrings(items.map(r=>normalizeMachineCode(r.machine)).filter(Boolean)).length
+  })).sort((a,b)=>(a.oee??999)-(b.oee??999));
+}
+
+function dailyPowerBiRows(rows=[]){
+  const groups=new Map();
+
+  rows.forEach(row=>{
+    if(!groups.has(row.date))groups.set(row.date,[]);
+    groups.get(row.date).push(row);
+  });
+
+  return [...groups.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([key,items])=>({
+    key,
+    oee:weightedPowerBiAverage(items,'oee'),
+    maintenanceHours:items.reduce((s,r)=>s+Number(r.maintenanceHours||0),0)
+  }));
+}
+
+function latestPowerBiMachineHistoryRows(){
+  const groups=new Map();
+
+  powerBiOeeRows().forEach(row=>{
+    const machine=normalizeMachineCode(row.machine);
+    if(!machine)return;
+    if(!groups.has(machine))groups.set(machine,[]);
+    groups.get(machine).push(row);
+  });
+
+  return [...groups.entries()].map(([machine,items])=>{
+    const dates=uniqueStrings(items.map(item=>item.date)).sort();
+    const latestDate=dates[dates.length-1];
+    const previousDate=dates.length>1?dates[dates.length-2]:null;
+
+    const latest=items.filter(item=>item.date===latestDate);
+    const previous=previousDate?items.filter(item=>item.date===previousDate):[];
+
+    const oee=weightedPowerBiAverage(latest,'oee');
+    const previousOee=previous.length?weightedPowerBiAverage(previous,'oee'):null;
+
+    return {
+      machine,
+      oee,
+      previousOee,
+      previous:previousOee,
+      stoppedMinutes:latest.reduce((s,r)=>s+Number(r.maintenanceHours||0)*60,0),
+      failures:0,
+      raw:{source:'powerbi-history',date:latestDate}
+    };
+  });
+}
+
+function renderPowerBiSgmanDashboard(){
+  const rows=filteredPowerBiOeeRows();
+  const machines=aggregatePowerBiMachines(rows);
+  const products=aggregatePowerBiProducts(rows);
+
+  const avgOee=weightedPowerBiAverage(rows,'oee');
+  const produced=rows.reduce((s,r)=>s+Number(r.producedQuantity||0),0);
+  const effective=rows.reduce((s,r)=>s+Number(r.effectiveHours||0),0);
+  const maintenance=rows.reduce((s,r)=>s+Number(r.maintenanceHours||0),0);
+  const sgmanCount=machines.reduce((s,r)=>s+r.sgmanOrders,0);
+  const sgmanCost=machines.reduce((s,r)=>s+r.cost,0);
+
+  const kpis=$('powerBiSgmanKpis');
+  if(kpis){
+    kpis.innerHTML=`
+      <div class="manager-kpi"><span>OEE médio</span><strong>${avgOee===null?'—':`${avgOee.toFixed(1)}%`}</strong><small>Ponderado por horas planejadas</small></div>
+      <div class="manager-kpi"><span>Produção</span><strong>${Math.round(produced).toLocaleString('pt-BR')}</strong><small>Peças</small></div>
+      <div class="manager-kpi"><span>Horas efetivas</span><strong>${effective.toFixed(1)} h</strong><small>Power BI</small></div>
+      <div class="manager-kpi"><span>Perda manutenção</span><strong>${maintenance.toFixed(1)} h</strong><small>Power BI</small></div>
+      <div class="manager-kpi"><span>OS SGMan cruzadas</span><strong>${sgmanCount}</strong><small>Mesma máquina + data</small></div>
+      <div class="manager-kpi cost-kpi"><span>Custo SGMan</span><strong>${escapeHtml(sgmanFormatMoney(sgmanCost))}</strong><small>Quando disponível</small></div>
+    `;
+  }
+
+  const machineTarget=$('powerBiMachineCrossRanking');
+  if(machineTarget){
+    machineTarget.innerHTML=machines.length
+      ? machines.slice(0,10).map((row,index)=>`
+        <article class="sgman-ranking-row">
+          <span class="priority-number">${index+1}</span>
+          <div>
+            <strong>${escapeHtml(row.machine)} — ${row.oee===null?'—':`${row.oee.toFixed(1)}%`}</strong>
+            <p>${row.sgmanOrders} OS • ${row.corrective} corretiva(s) • ${row.maintenanceHours.toFixed(1)} h manutenção</p>
+            <small>MTTR ${escapeHtml(smartFmtMinutes(row.mttr))} • Custo ${escapeHtml(sgmanFormatMoney(row.cost))}</small>
+          </div>
+        </article>
+      `).join('')
+      : '<p class="muted">Sem máquinas.</p>';
+  }
+
+  const productTarget=$('powerBiProductRanking');
+  if(productTarget){
+    productTarget.innerHTML=products.length
+      ? products.slice(0,10).map((row,index)=>`
+        <article class="sgman-ranking-row">
+          <span class="priority-number">${index+1}</span>
+          <div>
+            <strong>${escapeHtml(row.product)} — ${row.oee===null?'—':`${row.oee.toFixed(1)}%`}</strong>
+            <p>${row.machines} máquina(s) • ${Math.round(row.produced).toLocaleString('pt-BR')} peças</p>
+            <small>${row.maintenanceHours.toFixed(1)} h de manutenção</small>
+          </div>
+        </article>
+      `).join('')
+      : '<p class="muted">Sem produtos.</p>';
+  }
+
+  const insights=$('powerBiSgmanInsights');
+  if(insights){
+    const items=[];
+    if(machines[0]){
+      items.push(`${machines[0].machine} tem o menor OEE do filtro (${(machines[0].oee??0).toFixed(1)}%) e ${machines[0].sgmanOrders} OS SGMan nas mesmas datas.`);
+    }
+    if(avgOee!==null)items.push(`OEE médio ponderado do recorte: ${avgOee.toFixed(1)}%.`);
+    const highMaint=[...machines].sort((a,b)=>b.maintenanceHours-a.maintenanceHours)[0];
+    if(highMaint&&highMaint.maintenanceHours>0){
+      items.push(`${highMaint.machine} concentra mais horas classificadas como manutenção no Power BI: ${highMaint.maintenanceHours.toFixed(1)} h.`);
+    }
+    const expensive=[...machines].sort((a,b)=>b.cost-a.cost)[0];
+    if(expensive&&expensive.cost>0){
+      items.push(`${expensive.machine} tem o maior custo SGMan do recorte: ${sgmanFormatMoney(expensive.cost)}.`);
+    }
+
+    insights.innerHTML=(items.length?items:['Sem dados suficientes.'])
+      .map(text=>`<div class="management-insight">${escapeHtml(text)}</div>`)
+      .join('');
+  }
+
+  const tbody=$('powerBiCrossTableBody');
+  if(tbody){
+    tbody.innerHTML=machines.map(row=>`
+      <tr>
+        <td>${escapeHtml(row.machine)}</td>
+        <td>${row.oee===null?'—':`${row.oee.toFixed(1)}%`}</td>
+        <td>${Math.round(row.produced).toLocaleString('pt-BR')}</td>
+        <td>${row.effectiveHours.toFixed(1)} h</td>
+        <td>${row.maintenanceHours.toFixed(1)} h</td>
+        <td>${row.sgmanOrders}</td>
+        <td>${row.corrective}</td>
+        <td>${escapeHtml(smartFmtMinutes(row.mttr))}</td>
+        <td>${escapeHtml(sgmanFormatMoney(row.cost))}</td>
+      </tr>
+    `).join('');
+  }
+
+  const count=$('powerBiFilteredCount');
+  if(count)count.textContent=`${rows.length} registros`;
+
+  const status=$('powerBiOeeStatus');
+  if(status&&powerBiOeeState().loaded){
+    status.textContent=`Power BI: ${powerBiOeeState().range.start||'—'} até ${powerBiOeeState().range.end||'—'} • ${rows.length} registros no filtro • SGMan cruzado por máquina e data.`;
+  }
+
+  const daily=dailyPowerBiRows(rows);
+  drawDynamicLineChart('powerBiOeeChart',daily,'oee',v=>`${v.toFixed(1)}%`);
+  drawDynamicLineChart('powerBiMaintenanceChart',daily,'maintenanceHours',v=>`${v.toFixed(1)} h`);
+}
+
+function clearPowerBiOeeFilters(){
+  const store=powerBiOeeState();
+  if($('powerBiOeeStart'))$('powerBiOeeStart').value=store.range.start||'';
+  if($('powerBiOeeEnd'))$('powerBiOeeEnd').value=store.range.end||'';
+  if($('powerBiOeeMachine'))$('powerBiOeeMachine').value='';
+  if($('powerBiOeeProduct'))$('powerBiOeeProduct').value='';
+  if($('powerBiOeeOp'))$('powerBiOeeOp').value='';
+  renderPowerBiSgmanDashboard();
+}
+
+function sgmanManagementState(){
+  state.sgmanManagement ||= { loadedAt:'', queryStart:'', queryEnd:'', orders:[] };
+  return state.sgmanManagement;
+}
+function sgmanMoneyNumber(value){
+  if(value===null||value===undefined||value==='')return 0;
+  if(typeof value==='number')return Number.isFinite(value)?value:0;
+  let text=String(value).trim().replace(/[R$\s]/g,'').replace(/[^\d,.-]/g,'');
+  if(!text)return 0;
+  if(text.includes(',')&&text.includes('.')){
+    if(text.lastIndexOf(',')>text.lastIndexOf('.')) text=text.replace(/\./g,'').replace(',','.');
+    else text=text.replace(/,/g,'');
+  }else if(text.includes(',')) text=text.replace(/\./g,'').replace(',','.');
+  const n=Number(text); return Number.isFinite(n)?n:0;
+}
+function sgmanFormatMoney(value){ return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(value||0)); }
+function sgmanOrderCost(order={}){
+  const material=sgmanMoneyNumber(order.materialCost), labor=sgmanMoneyNumber(order.laborCost), thirdParty=sgmanMoneyNumber(order.thirdPartyCost), explicit=sgmanMoneyNumber(order.totalCost);
+  return {material,labor,thirdParty,total:explicit>0?explicit:material+labor+thirdParty};
+}
+function sgmanManagementOrderDate(order={}){
+  const values=[order.endDate,order.endDateISO,order.startDate,order.data,order.date].filter(Boolean);
+  for(const value of values){
+    const text=String(value).trim(); let date=null;
+    const br=text.match(/(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}))?/);
+    if(br) date=new Date(Number(br[3]),Number(br[2])-1,Number(br[1]),Number(br[4]||0),Number(br[5]||0));
+    else date=new Date(text);
+    if(date&&!Number.isNaN(date.getTime()))return date;
+  }
+  return null;
+}
+function sgmanManagementDateKey(date){ if(!date)return ''; return [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-'); }
+function sgmanManagementMechanic(order={}){ return String(order.executante||order.executor||order.responsavel||'').trim(); }
+function sgmanManagementMachine(order={}){ return normalizeMachineCode(order.machine||machineKeyFromText([order.tag,order.local,order.description].filter(Boolean).join(' '))||''); }
+function sgmanManagementMaintenanceType(order={}){ return String(order.typeMaintenance||order.tipoManutencao||order.typeService||order.tipoServico||'').trim(); }
+function sgmanManagementOrdersSource(){ const m=sgmanManagementState(); return m.orders?.length?m.orders:(state.sgmanHistory?.orders||[]); }
+function sgmanMonthRange(monthValue){ if(!monthValue)return null; const [year,month]=monthValue.split('-').map(Number); if(!year||!month)return null; return {start:new Date(year,month-1,1,0,0,0,0),end:new Date(year,month,0,23,59,59,999)}; }
+function sgmanDateInputValue(date){ return [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-'); }
+function initializeDynamicSgmanDates(){
+  const month=$('sgmanManagementMonth'),start=$('sgmanManagementStart'),end=$('sgmanManagementEnd'); if(!month||!start||!end)return;
+  if(!month.value){ const now=new Date(); month.value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`; }
+  const range=sgmanMonthRange(month.value); if(range){ if(!start.value)start.value=sgmanDateInputValue(range.start); if(!end.value)end.value=sgmanDateInputValue(range.end); }
+}
+function populateDynamicSgmanFilters(){
+  const orders=sgmanManagementOrdersSource();
+  const machines=uniqueStrings(orders.map(sgmanManagementMachine).filter(Boolean)).sort((a,b)=>a.localeCompare(b,'pt-BR',{numeric:true}));
+  const mechanics=uniqueStrings(orders.map(sgmanManagementMechanic).filter(Boolean)).sort((a,b)=>sgmanUserLabel(a).localeCompare(sgmanUserLabel(b),'pt-BR'));
+  const types=uniqueStrings(orders.map(sgmanManagementMaintenanceType).filter(Boolean)).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const fill=(id,items,labelFn,emptyLabel)=>{ const el=$(id); if(!el)return; const current=el.value; el.innerHTML=`<option value="">${emptyLabel}</option>`+items.map(item=>`<option value="${escapeHtml(item)}">${escapeHtml(labelFn(item))}</option>`).join(''); if(items.includes(current))el.value=current; };
+  fill('sgmanManagementMachine',machines,x=>x,'Todas as máquinas'); fill('sgmanManagementMechanic',mechanics,x=>sgmanUserLabel(x),'Todos os mecânicos'); fill('sgmanManagementType',types,x=>x,'Todos os tipos');
+}
+function dynamicSgmanFilters(){ const day=$('sgmanManagementDay')?.value||'',start=$('sgmanManagementStart')?.value||'',end=$('sgmanManagementEnd')?.value||''; return {day,start:day||start,end:day||end,machine:$('sgmanManagementMachine')?.value||'',mechanic:$('sgmanManagementMechanic')?.value||'',maintenanceType:$('sgmanManagementType')?.value||'',status:$('sgmanManagementStatus')?.value||''}; }
+function filteredDynamicSgmanOrders(){
+  const f=dynamicSgmanFilters(); return sgmanManagementOrdersSource().filter(order=>{ const date=sgmanManagementOrderDate(order),key=sgmanManagementDateKey(date); if(f.start&&(!key||key<f.start))return false; if(f.end&&(!key||key>f.end))return false; if(f.machine&&sgmanManagementMachine(order)!==f.machine)return false; if(f.mechanic&&normalizeKey(sgmanManagementMechanic(order))!==normalizeKey(f.mechanic))return false; if(f.maintenanceType&&normalizeKey(sgmanManagementMaintenanceType(order))!==normalizeKey(f.maintenanceType))return false; if(f.status&&order.statusKey!==f.status)return false; return true; });
+}
+function dynamicMttr(orders=[]){ const durations=orders.filter(o=>o.statusKey==='completed').map(o=>typeof sgmanRepairDuration==='function'?sgmanRepairDuration(o):smartRepairMinutes(o)).filter(v=>v!==null&&Number.isFinite(v)&&v>=0&&v<4320); return durations.length?averageNumbers(durations):null; }
+function dynamicMtbf(orders=[]){
+  const grouped=new Map(); orders.filter(o=>smartCorrective(o)&&smartStopped(o)).forEach(o=>{ const m=sgmanManagementMachine(o),d=sgmanManagementOrderDate(o); if(!m||!d)return; if(!grouped.has(m))grouped.set(m,[]); grouped.get(m).push(d); }); const intervals=[];
+  for(const dates of grouped.values()){ dates.sort((a,b)=>a-b); for(let i=1;i<dates.length;i++){ const h=(dates[i]-dates[i-1])/3600000; if(h>0&&h<2160)intervals.push(h); }} return intervals.length?averageNumbers(intervals):null;
+}
+function dynamicSgmanSummary(orders=[]){
+  const corrective=orders.filter(smartCorrective); const counts={}; corrective.forEach(o=>{const m=sgmanManagementMachine(o);if(m)counts[m]=(counts[m]||0)+1});
+  return {total:orders.length,completed:orders.filter(o=>o.statusKey==='completed').length,open:orders.filter(o=>o.statusKey==='open').length,overdue:orders.filter(o=>o.statusKey==='overdue').length,corrective:corrective.length,stopped:orders.filter(smartStopped).length,recurrence:Object.values(counts).filter(c=>c>=2).length,mttr:dynamicMttr(orders),mtbf:dynamicMtbf(orders),totalCost:orders.reduce((s,o)=>s+sgmanOrderCost(o).total,0),materialCost:orders.reduce((s,o)=>s+sgmanOrderCost(o).material,0),laborCost:orders.reduce((s,o)=>s+sgmanOrderCost(o).labor,0)};
+}
+function dynamicDailyRows(orders=[]){ const map=new Map(); for(const o of orders){ const d=sgmanManagementOrderDate(o),key=sgmanManagementDateKey(d); if(!key)continue; if(!map.has(key))map.set(key,{key,durations:[],cost:0}); const row=map.get(key),duration=typeof sgmanRepairDuration==='function'?sgmanRepairDuration(o):smartRepairMinutes(o); if(duration!==null&&Number.isFinite(duration)&&duration>=0&&duration<4320)row.durations.push(duration); row.cost+=sgmanOrderCost(o).total; } return [...map.values()].sort((a,b)=>a.key.localeCompare(b.key)).map(r=>({...r,mttr:r.durations.length?averageNumbers(r.durations):null})); }
+function drawDynamicLineChart(canvasId,rows,valueKey,formatter){
+  const canvas=$(canvasId); if(!canvas)return; const ctx=canvas.getContext('2d'),width=Math.max(680,canvas.parentElement?.clientWidth||680),height=220,ratio=window.devicePixelRatio||1; canvas.width=width*ratio; canvas.height=height*ratio; canvas.style.width=`${width}px`; canvas.style.height=`${height}px`; ctx.setTransform(ratio,0,0,ratio,0,0); ctx.clearRect(0,0,width,height);
+  const valid=rows.filter(r=>r[valueKey]!==null&&Number.isFinite(r[valueKey])); if(!valid.length){ctx.fillStyle='#667085';ctx.font='14px sans-serif';ctx.fillText('Sem dados suficientes para este gráfico.',18,40);return;}
+  const p={left:48,right:18,top:22,bottom:48},cw=width-p.left-p.right,ch=height-p.top-p.bottom,max=Math.max(1,...valid.map(r=>r[valueKey])); ctx.strokeStyle='#e1e5ea'; for(let i=0;i<=4;i++){const y=p.top+(ch/4)*i;ctx.beginPath();ctx.moveTo(p.left,y);ctx.lineTo(width-p.right,y);ctx.stroke();}
+  const x=i=>valid.length===1?p.left+cw/2:p.left+(cw/(valid.length-1))*i,y=v=>p.top+ch-(v/max)*ch; ctx.strokeStyle='#f28c00';ctx.fillStyle='#f28c00';ctx.lineWidth=3;ctx.beginPath();valid.forEach((r,i)=>{const px=x(i),py=y(r[valueKey]);if(i===0)ctx.moveTo(px,py);else ctx.lineTo(px,py)});ctx.stroke();valid.forEach((r,i)=>{ctx.beginPath();ctx.arc(x(i),y(r[valueKey]),4,0,Math.PI*2);ctx.fill()}); ctx.fillStyle='#667085';ctx.font='11px sans-serif';valid.forEach((r,i)=>{if(valid.length>12&&i%Math.ceil(valid.length/10)!==0&&i!==valid.length-1)return;ctx.save();ctx.translate(x(i),height-18);ctx.rotate(-.45);ctx.fillText(r.key.slice(5),0,0);ctx.restore()});ctx.fillStyle='#222831';ctx.font='12px sans-serif';ctx.fillText(formatter(max),6,p.top+5);
+}
+function dynamicMachineRanking(orders=[]){ const map=new Map(); for(const o of orders){const m=sgmanManagementMachine(o);if(!m)continue;if(!map.has(m))map.set(m,{machine:m,orders:0,corrective:0,stopped:0,durations:[],cost:0});const r=map.get(m);r.orders++;if(smartCorrective(o))r.corrective++;if(smartStopped(o))r.stopped++;const d=typeof sgmanRepairDuration==='function'?sgmanRepairDuration(o):smartRepairMinutes(o);if(d!==null&&Number.isFinite(d)&&d>=0&&d<4320)r.durations.push(d);r.cost+=sgmanOrderCost(o).total;} return [...map.values()].map(r=>({...r,mttr:r.durations.length?averageNumbers(r.durations):null,score:r.stopped*15+r.corrective*8+r.orders+r.cost/1000})).sort((a,b)=>b.score-a.score); }
+function dynamicMechanicRanking(orders=[]){ const map=new Map(); for(const o of orders){const m=sgmanManagementMechanic(o);if(!m)continue;if(!map.has(m))map.set(m,{mechanic:m,completed:0,total:0,durations:[],cost:0});const r=map.get(m);r.total++;if(o.statusKey==='completed')r.completed++;const d=typeof sgmanRepairDuration==='function'?sgmanRepairDuration(o):smartRepairMinutes(o);if(o.statusKey==='completed'&&d!==null&&Number.isFinite(d)&&d>=0&&d<4320)r.durations.push(d);r.cost+=sgmanOrderCost(o).total;} return [...map.values()].map(r=>({...r,label:sgmanUserLabel(r.mechanic),mttr:r.durations.length?averageNumbers(r.durations):null})).sort((a,b)=>(a.mttr??Infinity)-(b.mttr??Infinity)||b.completed-a.completed); }
+function dynamicManagementInsights(orders=[],summary={}){ if(!orders.length)return ['Sem ordens para os filtros selecionados.']; const machines=dynamicMachineRanking(orders),mechanics=dynamicMechanicRanking(orders),ins=[]; if(machines[0])ins.push(`${machines[0].machine} concentra o maior impacto no período: ${machines[0].orders} OS, ${machines[0].stopped} com parada e custo ${sgmanFormatMoney(machines[0].cost)}.`); const quickest=mechanics.find(r=>r.completed>=2&&r.mttr!==null); if(quickest)ins.push(`${quickest.label} apresenta MTTR médio de ${smartFmtMinutes(quickest.mttr)} em ${quickest.completed} OS concluídas no filtro atual.`); if(summary.overdue>0)ins.push(`Existem ${summary.overdue} OS em atraso no recorte selecionado; priorize responsável e prazo.`); ins.push(summary.totalCost>0?`Custo acumulado das ordens filtradas: ${sgmanFormatMoney(summary.totalCost)}.`:'O SGMan não retornou valores de custo para estas ordens; os demais indicadores continuam válidos.'); return ins; }
+function renderDynamicSgmanManagement(){
+  initializeDynamicSgmanDates(); populateDynamicSgmanFilters(); const orders=filteredDynamicSgmanOrders(),summary=dynamicSgmanSummary(orders),kpis=$('sgmanManagementKpis'),machineTarget=$('sgmanMachineRanking'),mechanicTarget=$('sgmanMechanicRanking'),insights=$('sgmanManagementInsights'),tbody=$('sgmanManagementOrdersBody'),count=$('sgmanFilteredCount'),status=$('sgmanManagementStatusText');
+  if(kpis)kpis.innerHTML=`<div class="manager-kpi"><span>OS no filtro</span><strong>${summary.total}</strong><small>${summary.completed} concluídas</small></div><div class="manager-kpi"><span>MTTR</span><strong>${escapeHtml(smartFmtMinutes(summary.mttr))}</strong><small>Tempo médio de reparo</small></div><div class="manager-kpi"><span>MTBF</span><strong>${escapeHtml(smartFmtHours(summary.mtbf))}</strong><small>Entre falhas com parada</small></div><div class="manager-kpi"><span>Em atraso</span><strong>${summary.overdue}</strong><small>${summary.open} abertas</small></div><div class="manager-kpi"><span>Reincidências</span><strong>${summary.recurrence}</strong><small>Máquinas com 2+ corretivas</small></div><div class="manager-kpi cost-kpi"><span>Custo total</span><strong>${escapeHtml(sgmanFormatMoney(summary.totalCost))}</strong><small>Ordens filtradas</small></div><div class="manager-kpi"><span>Materiais / peças</span><strong>${escapeHtml(sgmanFormatMoney(summary.materialCost))}</strong><small>Quando informado</small></div><div class="manager-kpi"><span>Mão de obra</span><strong>${escapeHtml(sgmanFormatMoney(summary.laborCost))}</strong><small>Quando informado</small></div>`;
+  const mr=dynamicMachineRanking(orders); if(machineTarget)machineTarget.innerHTML=mr.length?mr.slice(0,10).map((r,i)=>`<article class="sgman-ranking-row"><span class="priority-number">${i+1}</span><div><strong>${escapeHtml(r.machine)}</strong><p>${r.orders} OS • ${r.corrective} corretiva(s) • ${r.stopped} parada(s)</p><small>MTTR ${escapeHtml(smartFmtMinutes(r.mttr))} • Custo ${escapeHtml(sgmanFormatMoney(r.cost))}</small></div></article>`).join(''):'<p class="muted">Sem máquinas no filtro.</p>';
+  const pr=dynamicMechanicRanking(orders); if(mechanicTarget)mechanicTarget.innerHTML=pr.length?pr.slice(0,10).map((r,i)=>`<article class="sgman-ranking-row"><span class="priority-number">${i+1}</span><div><strong>${escapeHtml(r.label)}</strong><p>${r.completed} concluída(s) de ${r.total} OS</p><small>MTTR ${escapeHtml(smartFmtMinutes(r.mttr))} • Custo associado ${escapeHtml(sgmanFormatMoney(r.cost))}</small></div></article>`).join(''):'<p class="muted">Sem executantes no filtro.</p>';
+  if(insights)insights.innerHTML=dynamicManagementInsights(orders,summary).map(t=>`<div class="management-insight">${escapeHtml(t)}</div>`).join('');
+  if(tbody)tbody.innerHTML=orders.slice().sort((a,b)=>(sgmanManagementOrderDate(b)?.getTime()||0)-(sgmanManagementOrderDate(a)?.getTime()||0)).slice(0,250).map(o=>{const date=sgmanManagementOrderDate(o),repair=typeof sgmanRepairDuration==='function'?sgmanRepairDuration(o):smartRepairMinutes(o),cost=sgmanOrderCost(o),description=compactIssue(o.description||o.comment||o.solution||'');return `<tr><td>${date?escapeHtml(date.toLocaleDateString('pt-BR')):'—'}</td><td>${escapeHtml(o.id||'—')}</td><td>${escapeHtml(sgmanManagementMachine(o)||'—')}</td><td>${escapeHtml(sgmanUserLabel(sgmanManagementMechanic(o))||'—')}</td><td>${escapeHtml(o.status||o.statusKey||'—')}</td><td>${escapeHtml(sgmanManagementMaintenanceType(o)||'—')}</td><td>${escapeHtml(smartFmtMinutes(repair))}</td><td>${escapeHtml(sgmanFormatMoney(cost.total))}</td><td class="sgman-description-cell">${escapeHtml(description||'—')}</td></tr>`}).join('');
+  if(count)count.textContent=`${orders.length} OS`; const m=sgmanManagementState(); if(status)status.textContent=m.loadedAt?`Base de gestão atualizada em ${new Date(m.loadedAt).toLocaleString('pt-BR')} • período carregado: ${m.queryStart||'—'} até ${m.queryEnd||'—'}`:'Usando os dados SGMan já carregados no aplicativo. Escolha um período e atualize.'; const daily=dynamicDailyRows(orders); drawDynamicLineChart('sgmanMttrChart',daily,'mttr',v=>smartFmtMinutes(v)); drawDynamicLineChart('sgmanCostChart',daily,'cost',v=>sgmanFormatMoney(v));
+}
+function sgmanMonthChunks(startDate,endDate){ const chunks=[]; let cursor=new Date(startDate.getFullYear(),startDate.getMonth(),1); while(cursor<=endDate){const ms=new Date(cursor),me=new Date(cursor.getFullYear(),cursor.getMonth()+1,0,23,59,59,999);chunks.push({start:ms<startDate?new Date(startDate):ms,end:me>endDate?new Date(endDate):me});cursor=new Date(cursor.getFullYear(),cursor.getMonth()+1,1);} return chunks; }
+function dedupeManagementOrders(orders=[]){ const seen=new Set(); return orders.filter(o=>{const key=[o.id,o.tag,o.startDate,o.endDate,o.description].join('|');if(seen.has(key))return false;seen.add(key);return true;}); }
+async function fetchDynamicSgmanRange(startDate,endDate){
+  const chunks=sgmanMonthChunks(startDate,endDate),all=[],button=$('refreshDynamicSgmanBtn'),status=$('sgmanManagementStatusText'); if(button){button.disabled=true;button.textContent='Buscando SGMan...';}
+  try{for(let i=0;i<chunks.length;i++){const c=chunks[i];if(status)status.textContent=`Consultando SGMan: mês ${i+1} de ${chunks.length}...`;const response=await fetch('/api/sgman-list',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data_inicio:formatSgmanDateTime(c.start),data_fim:formatSgmanDateTime(c.end),calc_custos:1,limit:500})});const data=await response.json().catch(()=>({}));if(!response.ok||data.ok===false)throw new Error(data.error||`Erro HTTP ${response.status}`);all.push(...(Array.isArray(data.orders)?data.orders:[]));if(i<chunks.length-1)await waitMilliseconds(700);} const m=sgmanManagementState();m.orders=dedupeManagementOrders(all);m.loadedAt=new Date().toISOString();m.queryStart=sgmanDateInputValue(startDate);m.queryEnd=sgmanDateInputValue(endDate);populateDynamicSgmanFilters();renderDynamicSgmanManagement();renderPowerBiSgmanDashboard();showToast(`${m.orders.length} OS carregadas para a gestão.`);return m.orders;}finally{if(button){button.disabled=false;button.textContent='Atualizar período no SGMan';}}
+}
+async function refreshDynamicSgmanManagement(){ initializeDynamicSgmanDates(); const sv=$('sgmanManagementStart')?.value,ev=$('sgmanManagementEnd')?.value;if(!sv||!ev){showToast('Informe a data inicial e final.');return;}const start=new Date(`${sv}T00:00:00`),end=new Date(`${ev}T23:59:59`);if(Number.isNaN(start.getTime())||Number.isNaN(end.getTime())||end<start){showToast('Período inválido.');return;}try{await fetchDynamicSgmanRange(start,end)}catch(error){showToast(`Falha na gestão SGMan: ${error.message}`)} }
+async function loadAllDynamicSgmanHistory(){ const start=new Date('2025-09-01T00:00:00'),end=new Date();$('sgmanManagementMonth').value='';$('sgmanManagementStart').value=sgmanDateInputValue(start);$('sgmanManagementEnd').value=sgmanDateInputValue(end);$('sgmanManagementDay').value='';try{await fetchDynamicSgmanRange(start,end)}catch(error){showToast(`Não foi possível carregar o histórico completo: ${error.message}`)} }
+function clearDynamicSgmanFilters(){ $('sgmanManagementDay').value='';$('sgmanManagementMachine').value='';$('sgmanManagementMechanic').value='';$('sgmanManagementType').value='';$('sgmanManagementStatus').value='';renderDynamicSgmanManagement(); }
+
 function smartDate(order={}){
   const values=[
     order.completedAt,order.concludedAt,order.dataConclusao,
@@ -5515,7 +5940,8 @@ function smartMachineRows(){
     state.oeeData,
     state.oeeMachines,
     state.analysis?.machines,
-    state.reportAnalysis?.machines
+    state.reportAnalysis?.machines,
+    latestPowerBiMachineHistoryRows()
   ];
 
   const result=[];
@@ -11158,7 +11584,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=75.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=77.0.0');
         registration.update();
       } catch {}
     });
@@ -11230,5 +11656,28 @@ document.addEventListener('click',event=>{
   if(event.target?.id==='refreshSupervisorFusionBtn'){
     renderSupervisorFusionPanel();
     showToast('Prioridades atualizadas com quadro e relatório da produção.');
+  }
+});
+
+document.addEventListener('click',event=>{
+  if(event.target?.id==='refreshDynamicSgmanBtn') refreshDynamicSgmanManagement();
+  if(event.target?.id==='applyDynamicSgmanFiltersBtn') renderDynamicSgmanManagement();
+  if(event.target?.id==='clearDynamicSgmanFiltersBtn') clearDynamicSgmanFilters();
+  if(event.target?.id==='loadAllSgmanHistoryBtn') loadAllDynamicSgmanHistory();
+});
+document.addEventListener('change',event=>{
+  if(event.target?.id==='sgmanManagementMonth'){ const range=sgmanMonthRange(event.target.value); if(range){ $('sgmanManagementStart').value=sgmanDateInputValue(range.start); $('sgmanManagementEnd').value=sgmanDateInputValue(range.end); $('sgmanManagementDay').value=''; }}
+  if(['sgmanManagementDay','sgmanManagementMachine','sgmanManagementMechanic','sgmanManagementType','sgmanManagementStatus'].includes(event.target?.id)) renderDynamicSgmanManagement();
+});
+
+document.addEventListener('click',event=>{
+  if(event.target?.id==='reloadPowerBiOeeBtn') loadEmbeddedPowerBiOee(true);
+  if(event.target?.id==='applyPowerBiOeeFiltersBtn') renderPowerBiSgmanDashboard();
+  if(event.target?.id==='clearPowerBiOeeFiltersBtn') clearPowerBiOeeFilters();
+});
+
+document.addEventListener('change',event=>{
+  if(['powerBiOeeStart','powerBiOeeEnd','powerBiOeeMachine','powerBiOeeProduct'].includes(event.target?.id)){
+    renderPowerBiSgmanDashboard();
   }
 });
