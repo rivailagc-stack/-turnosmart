@@ -1,7 +1,7 @@
 module.exports=(req,res)=>res.status(200).json({
   ok:true,
   app:'TurnoSmart',
-  version:'77.0.0',
+  version:'78.0.0',
   normalize_machine_code_fixed:true,
   visual_training_save_fixed:true,
   industrial_knowledge_center_enabled:true,
@@ -23,6 +23,9 @@ module.exports=(req,res)=>res.status(200).json({
   historical_sgman_range_query_enabled:true,
   embedded_powerbi_oee_2026_enabled:true,
   powerbi_sgman_cross_analysis_enabled:true,
+  labor_cost_management_enabled:true,
+  protected_salary_rates_enabled:true,
+  mechanic_machine_cost_enabled:true,
   legacy_maintenance_action_list_disabled:true,
   max_three_confirmed_priorities:true,
   monthly_management_evolution_enabled:true,
