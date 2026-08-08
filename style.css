@@ -2289,3 +2289,56 @@ main,.view,.card,.section-head,.sgman-management-card,.powerbi-sgman-card,.leade
 .supervisor-fusion-row strong{
   line-height:1.35;
 }
+
+/* ==========================================================
+   V85 — RODOU / NÃO RODOU
+   ========================================================== */
+.oee-editor-row{
+  display:grid;
+  grid-template-columns:minmax(70px,90px) minmax(120px,1fr) auto minmax(86px,110px);
+  gap:8px;
+  align-items:center;
+}
+.oee-run-toggle{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:6px 8px;
+  border-radius:999px;
+  background:#eef2f6;
+  font-size:.75rem;
+  font-weight:850;
+  white-space:nowrap;
+}
+.oee-run-toggle input{
+  width:18px;
+  height:18px;
+  margin:0;
+}
+.oee-editor-row.machine-did-not-run{
+  opacity:.62;
+  background:#f2f4f7;
+}
+.oee-editor-row.machine-did-not-run .oee-machine-name{
+  text-decoration:line-through;
+}
+.oee-editor-row.machine-ran{
+  border-left:4px solid #17b26a;
+}
+@media(max-width:760px){
+  .oee-editor-row{
+    grid-template-columns:72px minmax(0,1fr);
+  }
+  .oee-row-preview{
+    grid-column:1 / -1;
+  }
+  .oee-run-toggle{
+    grid-column:1;
+  }
+  .oee-editor-input{
+    grid-column:2;
+  }
+  .oee-editor-row small{
+    grid-column:1 / -1;
+  }
+}

@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '84.0.0';
+const APP_VERSION = '85.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v84.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v85.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2510,12 +2510,12 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
 
   state.oeeMachineEditorData = rows.length
     ? rows
-    : OEE_BOARD_MACHINES.map(machine => ({ machine, oee: '', confidence: 0, source: '' }));
+    : OEE_BOARD_MACHINES.map(machine => ({ machine, oee: '', confidence: 0, source: '', ran: false }));
 
   wrap.innerHTML = `
     <div class="oee-editor-head">
       <strong>Confirme os valores antes de analisar</strong>
-      <span class="muted">Deixe vazio quando a máquina não trabalhou.</span>
+      <span class="muted">Marque “Não rodou” quando a máquina não trabalhou nas últimas 12h.</span>
     </div>
     <div class="oee-editor-grid">
       ${state.oeeMachineEditorData.map((row, index) => {
@@ -2527,12 +2527,22 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
               ? 'confidence-warning'
               : 'confidence-low';
 
+        const ran = row.ran !== false && row.oee !== '';
         return `
-          <label class="oee-editor-row ${confidenceClass}">
+          <div class="oee-editor-row ${confidenceClass} ${ran?'machine-ran':'machine-did-not-run'}">
             <span class="oee-machine-name">${escapeHtml(row.machine)}</span>
             ${state.oeeRowPreviews[index]
               ? `<img class="oee-row-preview" src="${state.oeeRowPreviews[index]}" alt="Linha de ${escapeHtml(row.machine)} no quadro" />`
               : '<span class="oee-row-placeholder">Sem recorte</span>'}
+            <label class="oee-run-toggle">
+              <input
+                class="oee-ran-checkbox"
+                data-index="${index}"
+                type="checkbox"
+                ${ran?'checked':''}
+              />
+              <span>${ran?'Rodou':'Não rodou'}</span>
+            </label>
             <input
               class="oee-editor-input"
               data-index="${index}"
@@ -2543,12 +2553,58 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
               inputmode="decimal"
               value="${row.oee === '' ? '' : escapeHtml(String(row.oee))}"
               placeholder="-"
+              ${ran?'':'disabled'}
             />
-            <small>${row.oee === '' ? 'Confira a linha e digite o OEE' : `${Math.round(row.confidence || 0)}% confiança — confirme`}</small>
-          </label>`;
+            <small>${ran
+              ? (row.oee === '' ? 'Confira a linha e digite o OEE' : `${Math.round(row.confidence || 0)}% confiança — confirme`)
+              : 'Não entra na prioridade'}
+            </small>
+          </div>`;
       }).join('')}
     </div>
   `;
+
+  $$('.oee-ran-checkbox').forEach(check => {
+    check.addEventListener('change', event => {
+      const index = Number(event.target.dataset.index);
+      const row = state.oeeMachineEditorData[index];
+      if (!row) return;
+
+      row.ran = event.target.checked;
+
+      const editorRow = event.target.closest('.oee-editor-row');
+      const valueInput = editorRow?.querySelector('.oee-editor-input');
+      const label = editorRow?.querySelector('.oee-run-toggle span');
+      const small = editorRow?.querySelector('small');
+
+      if (row.ran) {
+        editorRow?.classList.remove('machine-did-not-run');
+        editorRow?.classList.add('machine-ran');
+        if (valueInput) valueInput.disabled = false;
+        if (label) label.textContent = 'Rodou';
+        if (small) {
+          small.textContent = row.oee === ''
+            ? 'Digite/confirme o OEE'
+            : 'Rodou — valor confirmado';
+        }
+      } else {
+        editorRow?.classList.remove('machine-ran');
+        editorRow?.classList.add('machine-did-not-run');
+        if (valueInput) {
+          valueInput.disabled = true;
+          valueInput.value = '';
+        }
+        row.oee = '';
+        row.confidence = 100;
+        if (label) label.textContent = 'Não rodou';
+        if (small) small.textContent = 'Não entra na prioridade';
+      }
+
+      // Atualiza imediatamente o texto corrente do quadro.
+      if ($('oeeOcrText')) $('oeeOcrText').value = editorOeeText();
+      state.oeeOcrText = $('oeeOcrText')?.value || '';
+    });
+  });
 
   $$('.oee-editor-input').forEach(input => {
     input.addEventListener('input', event => {
@@ -2556,6 +2612,7 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
       const raw = event.target.value.trim();
       const value = raw === '' ? '' : Number(raw.replace(',', '.'));
       state.oeeMachineEditorData[index].oee = Number.isFinite(value) ? value : '';
+      state.oeeMachineEditorData[index].ran = raw !== '';
       state.oeeMachineEditorData[index].confidence = 100;
       event.target.closest('.oee-editor-row')?.classList.remove('confidence-low', 'confidence-warning', 'confidence-empty');
       event.target.closest('.oee-editor-row')?.classList.add('confidence-good');
@@ -2572,9 +2629,15 @@ function machineOeeFromEditor() {
     .map(row => ({
       machine: row.machine,
       oee: row.oee === '' ? null : Number(row.oee),
+      ran: row.ran !== false && row.oee !== '',
       line: `${row.machine} ${row.oee}%`
     }))
-    .filter(row => Number.isFinite(row.oee) && row.oee >= 0 && row.oee <= 100);
+    .filter(row =>
+      row.ran === true &&
+      Number.isFinite(row.oee) &&
+      row.oee > 0 &&
+      row.oee <= 100
+    );
 }
 
 function editorOeeText() {
@@ -2630,7 +2693,11 @@ async function processOeeColumnPhoto() {
     );
 
     const words = result?.data?.words || [];
-    const rows = mapOcrWordsToMachineRows(words, processed.canvas.height);
+    const rows = mapOcrWordsToMachineRows(words, processed.canvas.height)
+      .map(row => ({
+        ...row,
+        ran: row.oee !== ''
+      }));
     state.oeeMachineEditorData = rows;
     renderOeeMachineEditor(rows);
 
@@ -7118,29 +7185,24 @@ function fallbackCurrentShiftPriorities(limit=10){
 
 
 function current12hMachineStatus(){
-  const rows=[
-    ...(state.analysis?.machineOee||[]),
-    ...(state.analysis?.lowOeeMachines||[]),
-    ...(state.oeeMachineEditorData||[]),
-    ...(state.oeeBoardRows||[]),
-    ...(state.ocrOeeRows||[]),
-    ...(state.boardAnalysis?.machines||[])
-  ];
+  // V85: FONTE ÚNICA PARA PRIORIDADE.
+  // Depois de analisar, usa somente analysis.machineOee, que nasce da foto atual.
+  // Antes de analisar, usa somente o editor da foto atual.
+  // SGMan, Power BI, OCR antigo e caches NÃO entram aqui.
+  const sourceRows = Array.isArray(state.analysis?.machineOee) && state.analysis.machineOee.length
+    ? state.analysis.machineOee
+    : machineOeeFromEditor();
 
   const map=new Map();
 
-  for(const row of rows){
+  for(const row of sourceRows){
     const machine=normalizeMachineCode(row.machine||row.maquina||row.mk||'');
     if(!machine)continue;
 
     const oee=smartNumeric(row.oee??row.value??row.efficiency);
-    const produced=smartNumeric(
-      row.producedQuantity??
-      row.production??
-      row.quantidade??
-      row.qty??
-      row.pieces
-    );
+    const ran = row.ran !== false && oee !== null && oee > 0;
+
+    if(!ran)continue;
 
     const stoppedHoursRaw=smartNumeric(
       row.stoppedHours??
@@ -7163,19 +7225,19 @@ function current12hMachineStatus(){
         ? stoppedMinutesRaw/60
         : null;
 
-    // A máquina "rodou" quando o quadro atual traz OEE válido e,
-    // quando produção é informada, ela é maior que zero.
-    const ran=
-      oee!==null &&
-      oee>0 &&
-      (produced===null || produced>0);
-
     map.set(machine,{
       machine,
       oee,
-      produced,
+      produced:smartNumeric(
+        row.producedQuantity??
+        row.production??
+        row.quantidade??
+        row.qty??
+        row.pieces
+      ),
       stoppedHours,
-      ran
+      ran:true,
+      source:'current-photo'
     });
   }
 
@@ -12261,6 +12323,17 @@ function init() {
     state.oeeImageDataUrl = dataUrl;
     state.oeeMachineEditorData = [];
     state.oeeRowPreviews = [];
+
+    // Nova foto = novo turno/quadro. Apaga qualquer prioridade do quadro anterior.
+    if (state.analysis) {
+      state.analysis.machineOee = [];
+      state.analysis.lowOeeMachines = [];
+    }
+    state.supervisorFusionRows = [];
+    try {
+      localStorage.removeItem(supervisorPriorityStorageKey());
+    } catch {}
+
     $('oeePreview').src = dataUrl;
     $('oeePreviewWrap').classList.remove('hidden');
     $('oeeCropPreviewWrap').classList.add('hidden');
@@ -12537,7 +12610,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=84.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=85.0.0');
         registration.update();
       } catch {}
     });

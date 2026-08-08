@@ -1,5 +1,6 @@
-PATCH V84
-Use sobre a V83.
+PATCH V85
+Use sobre a V84.
+
 Substitua:
 - app.js
 - index.html
@@ -7,4 +8,7 @@ Substitua:
 - sw.js
 - api/health.js
 
-Depois faça deploy e confirme V84.0.0.
+Depois faça novo deploy e confirme V85.0.0.
+
+IMPORTANTE:
+Ao carregar a foto, revise Rodou / Não rodou antes de Analisar relatório.
