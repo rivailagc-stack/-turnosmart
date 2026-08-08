@@ -199,14 +199,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '91.0.0';
+const APP_VERSION = '92.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v91.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v92.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2282,8 +2282,11 @@ function getOeeCropSettings(image, operationalDate, shift) {
   // a lista usada pelo TurnoSmart começa na MK138 e termina na MK149.
   // MK02 e MK08 ficam acima e não entram nessa régua.
   // Isso evita deslocar o OEE de uma máquina para outra.
-  const yRatio = 0.325;
-  const heightRatio = 0.65;
+  // V92 — faixa real das 20 linhas de máquinas.
+  // Evita incluir espaço vazio abaixo da MK149, que aumentava artificialmente
+  // a altura de cada linha e deslocava o OEE para a máquina errada.
+  const yRatio = 0.300;
+  const heightRatio = 0.625;
 
   return {
     sx: Math.round(image.naturalWidth * xRatio),
@@ -2427,133 +2430,134 @@ function preprocessOeeColumn(image, operationalDate, shift) {
 }
 
 function numericOeeFromWord(text = '') {
-  const cleaned = String(text).replace(/[Oo]/g, '0').replace(/[^0-9.,%]/g, '');
-  const match = cleaned.match(/(\d{1,3})(?:[.,](\d))?/);
-  if (!match) return null;
-  const integer = Number(match[1]);
-  const value = Number(match[2] ? `${integer}.${match[2]}` : integer);
-  if (!Number.isFinite(value) || value < 10 || value > 100) return null;
+  const original=String(text||'').trim();
+  const cleaned=original
+    .replace(/[Oo]/g,'0')
+    .replace(/\s+/g,'')
+    .replace(/[^0-9.,%]/g,'');
+
+  if(!cleaned)return null;
+
+  const hasPercent=cleaned.includes('%');
+  const withoutPercent=cleaned.replace(/%/g,'');
+
+  // Rejeita formatos típicos de produção/quantidade:
+  // 24.000, 63,000 etc. OEE decimal esperado tem 1 ou 2 casas,
+  // não três casas após separador.
+  if(!hasPercent && /^\d{1,3}[.,]\d{3}$/.test(withoutPercent)){
+    return null;
+  }
+
+  // Rejeita número inteiro com mais de 3 dígitos quando não há %.
+  if(!hasPercent && /^\d{4,}$/.test(withoutPercent)){
+    return null;
+  }
+
+  const normalized=withoutPercent.replace(',','.');
+  const direct=normalized.match(/^(\d{1,3})(?:\.(\d{1,2}))?$/);
+
+  if(!direct)return null;
+
+  const value=Number(
+    direct[2]
+      ? `${Number(direct[1])}.${direct[2]}`
+      : Number(direct[1])
+  );
+
+  if(!Number.isFinite(value) || value<10 || value>100)return null;
+
   return {
     value,
-    hasPercent: cleaned.includes('%')
+    hasPercent,
+    raw:original
   };
 }
 
 function mapOcrWordsToMachineRows(words = [], canvasHeight = 1, canvasWidth = 1) {
-  const rowCount = OEE_BOARD_MACHINES.length;
-  const rowHeight = Math.max(1, canvasHeight / rowCount);
-  const rowBuckets = Array.from({ length: rowCount }, () => []);
+  const rowCount=OEE_BOARD_MACHINES.length;
+  const rowHeight=Math.max(1,canvasHeight/rowCount);
+  const rowBuckets=Array.from({length:rowCount},()=>[]);
 
-  // V86: identifica espacialmente a coluna OEE.
-  // Primeiro procura o cabeçalho "OEE". Se não achar, usa a mediana
-  // horizontal dos valores que vieram explicitamente com símbolo %.
-  const headerCandidates = words.filter(word => {
-    const text = normalizeKey(word.text || '');
-    return text === 'oee' || text.includes('oee');
-  });
+  for(const word of words){
+    const parsed=numericOeeFromWord(word.text);
+    if(!parsed)continue;
 
-  let oeeColumnX = null;
+    const bbox=word.bbox||{};
+    const y0=Number(bbox.y0??bbox.top??0);
+    const y1=Number(bbox.y1??bbox.bottom??y0);
+    const x0=Number(bbox.x0??bbox.left??0);
+    const x1=Number(bbox.x1??bbox.right??x0);
 
-  if (headerCandidates.length) {
-    const xs = headerCandidates.map(word => {
-      const bbox = word.bbox || {};
-      const x0 = Number(bbox.x0 ?? bbox.left ?? 0);
-      const x1 = Number(bbox.x1 ?? bbox.right ?? x0);
-      return (x0 + x1) / 2;
-    }).filter(Number.isFinite);
+    const centerY=(y0+y1)/2;
+    const centerX=(x0+x1)/2;
 
-    if (xs.length) {
-      xs.sort((a,b)=>a-b);
-      oeeColumnX = xs[Math.floor(xs.length/2)];
-    }
-  }
+    const rowIndex=Math.floor(centerY/rowHeight);
+    if(rowIndex<0 || rowIndex>=rowCount)continue;
 
-  if (oeeColumnX === null) {
-    const percentXs = words.map(word => {
-      const parsed = numericOeeFromWord(word.text);
-      if (!parsed?.hasPercent) return null;
-      const bbox = word.bbox || {};
-      const x0 = Number(bbox.x0 ?? bbox.left ?? 0);
-      const x1 = Number(bbox.x1 ?? bbox.right ?? x0);
-      return (x0 + x1) / 2;
-    }).filter(Number.isFinite);
+    const rowTop=rowIndex*rowHeight;
+    const positionInsideRow=(centerY-rowTop)/rowHeight;
 
-    if (percentXs.length) {
-      percentXs.sort((a,b)=>a-b);
-      oeeColumnX = percentXs[Math.floor(percentXs.length/2)];
-    }
-  }
+    // Evita número encostado exatamente na linha horizontal da tabela.
+    if(positionInsideRow<0.07 || positionInsideRow>0.93)continue;
 
-  // Tolerância horizontal: aproximadamente uma coluna de tabela.
-  const xTolerance = Math.max(45, canvasWidth * 0.075);
+    const xRatio=canvasWidth>1?centerX/canvasWidth:0.5;
+    const confidence=Number(word.confidence||0);
 
-  for (const word of words) {
-    const parsed = numericOeeFromWord(word.text);
-    if (!parsed) continue;
+    // OEE no quadro costuma aparecer depois da quantidade/observação.
+    // O símbolo % recebe peso alto, mas NÃO é obrigatório.
+    let score=confidence;
+    if(parsed.hasPercent)score+=120;
+    score+=Math.max(0,Math.min(1,xRatio))*22;
 
-    const bbox = word.bbox || {};
-    const y0 = Number(bbox.y0 ?? bbox.top ?? 0);
-    const y1 = Number(bbox.y1 ?? bbox.bottom ?? y0);
-    const x0 = Number(bbox.x0 ?? bbox.left ?? 0);
-    const x1 = Number(bbox.x1 ?? bbox.right ?? x0);
-    const centerY = (y0 + y1) / 2;
-    const centerX = (x0 + x1) / 2;
-
-    // Se identificamos a coluna OEE, rejeita qualquer número fora dela.
-    if (oeeColumnX !== null && Math.abs(centerX - oeeColumnX) > xTolerance) {
-      continue;
-    }
-
-    // Se não conseguimos identificar a coluna, só aceitamos valor
-    // que veio explicitamente com %. Isso evita usar produção/horas/etc.
-    if (oeeColumnX === null && !parsed.hasPercent) {
-      continue;
-    }
-
-    const rowIndex = Math.floor(centerY / rowHeight);
-    if (rowIndex < 0 || rowIndex >= rowCount) continue;
-
-    const rowTop = rowIndex * rowHeight;
-    const positionInsideRow = (centerY - rowTop) / rowHeight;
-    if (positionInsideRow < 0.10 || positionInsideRow > 0.90) continue;
+    // Faixa mais comum de OEE recebe pequeno bônus, sem impedir
+    // valores realmente baixos.
+    if(parsed.value>=30 && parsed.value<=95)score+=8;
 
     rowBuckets[rowIndex].push({
-      value: parsed.value,
-      hasPercent: parsed.hasPercent,
-      confidence: Number(word.confidence || 0),
-      x: centerX,
-      y: centerY,
-      raw: word.text
+      value:parsed.value,
+      hasPercent:parsed.hasPercent,
+      confidence,
+      x:centerX,
+      y:centerY,
+      raw:parsed.raw||word.text,
+      score
     });
   }
 
-  return OEE_BOARD_MACHINES.map((machine, index) => {
-    const candidates = rowBuckets[index];
+  return OEE_BOARD_MACHINES.map((machine,index)=>{
+    const candidates=rowBuckets[index];
 
-    if (!candidates.length) {
+    if(!candidates.length){
       return {
         machine,
-        oee: '',
-        confidence: 100,
-        source: 'Célula OEE vazia / não identificada',
-        ran: false
+        oee:'',
+        confidence:0,
+        source:'OEE não reconhecido — confirmar pela foto',
+        ran:false,
+        ambiguous:false
       };
     }
 
-    candidates.sort((a, b) => {
-      if (a.hasPercent !== b.hasPercent) return a.hasPercent ? -1 : 1;
-      if (a.confidence !== b.confidence) return b.confidence - a.confidence;
-      return Math.abs(a.x - (oeeColumnX ?? a.x)) - Math.abs(b.x - (oeeColumnX ?? b.x));
-    });
+    candidates.sort((a,b)=>b.score-a.score);
+    const chosen=candidates[0];
+    const second=candidates[1];
 
-    const chosen = candidates[0];
+    const ambiguous=Boolean(
+      second &&
+      Math.abs(chosen.score-second.score)<18 &&
+      Math.abs(chosen.value-second.value)>=6
+    );
 
     return {
       machine,
-      oee: chosen.value,
-      confidence: chosen.confidence,
-      source: chosen.raw,
-      ran: chosen.value > 0
+      oee:chosen.value,
+      confidence:ambiguous
+        ? Math.min(55,chosen.confidence)
+        : chosen.confidence,
+      source:chosen.raw,
+      ran:true,
+      ambiguous,
+      alternatives:candidates.slice(0,3).map(item=>item.value)
     };
   });
 }
@@ -2581,7 +2585,8 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
               ? 'confidence-warning'
               : 'confidence-low';
 
-        const ran = row.ran !== false && row.oee !== '';
+        const ran = row.ran !== false;
+        const unresolved = row.oee === '' && row.ran !== false;
         return `
           <div class="oee-editor-row ${confidenceClass} ${ran?'machine-ran':'machine-did-not-run'}">
             <span class="oee-machine-name">${escapeHtml(row.machine)}</span>
@@ -2610,8 +2615,14 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
               ${ran?'':'disabled'}
             />
             <small>${ran
-              ? (row.oee === '' ? 'Confira a linha e digite o OEE' : `${Math.round(row.confidence || 0)}% confiança — confirme`)
-              : 'Não entra na prioridade'}
+              ? (
+                  row.oee === ''
+                    ? '⚠️ OEE não reconhecido — confira a foto'
+                    : row.ambiguous
+                      ? `⚠️ Leitura duvidosa — opções ${escapeHtml((row.alternatives||[]).join(' / '))}`
+                      : `${Math.round(row.confidence || 0)}% confiança — confirme`
+                )
+              : 'Não rodou — fora da prioridade'}
             </small>
           </div>`;
       }).join('')}
@@ -2747,16 +2758,38 @@ async function processOeeColumnPhoto() {
     );
 
     const words = result?.data?.words || [];
-    const rows = mapOcrWordsToMachineRows(words, processed.canvas.height, processed.canvas.width)
-      .map(row => ({
+    const productionBlocks=productionReportMachineMentions();
+    const rows = mapOcrWordsToMachineRows(
+      words,
+      processed.canvas.height,
+      processed.canvas.width
+    ).map(row=>{
+      const reportRow=productionBlocks.get(row.machine);
+      const explicitlyDidNotRun=Boolean(reportRow?.didNotRun);
+
+      return {
         ...row,
-        ran: row.oee !== ''
-      }));
+        ran:explicitlyDidNotRun
+          ? false
+          : row.oee!==''
+            ? true
+            : true,
+        oee:explicitlyDidNotRun?'':row.oee,
+        source:explicitlyDidNotRun
+          ? 'Relatório produção: não rodou'
+          : row.source
+      };
+    });
     state.oeeMachineEditorData = rows;
     renderOeeMachineEditor(rows);
 
     const detected = rows.filter(row => row.oee !== '').length;
-    statusEl.textContent = `${detected} valor(es) lido(s) em ${scope.label}. Linhas calibradas da MK138 à MK149; confirme somente os valores duvidosos.`;
+    const ambiguousCount=rows.filter(row=>row.ambiguous).length;
+    const unresolvedCount=rows.filter(row=>row.ran!==false && row.oee==='').length;
+    statusEl.textContent =
+      `${detected} OEE(s) lido(s) em ${scope.label}` +
+      `${ambiguousCount?` • ${ambiguousCount} duvidoso(s)`:''}` +
+      `${unresolvedCount?` • ${unresolvedCount} para revisar`:''}.`;
 
     // Mantém compatibilidade com histórico e painel.
     $('oeeOcrText').value = editorOeeText();
@@ -7811,13 +7844,16 @@ function current12hPriorityRows(limit=10){
       stoppedHours:sgmanStoppedHours,
       produced:item.produced,
       priorityLevel:maximum?'maximum':'high',
+      equivalentLossHours:equivalentLossHoursFromOee(item.oee),
       score:
         (maximum?1000:500) +
         (65-item.oee)*10 +
-        (item.stoppedHours||0)*25,
+        equivalentLossHoursFromOee(item.oee)*30 +
+        (sgmanStoppedHours||0)*25,
       reasons:uniqueStrings([
         maximum?'PRIORIDADE MÁXIMA — OEE abaixo de 50%':'OEE abaixo de 65%',
-        item.stoppedHours!==null?`${item.stoppedHours.toFixed(1)} h parada nas últimas 12h`:'',
+        `${equivalentLossHoursFromOee(item.oee).toFixed(1).replace('.',',')} h equivalentes de perda no turno de 12h`,
+        sgmanStoppedHours!==null?`${sgmanStoppedHours.toFixed(1).replace('.',',')} h de parada registrada no SGMan`:'',
         reportRow?.mentioned?'citada no relatório da produção':''
       ].filter(Boolean)),
       issue,
@@ -7849,10 +7885,37 @@ function current12hPriorityRows(limit=10){
     .map((row,index)=>({...row,selected:index<5}));
 }
 
+
+function equivalentLossHoursFromOee(oee){
+  const value=smartNumeric(oee);
+  if(value===null)return null;
+  return Math.max(0,Math.min(12,12*(1-value/100)));
+}
+
+function equivalentLossHoursLabel(oee){
+  const hours=equivalentLossHoursFromOee(oee);
+  return hours===null
+    ? ''
+    : `${hours.toFixed(1).replace('.',',')} h equivalentes de perda/12h`;
+}
+
+function priorityImpactLabel(row){
+  const parts=[];
+
+  if(row.oee!==null && row.oee!==undefined){
+    parts.push(equivalentLossHoursLabel(row.oee));
+  }
+
+  if(row.stoppedHours!==null && row.stoppedHours!==undefined){
+    parts.push(`parada SGMan ${Number(row.stoppedHours).toFixed(1).replace('.',',')} h`);
+  }
+
+  return parts.filter(Boolean).join(' • ');
+}
+
 function priorityStoppedHoursLabel(row){
-  return row.stoppedHours!==null&&row.stoppedHours!==undefined
-    ? `${Number(row.stoppedHours).toFixed(1).replace('.',',')} h parada`
-    : 'horas paradas: sem dado SGMan';
+  return priorityImpactLabel(row) ||
+    'impacto equivalente: sem OEE confirmado';
 }
 
 function supervisorFusionRanking(limit=10){
@@ -10589,7 +10652,8 @@ async function analyzeIntelligenceOeePhoto() {
 
     const rows = mapOcrWordsToMachineRows(
       result?.data?.words || [],
-      processed.canvas.height
+      processed.canvas.height,
+      processed.canvas.width
     );
 
     renderIntelligenceOeeEditor(rows);
@@ -13120,7 +13184,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=91.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=92.0.0');
         registration.update();
       } catch {}
     });

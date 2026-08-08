@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=91.0.0" />
+  <link rel="stylesheet" href="style.css?v=92.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -20,7 +20,7 @@
       <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V91.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V92.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -738,7 +738,7 @@
           <div>
             <span class="eyebrow">INTELIGÊNCIA DO SUPERVISOR</span>
             <h2>Prioridades das últimas 12h — escolha até 5</h2>
-            <p class="muted">V90: se o OEE salvo desaparecer após atualização, o TurnoSmart recupera automaticamente a última análise válida do mesmo turno.</p>
+            <p class="muted">V92: leitura da foto aceita OEE manuscrito mesmo quando o símbolo % não é reconhecido. Valores duvidosos ficam marcados para revisão.</p>
           </div>
           <button id="refreshSupervisorFusionBtn" class="secondary" type="button">Atualizar prioridades</button>
         </div>
@@ -759,7 +759,7 @@
             </div>
             <span id="responsibleBadge" class="badge neutral">Responsável não definido</span>
           </div>
-          <p class="muted">Ações técnicas das últimas 12h: prioridade por OEE quando disponível; se o OEE por máquina faltar, usa falhas reais do relatório + SGMan sem inventar percentual.</p>
+          <p class="muted">Ações das últimas 12h: OEE vem da foto por máquina. Ex.: 50% = 6,0 h equivalentes de perda no turno. SGMan mostra a parada real quando disponível.</p>
           <div id="maintenanceActionsList" class="actions-list"></div>
           <div class="button-row sticky-actions">
             <button id="shareMaintenanceBtn" class="primary" type="button">Compartilhar manutenção</button>
@@ -1333,6 +1333,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=91.0.0"></script>
+  <script src="app.js?v=92.0.0"></script>
 </body>
 </html>

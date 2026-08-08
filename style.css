@@ -2427,3 +2427,15 @@ button:disabled{
 .supervisor-fusion-row:has(strong:first-child){
   min-width:0;
 }
+
+/* ==========================================================
+   V92 — OEE manuscrito / impacto 12h
+   ========================================================== */
+.oee-editor-row.confidence-low.machine-ran,
+.oee-editor-row.confidence-warning.machine-ran{
+  border-left-color:#f79009!important;
+}
+.oee-editor-row.confidence-empty.machine-ran{
+  border-left:4px solid #f79009!important;
+  background:#fffaeb;
+}
