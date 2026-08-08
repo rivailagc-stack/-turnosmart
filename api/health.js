@@ -1,7 +1,7 @@
 module.exports=(req,res)=>res.status(200).json({
   ok:true,
   app:'TurnoSmart',
-  version:'89.0.0',
+  version:'90.0.0',
   normalize_machine_code_fixed:true,
   visual_training_save_fixed:true,
   industrial_knowledge_center_enabled:true,
@@ -52,6 +52,9 @@ module.exports=(req,res)=>res.status(200).json({
   full_production_machine_block_parser_enabled:true,
   trend_current_analysis_first_enabled:true,
   duplicate_shift_trend_guard_enabled:true,
+  priority_history_auto_recovery_enabled:true,
+  disable_empty_maintenance_share_enabled:true,
+  oee_photo_recovery_cta_enabled:true,
   ai_quota_graceful_fallback_enabled:true,
   legacy_maintenance_action_list_disabled:true,
   max_three_confirmed_priorities:true,
