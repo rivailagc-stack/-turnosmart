@@ -1,5 +1,5 @@
-PATCH V85
-Use sobre a V84.
+PATCH V86
+Use sobre a V85.
 
 Substitua:
 - app.js
@@ -8,7 +8,10 @@ Substitua:
 - sw.js
 - api/health.js
 
-Depois faça novo deploy e confirme V85.0.0.
+Depois faça novo deploy e confirme V86.0.0.
 
-IMPORTANTE:
-Ao carregar a foto, revise Rodou / Não rodou antes de Analisar relatório.
+Teste obrigatório:
+1. Carregue uma foto onde MK108/MK188 não rodaram.
+2. Confira que aparecem como Não rodou no editor.
+3. Analise.
+4. Elas NÃO podem aparecer nas prioridades.

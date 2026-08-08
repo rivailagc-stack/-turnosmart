@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '85.0.0';
+const APP_VERSION = '86.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v85.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v86.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2435,10 +2435,53 @@ function numericOeeFromWord(text = '') {
   };
 }
 
-function mapOcrWordsToMachineRows(words = [], canvasHeight = 1) {
+function mapOcrWordsToMachineRows(words = [], canvasHeight = 1, canvasWidth = 1) {
   const rowCount = OEE_BOARD_MACHINES.length;
   const rowHeight = Math.max(1, canvasHeight / rowCount);
   const rowBuckets = Array.from({ length: rowCount }, () => []);
+
+  // V86: identifica espacialmente a coluna OEE.
+  // Primeiro procura o cabeçalho "OEE". Se não achar, usa a mediana
+  // horizontal dos valores que vieram explicitamente com símbolo %.
+  const headerCandidates = words.filter(word => {
+    const text = normalizeKey(word.text || '');
+    return text === 'oee' || text.includes('oee');
+  });
+
+  let oeeColumnX = null;
+
+  if (headerCandidates.length) {
+    const xs = headerCandidates.map(word => {
+      const bbox = word.bbox || {};
+      const x0 = Number(bbox.x0 ?? bbox.left ?? 0);
+      const x1 = Number(bbox.x1 ?? bbox.right ?? x0);
+      return (x0 + x1) / 2;
+    }).filter(Number.isFinite);
+
+    if (xs.length) {
+      xs.sort((a,b)=>a-b);
+      oeeColumnX = xs[Math.floor(xs.length/2)];
+    }
+  }
+
+  if (oeeColumnX === null) {
+    const percentXs = words.map(word => {
+      const parsed = numericOeeFromWord(word.text);
+      if (!parsed?.hasPercent) return null;
+      const bbox = word.bbox || {};
+      const x0 = Number(bbox.x0 ?? bbox.left ?? 0);
+      const x1 = Number(bbox.x1 ?? bbox.right ?? x0);
+      return (x0 + x1) / 2;
+    }).filter(Number.isFinite);
+
+    if (percentXs.length) {
+      percentXs.sort((a,b)=>a-b);
+      oeeColumnX = percentXs[Math.floor(percentXs.length/2)];
+    }
+  }
+
+  // Tolerância horizontal: aproximadamente uma coluna de tabela.
+  const xTolerance = Math.max(45, canvasWidth * 0.075);
 
   for (const word of words) {
     const parsed = numericOeeFromWord(word.text);
@@ -2447,25 +2490,34 @@ function mapOcrWordsToMachineRows(words = [], canvasHeight = 1) {
     const bbox = word.bbox || {};
     const y0 = Number(bbox.y0 ?? bbox.top ?? 0);
     const y1 = Number(bbox.y1 ?? bbox.bottom ?? y0);
+    const x0 = Number(bbox.x0 ?? bbox.left ?? 0);
+    const x1 = Number(bbox.x1 ?? bbox.right ?? x0);
     const centerY = (y0 + y1) / 2;
+    const centerX = (x0 + x1) / 2;
 
-    // A linha é definida somente pela faixa horizontal onde está o centro
-    // do percentual. Não permite buscar valor em linha vizinha.
+    // Se identificamos a coluna OEE, rejeita qualquer número fora dela.
+    if (oeeColumnX !== null && Math.abs(centerX - oeeColumnX) > xTolerance) {
+      continue;
+    }
+
+    // Se não conseguimos identificar a coluna, só aceitamos valor
+    // que veio explicitamente com %. Isso evita usar produção/horas/etc.
+    if (oeeColumnX === null && !parsed.hasPercent) {
+      continue;
+    }
+
     const rowIndex = Math.floor(centerY / rowHeight);
     if (rowIndex < 0 || rowIndex >= rowCount) continue;
 
     const rowTop = rowIndex * rowHeight;
     const positionInsideRow = (centerY - rowTop) / rowHeight;
-
-    // Ignora textos colados nas linhas horizontais da grade, pois podem
-    // pertencer à célula de cima ou de baixo.
     if (positionInsideRow < 0.10 || positionInsideRow > 0.90) continue;
 
     rowBuckets[rowIndex].push({
       value: parsed.value,
       hasPercent: parsed.hasPercent,
       confidence: Number(word.confidence || 0),
-      x: Number(bbox.x0 ?? bbox.left ?? 0),
+      x: centerX,
       y: centerY,
       raw: word.text
     });
@@ -2478,19 +2530,16 @@ function mapOcrWordsToMachineRows(words = [], canvasHeight = 1) {
       return {
         machine,
         oee: '',
-        confidence: 0,
-        source: 'Não identificado'
+        confidence: 100,
+        source: 'Célula OEE vazia / não identificada',
+        ran: false
       };
     }
 
-    // Ordem de preferência:
-    // 1. valor com símbolo %
-    // 2. maior confiança do OCR
-    // 3. valor mais à direita dentro da mesma linha
     candidates.sort((a, b) => {
       if (a.hasPercent !== b.hasPercent) return a.hasPercent ? -1 : 1;
       if (a.confidence !== b.confidence) return b.confidence - a.confidence;
-      return b.x - a.x;
+      return Math.abs(a.x - (oeeColumnX ?? a.x)) - Math.abs(b.x - (oeeColumnX ?? b.x));
     });
 
     const chosen = candidates[0];
@@ -2499,7 +2548,8 @@ function mapOcrWordsToMachineRows(words = [], canvasHeight = 1) {
       machine,
       oee: chosen.value,
       confidence: chosen.confidence,
-      source: chosen.raw
+      source: chosen.raw,
+      ran: chosen.value > 0
     };
   });
 }
@@ -2693,7 +2743,7 @@ async function processOeeColumnPhoto() {
     );
 
     const words = result?.data?.words || [];
-    const rows = mapOcrWordsToMachineRows(words, processed.canvas.height)
+    const rows = mapOcrWordsToMachineRows(words, processed.canvas.height, processed.canvas.width)
       .map(row => ({
         ...row,
         ran: row.oee !== ''
@@ -7125,73 +7175,23 @@ function applyAutomaticSupervisorSelection(rows=[]){
 
 
 function fallbackCurrentShiftPriorities(limit=10){
-  const current=current12hPriorityRows(limit);
-  if(current.length)return current;
-
-  const machineOee=[
-    ...(state.analysis?.machineOee||[]),
-    ...(machineOeeFromEditor?.()||[])
-  ];
-
-  const map=new Map();
-
-  for(const item of machineOee){
-    const machine=normalizeMachineCode(item.machine||item.maquina||'');
-    const oee=smartNumeric(item.oee??item.value);
-    if(!machine || oee===null)continue;
-    map.set(machine,{machine,oee});
-  }
-
-  const report=productionReportMachineMentions();
-
-  return [...map.values()]
-    .filter(item=>item.oee<65 || report.has(item.machine))
-    .map(item=>{
-      const reportRow=report.get(item.machine);
-      const issue=compactIssue(reportRow?.problem||'');
-      const history=smartHistoryFor(item.machine,issue);
-      const actions=smartActionsFromHistory(history,issue);
-
-      return {
-        machine:item.machine,
-        oee:item.oee,
-        trend:null,
-        score:item.oee<50?80:item.oee<60?60:45,
-        reasons:uniqueStrings([
-          item.oee<65?`OEE abaixo de 65% (${item.oee.toFixed(1)}%)`:'',
-          reportRow?.mentioned?'citada no relatório da produção':''
-        ].filter(Boolean)),
-        issue,
-        actions:actions.length
-          ? actions
-          : [
-              'Analisar e resolver o problema durante o turno.',
-              'Testar, acompanhar a produção e confirmar estabilidade.',
-              'Registrar causa, serviço executado e resultado no SGMan.'
-            ],
-        historyCount:history.length,
-        sources:uniqueStrings([
-          'board',
-          reportRow?.mentioned?'production':'',
-          history.length?'sgman':''
-        ].filter(Boolean)),
-        selected:false
-      };
-    })
-    .sort((a,b)=>a.oee-b.oee)
-    .slice(0,limit)
-    .map((row,index)=>({...row,selected:index<5}));
+  return current12hPriorityRows(limit);
 }
-
 
 function current12hMachineStatus(){
   // V85: FONTE ÚNICA PARA PRIORIDADE.
   // Depois de analisar, usa somente analysis.machineOee, que nasce da foto atual.
   // Antes de analisar, usa somente o editor da foto atual.
   // SGMan, Power BI, OCR antigo e caches NÃO entram aqui.
-  const sourceRows = Array.isArray(state.analysis?.machineOee) && state.analysis.machineOee.length
-    ? state.analysis.machineOee
-    : machineOeeFromEditor();
+  const analysisBelongsToCurrentPhoto =
+    state.analysis?.oeePhotoGeneration &&
+    state.oeePhotoGeneration &&
+    state.analysis.oeePhotoGeneration === state.oeePhotoGeneration;
+
+  const sourceRows = analysisBelongsToCurrentPhoto &&
+    Array.isArray(state.analysis?.machineOee)
+      ? state.analysis.machineOee
+      : machineOeeFromEditor();
 
   const map=new Map();
 
@@ -7312,102 +7312,10 @@ function priorityStoppedHoursLabel(row){
 }
 
 function supervisorFusionRanking(limit=10){
+  // V86: ranking operacional do turno é EXCLUSIVAMENTE da foto atual.
+  // Nunca cai para Power BI, SGMan, relatório antigo ou cache.
   const currentRows=current12hPriorityRows(limit);
-  if(currentRows.length){
-    return applyAutomaticSupervisorSelection(currentRows);
-  }
-
-  const report=productionReportMachineMentions();
-  const board=currentBoardMap();
-  const machines=new Set([...report.keys(),...board.keys()]);
-  const rows=[];
-
-  for(const machine of machines){
-    const boardRow=board.get(machine)||{
-      machine,oee:null,trend:null,
-      stoppedMinutes:0,failures:0,raw:{}
-    };
-    const reportRow=report.get(machine);
-    let score=0;
-    const sources=[];
-    const reasons=[];
-
-    if(boardRow.oee!==null){
-      sources.push('board');
-      if(boardRow.oee<50){score+=65;reasons.push(`OEE crítico ${boardRow.oee.toFixed(1)}%`);}
-      else if(boardRow.oee<60){score+=50;reasons.push(`OEE muito baixo ${boardRow.oee.toFixed(1)}%`);}
-      else if(boardRow.oee<65){score+=36;reasons.push(`OEE abaixo de 65%`);}
-      else if(boardRow.oee<=65){score+=20;reasons.push(`OEE no limite de 65%`);}
-      else{score-=35;reasons.push(`OEE atual ${boardRow.oee.toFixed(1)}%`);}
-    }
-
-    if(reportRow?.mentioned){
-      sources.push('production');
-      score+=35;
-      reasons.push('citada no relatório da produção');
-    }
-
-    if(boardRow.trend!==null && boardRow.trend<0){
-      score+=Math.min(25,Math.abs(boardRow.trend)*2);
-      reasons.push(`tendência de queda ${Math.abs(boardRow.trend).toFixed(1)} p.p.`);
-    }
-
-    if(boardRow.stoppedMinutes>0){
-      score+=Math.min(25,boardRow.stoppedMinutes/3);
-      reasons.push(`${Math.round(boardRow.stoppedMinutes)} min parados`);
-    }
-
-    // Regra permanente:
-    // acima de 65%, sem relato de problema atual, nunca entra por histórico.
-    const stableAbove65=
-      boardRow.oee!==null &&
-      boardRow.oee>65 &&
-      !reportRow?.mentioned &&
-      (boardRow.trend===null || boardRow.trend>=0) &&
-      boardRow.stoppedMinutes===0;
-
-    if(stableAbove65)continue;
-
-    const issue=compactIssue(
-      reportRow?.problem||
-      boardRow.raw?.problem||
-      boardRow.raw?.issue||
-      boardRow.raw?.mainLoss||
-      boardRow.raw?.cause||
-      boardRow.raw?.causale_standard||
-      ''
-    );
-
-    const history=smartHistoryFor(machine,issue);
-    const actions=smartActionsFromHistory(history,issue);
-
-    if(history.length)sources.push('sgman');
-
-    rows.push({
-      machine,
-      oee:boardRow.oee,
-      trend:boardRow.trend,
-      score:Math.round(score),
-      reasons:uniqueStrings(reasons),
-      issue,
-      actions:actions.length
-        ? actions
-        : [
-            'Analisar e resolver o problema durante o turno.',
-            'Testar, acompanhar a produção e confirmar estabilidade.',
-            'Registrar causa, serviço executado e resultado no SGMan.'
-          ],
-      historyCount:history.length,
-      sources:uniqueStrings(sources),
-      selected:false
-    });
-  }
-
-  const ranked=rows
-    .sort((a,b)=>b.score-a.score || (a.oee??999)-(b.oee??999))
-    .slice(0,limit);
-
-  return applyAutomaticSupervisorSelection(ranked);
+  return applyAutomaticSupervisorSelection(currentRows);
 }
 
 function sourceBadge(source){
@@ -9449,6 +9357,7 @@ async function analyzeCurrentReport() {
       ...calculateReliability3Days()
     };
 
+    analysis.oeePhotoGeneration = state.oeePhotoGeneration || null;
     state.analysis = analysis;
     state.actions = generateActions(analysis);
 
@@ -12321,6 +12230,7 @@ function init() {
     if (!file) return;
     const dataUrl = await dataUrlFromFile(file);
     state.oeeImageDataUrl = dataUrl;
+    state.oeePhotoGeneration = Date.now();
     state.oeeMachineEditorData = [];
     state.oeeRowPreviews = [];
 
@@ -12610,7 +12520,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=85.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=86.0.0');
         registration.update();
       } catch {}
     });

@@ -2342,3 +2342,12 @@ main,.view,.card,.section-head,.sgman-management-card,.powerbi-sgman-card,.leade
     grid-column:1 / -1;
   }
 }
+
+/* V86 — destaque de célula vazia / não rodou */
+.oee-editor-row.machine-did-not-run{
+  border-left:4px solid #98a2b3!important;
+}
+.oee-editor-row.machine-did-not-run .oee-run-toggle{
+  background:#eaecf0;
+  color:#475467;
+}
