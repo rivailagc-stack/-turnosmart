@@ -1,7 +1,7 @@
 module.exports=(req,res)=>res.status(200).json({
   ok:true,
   app:'TurnoSmart',
-  version:'85.0.0',
+  version:'86.0.0',
   normalize_machine_code_fixed:true,
   visual_training_save_fixed:true,
   industrial_knowledge_center_enabled:true,
@@ -41,6 +41,9 @@ module.exports=(req,res)=>res.status(200).json({
   strict_current_photo_priority_enabled:true,
   did_not_run_manual_override_enabled:true,
   stale_priority_reset_on_new_photo_enabled:true,
+  oee_column_spatial_detection_enabled:true,
+  no_priority_history_fallback_enabled:true,
+  photo_generation_guard_enabled:true,
   ai_quota_graceful_fallback_enabled:true,
   legacy_maintenance_action_list_disabled:true,
   max_three_confirmed_priorities:true,
