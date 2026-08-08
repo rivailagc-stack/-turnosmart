@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '83.0.0';
+const APP_VERSION = '84.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v83.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v84.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -5846,7 +5846,7 @@ function renderPowerBiSgmanDashboard(){
         <article class="sgman-ranking-row">
           <span class="priority-number">${index+1}</span>
           <div>
-            <strong>${escapeHtml(row.machine)} — ${row.oee===null?'—':`${row.oee.toFixed(1)}%`}</strong>
+            <strong>${row.priorityLevel==='maximum'?'🚨 ':''}${escapeHtml(row.machine)} — ${row.oee===null?'—':`${row.oee.toFixed(1)}%`}</strong>
             <p>${row.sgmanOrders} OS • ${row.corrective} corretiva(s) • ${row.maintenanceHours.toFixed(1)} h manutenção</p>
             <small>MTTR ${escapeHtml(smartFmtMinutes(row.mttr))} • Custo SGMan ${escapeHtml(sgmanFormatMoney(row.cost))}${
               laborCostState().unlocked
@@ -7058,6 +7058,9 @@ function applyAutomaticSupervisorSelection(rows=[]){
 
 
 function fallbackCurrentShiftPriorities(limit=10){
+  const current=current12hPriorityRows(limit);
+  if(current.length)return current;
+
   const machineOee=[
     ...(state.analysis?.machineOee||[]),
     ...(machineOeeFromEditor?.()||[])
@@ -7113,7 +7116,145 @@ function fallbackCurrentShiftPriorities(limit=10){
     .map((row,index)=>({...row,selected:index<5}));
 }
 
+
+function current12hMachineStatus(){
+  const rows=[
+    ...(state.analysis?.machineOee||[]),
+    ...(state.analysis?.lowOeeMachines||[]),
+    ...(state.oeeMachineEditorData||[]),
+    ...(state.oeeBoardRows||[]),
+    ...(state.ocrOeeRows||[]),
+    ...(state.boardAnalysis?.machines||[])
+  ];
+
+  const map=new Map();
+
+  for(const row of rows){
+    const machine=normalizeMachineCode(row.machine||row.maquina||row.mk||'');
+    if(!machine)continue;
+
+    const oee=smartNumeric(row.oee??row.value??row.efficiency);
+    const produced=smartNumeric(
+      row.producedQuantity??
+      row.production??
+      row.quantidade??
+      row.qty??
+      row.pieces
+    );
+
+    const stoppedHoursRaw=smartNumeric(
+      row.stoppedHours??
+      row.stopHours??
+      row.downtimeHours??
+      row.hoursStopped??
+      row.paradaHoras
+    );
+
+    const stoppedMinutesRaw=smartNumeric(
+      row.stoppedMinutes??
+      row.stopMinutes??
+      row.downtimeMinutes??
+      row.paradaMinutos
+    );
+
+    const stoppedHours=stoppedHoursRaw!==null
+      ? stoppedHoursRaw
+      : stoppedMinutesRaw!==null
+        ? stoppedMinutesRaw/60
+        : null;
+
+    // A máquina "rodou" quando o quadro atual traz OEE válido e,
+    // quando produção é informada, ela é maior que zero.
+    const ran=
+      oee!==null &&
+      oee>0 &&
+      (produced===null || produced>0);
+
+    map.set(machine,{
+      machine,
+      oee,
+      produced,
+      stoppedHours,
+      ran
+    });
+  }
+
+  return map;
+}
+
+function current12hPriorityRows(limit=10){
+  const status=current12hMachineStatus();
+  const report=productionReportMachineMentions();
+
+  const rows=[];
+
+  for(const item of status.values()){
+    if(!item.ran)continue;
+    if(item.oee===null || item.oee>=65)continue;
+
+    const reportRow=report.get(item.machine);
+    const issue=compactIssue(reportRow?.problem||'');
+    const history=smartHistoryFor(item.machine,issue);
+    const actions=smartActionsFromHistory(history,issue);
+
+    const maximum=item.oee<50;
+
+    rows.push({
+      machine:item.machine,
+      oee:item.oee,
+      stoppedHours:item.stoppedHours,
+      produced:item.produced,
+      priorityLevel:maximum?'maximum':'high',
+      score:
+        (maximum?1000:500) +
+        (65-item.oee)*10 +
+        (item.stoppedHours||0)*25,
+      reasons:uniqueStrings([
+        maximum?'PRIORIDADE MÁXIMA — OEE abaixo de 50%':'OEE abaixo de 65%',
+        item.stoppedHours!==null?`${item.stoppedHours.toFixed(1)} h parada nas últimas 12h`:'',
+        reportRow?.mentioned?'citada no relatório da produção':''
+      ].filter(Boolean)),
+      issue,
+      actions:actions.length?actions:[
+        'Atuar imediatamente na principal causa da parada.',
+        'Eliminar a causa e evitar regulagem temporária.',
+        'Testar em produção e confirmar estabilidade.',
+        'Registrar causa, serviço e resultado no SGMan.'
+      ],
+      historyCount:history.length,
+      sources:uniqueStrings([
+        'board',
+        reportRow?.mentioned?'production':'',
+        history.length?'sgman':''
+      ].filter(Boolean)),
+      selected:false
+    });
+  }
+
+  return rows
+    .sort((a,b)=>{
+      if(a.priorityLevel!==b.priorityLevel){
+        return a.priorityLevel==='maximum'?-1:1;
+      }
+      if(a.oee!==b.oee)return a.oee-b.oee;
+      return (b.stoppedHours||0)-(a.stoppedHours||0);
+    })
+    .slice(0,limit)
+    .map((row,index)=>({...row,selected:index<5}));
+}
+
+function priorityStoppedHoursLabel(row){
+  return row.stoppedHours!==null&&row.stoppedHours!==undefined
+    ? `${Number(row.stoppedHours).toFixed(1)} h parada`
+    : 'tempo parado não informado';
+}
+
 function supervisorFusionRanking(limit=10){
+  const currentRows=current12hPriorityRows(limit);
+  if(currentRows.length){
+    return applyAutomaticSupervisorSelection(currentRows);
+  }
+
   const report=productionReportMachineMentions();
   const board=currentBoardMap();
   const machines=new Set([...report.keys(),...board.keys()]);
@@ -7322,7 +7463,7 @@ function confirmedSupervisorPlan(){
       sgman:'histórico SGMan'
     })[source]||source).join(' + ');
 
-    return `${index+1}. *${row.machine}*${
+    return `${index+1}. ${row.priorityLevel==='maximum'?'🚨 *PRIORIDADE MÁXIMA* — ':''}*${row.machine}*${
       row.oee!==null?` — OEE ${row.oee.toFixed(1)}%`:''
     }.
 ${actions}
@@ -12396,7 +12537,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=83.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=84.0.0');
         registration.update();
       } catch {}
     });

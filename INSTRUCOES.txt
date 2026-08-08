@@ -1,1 +1,10 @@
-Use sobre a V82. Substitua app.js, index.html, style.css, sw.js e api/health.js. Depois faça deploy e confirme V83.0.0.
+PATCH V84
+Use sobre a V83.
+Substitua:
+- app.js
+- index.html
+- style.css
+- sw.js
+- api/health.js
+
+Depois faça deploy e confirme V84.0.0.

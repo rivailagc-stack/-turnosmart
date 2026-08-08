@@ -2279,3 +2279,13 @@ main,.view,.card,.section-head,.sgman-management-card,.powerbi-sgman-card,.leade
 
 .supervisor-priority-counter{position:sticky;top:8px;z-index:6;display:inline-flex;margin:8px 0 10px;padding:7px 11px;border-radius:999px;background:var(--ecopack-graphite,#222831);color:#fff;font-size:.8rem;font-weight:900}
 @media(max-width:760px){.supervisor-fusion-panel{gap:8px!important}.supervisor-fusion-row{padding:11px!important}.supervisor-fusion-row p{font-size:.82rem!important}.ecopack-source-badge{font-size:.67rem!important}}
+
+.priority-maximum,
+.supervisor-fusion-row:has(strong:first-child){
+}
+.supervisor-fusion-row.is-selected{
+  border-left:4px solid var(--ecopack-orange,#f28c00);
+}
+.supervisor-fusion-row strong{
+  line-height:1.35;
+}
