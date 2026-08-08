@@ -12,7 +12,8 @@ const STORAGE = {
   training: 'turnosmart_training_v1',
   trainingProgress: 'turnosmart_training_progress_v1',
   trainingMedia: 'turnosmart_training_media_v1',
-  liveDashboardHistory: 'turnosmart_live_dashboard_history_v1'
+  liveDashboardHistory: 'turnosmart_live_dashboard_history_v1',
+  currentShiftOee: 'turnosmart_current_shift_oee_v87'
 };
 
 
@@ -198,14 +199,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '86.0.0';
+const APP_VERSION = '89.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v86.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v89.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2277,9 +2278,12 @@ function getOeeCropSettings(image, operationalDate, shift) {
   const xRatio = Math.max(0, boardStart + index * columnWidth - columnWidth * 0.13);
   const widthRatio = Math.min(1 - xRatio, columnWidth * 1.26);
 
-  // Começa onde iniciam as linhas das máquinas, removendo cabeçalho/produção total.
-  const yRatio = 0.175;
-  const heightRatio = 0.79;
+  // V88 — calibração real do quadro Ecopack:
+  // a lista usada pelo TurnoSmart começa na MK138 e termina na MK149.
+  // MK02 e MK08 ficam acima e não entram nessa régua.
+  // Isso evita deslocar o OEE de uma máquina para outra.
+  const yRatio = 0.325;
+  const heightRatio = 0.65;
 
   return {
     sx: Math.round(image.naturalWidth * xRatio),
@@ -2709,7 +2713,7 @@ async function processOeeColumnPhoto() {
   const scope = boardScopeForReport(operationalDate, shift);
 
   try {
-    statusEl.textContent = `Recortando somente ${scope.label}...`;
+    statusEl.textContent = `Recortando ${scope.label} — linhas MK138 até MK149...`;
     const fullDataUrl = state.oeeImageDataUrl || await dataUrlFromFile(file);
     state.oeeImageDataUrl = fullDataUrl;
 
@@ -2752,7 +2756,7 @@ async function processOeeColumnPhoto() {
     renderOeeMachineEditor(rows);
 
     const detected = rows.filter(row => row.oee !== '').length;
-    statusEl.textContent = `${detected} valor(es) sugerido(s) em ${scope.label}. Como o quadro é escrito à mão, confirme cada linha antes de analisar.`;
+    statusEl.textContent = `${detected} valor(es) lido(s) em ${scope.label}. Linhas calibradas da MK138 à MK149; confirme somente os valores duvidosos.`;
 
     // Mantém compatibilidade com histórico e painel.
     $('oeeOcrText').value = editorOeeText();
@@ -3931,45 +3935,40 @@ function maintenanceAccountabilityReport() {
 function maintenanceMessage() {
   if (!state.analysis) return '';
 
-  // A lista final vem da Inteligência do Supervisor.
-  // Quadro OEE + relatório da produção escolhem as máquinas.
-  // SGMan entra somente para sugerir verificações técnicas.
+  // V87: a lista operacional nasce exclusivamente do quadro OEE atual.
   let fusionRows=(state.supervisorFusionRows?.length
     ? state.supervisorFusionRows
     : supervisorFusionRanking(10)
   );
 
-  if(!fusionRows.length){
-    fusionRows=fallbackCurrentShiftPriorities(10);
-  }
-
-  let supervisorRows=fusionRows.filter(row=>row.selected).slice(0,5);
-
-  if(!supervisorRows.length){
-    fusionRows=applyAutomaticSupervisorSelection(fusionRows);
-    state.supervisorFusionRows=fusionRows;
-    supervisorRows=fusionRows.filter(row=>row.selected).slice(0,5);
-  }
-
-  if(!supervisorRows.length){
-    supervisorRows=fallbackCurrentShiftPriorities(10);
-    fusionRows=supervisorRows;
-  }
-
   state.supervisorFusionRows=fusionRows;
 
-  // Segunda barreira: uma máquina acima de 65%, estável e não citada
-  // pelo relatório da produção não pode voltar pela lista antiga.
-  supervisorRows=supervisorRows.filter(row=>{
-    const citedByProduction=row.sources?.includes('production');
-    const stableAbove65=
-      row.oee!==null &&
-      row.oee>65 &&
-      !citedByProduction &&
-      (row.trend===null || row.trend>=0);
+  if(!fusionRows.length){
+    return [
+      '*AÇÕES DA MANUTENÇÃO*',
+      '⚠️ Nenhuma prioridade disponível.',
+      'Confirme a foto do quadro das últimas 12h e os valores de OEE.',
+      'Máquinas que não rodaram devem permanecer como “Não rodou”.'
+    ].join('\n');
+  }
 
-    return !stableAbove65;
-  });
+  let supervisorRows=fusionRows
+    .filter(row=>row.selected)
+    .slice(0,5);
+
+  if(!supervisorRows.length){
+    return [
+      '*AÇÕES DA MANUTENÇÃO*',
+      '⚠️ Nenhuma máquina selecionada.',
+      'Marque até 5 máquinas na régua de prioridades antes de compartilhar o relatório.'
+    ].join('\n');
+  }
+
+  // Segunda barreira: somente OEE atual abaixo de 65 permanece.
+  supervisorRows=supervisorRows.filter(row=>
+    row.oee!==null &&
+    row.oee<65
+  );
 
   const lowOee=supervisorRows
     .filter(row=>row.oee!==null && row.oee<=65)
@@ -4017,10 +4016,12 @@ function maintenanceMessage() {
     lines.push('Nenhuma máquina abaixo de 65% foi identificada no quadro atual. Confira os valores do OEE.');
   }else{
     supervisorRows.forEach((row,index)=>{
-      const oeeText=row.oee!==null?` — OEE ${row.oee.toFixed(1).replace('.', ',')}%`:'';
+      const oeeText=row.oee!==null
+        ? ` — OEE ${row.oee.toFixed(1).replace('.', ',')}% • ${priorityStoppedHoursLabel(row)}`
+        : '';
       const actions=(row.actions||[]).slice(0,4);
 
-      lines.push(`${index+1}. *${row.machine}*${oeeText}`);
+      lines.push(`${index+1}. ${row.priorityLevel==='maximum'?'🚨 *PRIORIDADE MÁXIMA* — ':''}*${row.machine}*${oeeText}`);
       actions.forEach(action=>lines.push(`   • ${action}`));
       lines.push(`   Histórico técnico: ${row.historyCount||0} OS semelhante(s) no SGMan.`);
     });
@@ -4034,7 +4035,7 @@ function maintenanceMessage() {
     lines.push(`Reincidência entre as prioridades atuais: ${recurrence.join(', ')}.`);
   }
 
-  lines.push('*Foco:* concluir as três prioridades confirmadas, testar estabilidade e registrar a causa real no SGMan.');
+  lines.push('*Foco:* resolver o mais rápido possível as prioridades selecionadas, testar estabilidade e registrar a causa real no SGMan.');
 
   return lines.join('\n');
 }
@@ -4796,77 +4797,109 @@ function calculateMachineSgmanMetrics(machine, orders) {
   };
 }
 
+function oeeShiftHistoryKey(analysis={}){
+  const date=String(analysis.date||'');
+  const shift=String(analysis.shift||'1')==='2'?'2':'1';
+  return `${date}-${shift}`;
+}
+
 function calculateEfficiencyTrend() {
-  const dashboard = getRecentOeeDashboard();
-  const values = (dashboard.shifts || [])
-    .map(item => ({
-      label: item.label,
-      value: Number(item.reportedOee)
+  // V89: o valor que está na análise atual SEMPRE é o "current".
+  // O histórico serve apenas para encontrar o turno anterior.
+  // Isso evita inverter 62 -> 70 para 70 -> 62 quando existem
+  // leituras antigas/duplicadas do mesmo dia e turno.
+  const currentAnalysisValue=Number(state.analysis?.reportedOee);
+  const currentDate=String(state.analysis?.date||'');
+  const currentShift=String(state.analysis?.shift||'1')==='2'?'2':'1';
+  const currentKey=currentDate?`${currentDate}-${currentShift}`:'';
+
+  let current=
+    Number.isFinite(currentAnalysisValue) && currentAnalysisValue>0
+      ? currentAnalysisValue
+      : null;
+
+  const historyAnalyses=getHistory()
+    .map(item=>item.analysis)
+    .filter(Boolean)
+    .map(analysis=>({
+      ...analysis,
+      reportedOee:Number(analysis.reportedOee),
+      _key:oeeShiftHistoryKey(analysis)
     }))
-    .filter(item => Number.isFinite(item.value) && item.value > 0);
-
-  const currentAnalysisValue = Number(state.analysis?.reportedOee);
-
-  if (
-    Number.isFinite(currentAnalysisValue) &&
-    currentAnalysisValue > 0 &&
-    !values.some(item =>
-      item.label === `${formatDate(state.analysis?.date)} ${
-        String(state.analysis?.shift) === '2' ? 'B' : 'A'
-      }`
+    .filter(analysis=>
+      Number.isFinite(analysis.reportedOee) &&
+      analysis.reportedOee>0 &&
+      analysis.date
     )
-  ) {
-    values.push({
-      label: 'Turno atual',
-      value: currentAnalysisValue
-    });
+    .sort((a,b)=>a._key.localeCompare(b._key));
+
+  let previous=null;
+
+  if(current!==null && currentKey){
+    // Procura o turno imediatamente ANTERIOR.
+    // Leituras duplicadas do mesmo date+shift atual são ignoradas.
+    const prior=historyAnalyses
+      .filter(item=>item._key<currentKey)
+      .slice(-1)[0];
+
+    previous=prior?prior.reportedOee:null;
   }
 
-  if (!values.length) {
+  // Se não houver análise corrente válida, usa os dois últimos
+  // turnos distintos do histórico.
+  if(current===null){
+    const byShift=new Map();
+    for(const item of historyAnalyses){
+      byShift.set(item._key,item);
+    }
+    const distinct=[...byShift.values()]
+      .sort((a,b)=>a._key.localeCompare(b._key));
+
+    const latest=distinct.slice(-1)[0];
+    const prior=distinct.slice(-2,-1)[0];
+
+    current=latest?.reportedOee??null;
+    previous=prior?.reportedOee??null;
+  }
+
+  if(current===null){
     return {
-      direction: 'unknown',
-      arrow: '➜',
-      current: null,
-      previous: null,
-      delta: null,
-      phrase: 'Registre o OEE do turno para acompanhar a evolução da eficiência.'
+      direction:'unknown',
+      arrow:'➜',
+      current:null,
+      previous:null,
+      delta:null,
+      phrase:'Registre o OEE do turno para acompanhar a evolução da eficiência.'
     };
   }
 
-  const current = values[values.length - 1].value;
-  const previous = values.length >= 2
-    ? values[values.length - 2].value
-    : null;
+  const delta=previous===null?null:current-previous;
 
-  const delta = previous === null
-    ? null
-    : current - previous;
+  let direction='stable';
+  let arrow='➜';
 
-  let direction = 'stable';
-  let arrow = '➜';
-
-  if (delta !== null && delta >= 0.5) {
-    direction = 'up';
-    arrow = '⬆';
-  } else if (delta !== null && delta <= -0.5) {
-    direction = 'down';
-    arrow = '⬇';
+  if(delta!==null && delta>=0.5){
+    direction='up';
+    arrow='⬆';
+  }else if(delta!==null && delta<=-0.5){
+    direction='down';
+    arrow='⬇';
   }
 
   let phrase;
 
-  if (current >= 70 && direction === 'up') {
-    phrase = 'Boa evolução. Mantenha o ritmo e elimine as pequenas paradas para fechar o turno ainda melhor.';
-  } else if (current >= 70) {
-    phrase = 'Resultado positivo. O próximo passo é estabilizar as máquinas críticas e evitar reincidências.';
-  } else if (current >= 65 && direction === 'up') {
-    phrase = 'A recuperação começou. Continue atacando as maiores perdas para ultrapassar a meta.';
-  } else if (current >= 65) {
-    phrase = 'Estamos perto. Reaja nas três máquinas prioritárias e transforme pequenas melhorias em ganho de eficiência.';
-  } else if (direction === 'up') {
-    phrase = 'A eficiência ainda está baixa, mas a tendência virou. Mantenha o foco nas causas de maior impacto.';
-  } else {
-    phrase = 'O turno ainda pode reagir. Reduza o MTTR, elimine reincidências e recupere uma máquina crítica de cada vez.';
+  if(current>=70 && direction==='up'){
+    phrase='Boa evolução. Mantenha o ritmo e ataque as perdas das máquinas prioritárias para sustentar o resultado.';
+  }else if(current>=70){
+    phrase='Resultado positivo. O próximo passo é estabilizar as máquinas críticas e evitar reincidências.';
+  }else if(current>=65 && direction==='up'){
+    phrase='A recuperação começou. Continue atacando as maiores perdas para ultrapassar a meta.';
+  }else if(current>=65){
+    phrase='Estamos perto da meta. Resolva as prioridades do turno e transforme pequenas melhorias em ganho de eficiência.';
+  }else if(direction==='up'){
+    phrase='A eficiência ainda está baixa, mas melhorou em relação ao turno anterior. Mantenha o foco nas maiores perdas.';
+  }else{
+    phrase='O turno precisa reagir. Reduza o MTTR, elimine reincidências e recupere primeiro as máquinas de maior impacto.';
   }
 
   return {
@@ -4878,7 +4911,6 @@ function calculateEfficiencyTrend() {
     phrase
   };
 }
-
 function calculateReliability3Days() {
   const now = new Date();
   const periodMinutes = 72 * 60;
@@ -7033,7 +7065,7 @@ function smartActionsFromHistory(orders,issue=''){
 }
 
 
-function productionReportMachineMentions(){
+function productionReportMachineBlocks(){
   const texts=[
     state.productionReportText,
     state.productionReport,
@@ -7047,35 +7079,85 @@ function productionReportMachineMentions(){
     $('analysisInput')?.value
   ].filter(Boolean).join('\n');
 
+  const lines=String(texts).split(/\n/);
+  const blocks=new Map();
+  let current=null;
+
+  const machineFromLine=line=>{
+    const clean=String(line||'')
+      .replace(/\*/g,' ')
+      .replace(/\s+/g,' ')
+      .trim();
+
+    const match=clean.match(/\bMK\s*[:#\-]?\s*0*(\d{1,3})\b/i);
+    if(!match)return null;
+    return normalizeMachineCode(`MK-${Number(match[1])}`);
+  };
+
+  for(const rawLine of lines){
+    const line=String(rawLine||'').trim();
+    const machine=machineFromLine(line);
+
+    if(machine){
+      current={
+        machine,
+        header:line,
+        lines:[line]
+      };
+      blocks.set(machine,current);
+      continue;
+    }
+
+    if(current && line){
+      // Para quando começa uma nova seção geral.
+      if(
+        /^(OBS|SEGURANCA|QUALIDADE|TREINAMENTO|DDE|ENTREGA|REALIZADO|PERDAS|RETRABALHO|HORA.EXTRA)/i
+          .test(normalizeKey(line).replace(/[^A-Z0-9.]/gi,''))
+      ){
+        current=null;
+        continue;
+      }
+      current.lines.push(line);
+    }
+  }
+
+  for(const block of blocks.values()){
+    const text=block.lines.join(' ');
+    const normalized=normalizeKey(text);
+
+    block.problem=compactIssue(text);
+
+    // Travas fortes para não colocar máquina que não produziu no turno.
+    block.didNotRun=
+      /\bem manutencao\b/.test(normalized) ||
+      /\bfalta de mao de obra\b/.test(normalized) ||
+      /\bnao rodou\b/.test(normalized) ||
+      /\bsem producao\b/.test(normalized) ||
+      /\bparada todo turno\b/.test(normalized) ||
+      /\bparada ate 2 ordem\b/.test(normalized) ||
+      /\bparada ate segunda ordem\b/.test(normalized);
+
+    block.explicitRan=
+      /\btrabalhou\b/.test(normalized) ||
+      /\brodando\b/.test(normalized) ||
+      /\bproducao\b/.test(normalized);
+  }
+
+  return blocks;
+}
+
+function productionReportMachineMentions(){
+  const blocks=productionReportMachineBlocks();
   const machines=new Map();
 
-  for(const machine of OEE_BOARD_MACHINES){
-    const normalized=normalizeMachineCode(machine);
-    const variants=[
-      normalized,
-      normalized.replace('-',''),
-      normalized.replace('MK-','MK '),
-      normalized.replace('MK-','MAQUINA ')
-    ];
-
-    const present=variants.some(variant=>
-      normalizeKey(texts).includes(normalizeKey(variant))
-    );
-
-    if(!present)continue;
-
-    const lines=String(texts).split(/\n+/)
-      .filter(line=>
-        variants.some(variant=>
-          normalizeKey(line).includes(normalizeKey(variant))
-        )
-      );
-
-    machines.set(normalized,{
-      machine:normalized,
+  for(const [machine,block] of blocks){
+    machines.set(machine,{
+      machine,
       mentioned:true,
-      lines,
-      problem:compactIssue(lines.join(' '))
+      lines:block.lines,
+      problem:block.problem,
+      didNotRun:Boolean(block.didNotRun),
+      explicitRan:Boolean(block.explicitRan)
     });
   }
 
@@ -7124,6 +7206,132 @@ function currentBoardMap(){
 }
 
 
+
+function saveCurrentShiftOeeSnapshot(analysis){
+  if(!analysis || !Array.isArray(analysis.machineOee) || !analysis.machineOee.length)return;
+
+  const snapshot={
+    savedAt:new Date().toISOString(),
+    date:analysis.date||'',
+    shift:String(analysis.shift||''),
+    boardScope:analysis.boardScope||null,
+    machineOee:analysis.machineOee
+      .filter(row=>row && row.machine)
+      .map(row=>({
+        machine:normalizeMachineCode(row.machine),
+        oee:smartNumeric(row.oee),
+        ran:row.ran!==false && smartNumeric(row.oee)!==null && smartNumeric(row.oee)>0
+      }))
+  };
+
+  try{
+    localStorage.setItem(STORAGE.currentShiftOee,JSON.stringify(snapshot));
+    state.currentShiftOee=snapshot;
+  }catch(error){
+    console.warn('Não foi possível salvar o OEE atual:',error);
+  }
+}
+
+function loadCurrentShiftOeeSnapshot(){
+  try{
+    const raw=localStorage.getItem(STORAGE.currentShiftOee);
+    const snapshot=raw?JSON.parse(raw):null;
+    if(!snapshot || !Array.isArray(snapshot.machineOee))return null;
+
+    const savedAt=new Date(snapshot.savedAt||0);
+    if(Number.isNaN(savedAt.getTime()))return null;
+
+    // Guarda o último quadro confirmado por tempo suficiente para sobreviver
+    // a reload/deploy, mas evita carregar um turno muito antigo.
+    const ageHours=(Date.now()-savedAt.getTime())/3600000;
+    if(ageHours>18){
+      localStorage.removeItem(STORAGE.currentShiftOee);
+      return null;
+    }
+
+    return snapshot;
+  }catch{
+    return null;
+  }
+}
+
+function clearCurrentShiftOeeSnapshot(){
+  state.currentShiftOee=null;
+  try{localStorage.removeItem(STORAGE.currentShiftOee);}catch{}
+}
+
+function priorityOperationalWindow(){
+  const snapshot=state.currentShiftOee;
+  const analysis=state.analysis;
+
+  const date=(analysis?.date||snapshot?.date||'');
+  const shift=String(analysis?.shift||snapshot?.shift||'');
+
+  if(!date || !['1','2'].includes(shift))return null;
+
+  const base=parseISODateAtNoon(date);
+
+  let start;
+  let end;
+
+  if(shift==='1'){
+    start=new Date(base.getFullYear(),base.getMonth(),base.getDate(),6,0,0,0);
+    end=new Date(base.getFullYear(),base.getMonth(),base.getDate(),18,0,0,0);
+  }else{
+    start=new Date(base.getFullYear(),base.getMonth(),base.getDate(),18,0,0,0);
+    end=new Date(base.getFullYear(),base.getMonth(),base.getDate()+1,6,0,0,0);
+  }
+
+  return {start,end,date,shift};
+}
+
+function currentShiftStoppedHoursFromSgman(machine){
+  const normalized=normalizeMachineCode(machine);
+  if(!normalized)return null;
+
+  const window=priorityOperationalWindow();
+  if(!window)return null;
+
+  const intervals=[];
+
+  for(const order of (state.sgmanHistory?.orders||[])){
+    if(!isStoppedSgmanOrder(order))continue;
+    if(sgmanManagementMachine(order)!==normalized)continue;
+
+    const start=parseSgmanDateTime(order.startDate);
+    if(!start)continue;
+
+    let end=parseSgmanDateTime(order.endDate);
+    if(!end){
+      const now=new Date();
+      end=new Date(Math.min(now.getTime(),window.end.getTime()));
+    }
+
+    const overlapStart=new Date(Math.max(start.getTime(),window.start.getTime()));
+    const overlapEnd=new Date(Math.min(end.getTime(),window.end.getTime()));
+
+    if(overlapEnd<=overlapStart)continue;
+    intervals.push([overlapStart.getTime(),overlapEnd.getTime()]);
+  }
+
+  if(!intervals.length)return null;
+
+  intervals.sort((a,b)=>a[0]-b[0]);
+  const merged=[];
+
+  for(const interval of intervals){
+    const last=merged[merged.length-1];
+    if(!last || interval[0]>last[1]){
+      merged.push([...interval]);
+    }else{
+      last[1]=Math.max(last[1],interval[1]);
+    }
+  }
+
+  const totalMs=merged.reduce((sum,[a,b])=>sum+(b-a),0);
+  return Math.min(12,totalMs/3600000);
+}
+
 function supervisorPriorityStorageKey(){
   return 'turnosmart_supervisor_priorities_v74';
 }
@@ -7147,7 +7355,7 @@ function saveSupervisorPriorities(machines=[]){
       JSON.stringify(
         uniqueStrings(
           machines.map(normalizeMachineCode).filter(Boolean)
-        ).slice(0,3)
+        ).slice(0,5)
       )
     );
   }catch(error){
@@ -7179,20 +7387,23 @@ function fallbackCurrentShiftPriorities(limit=10){
 }
 
 function current12hMachineStatus(){
-  // V85: FONTE ÚNICA PARA PRIORIDADE.
-  // Depois de analisar, usa somente analysis.machineOee, que nasce da foto atual.
-  // Antes de analisar, usa somente o editor da foto atual.
-  // SGMan, Power BI, OCR antigo e caches NÃO entram aqui.
-  const analysisBelongsToCurrentPhoto =
-    state.analysis?.oeePhotoGeneration &&
-    state.oeePhotoGeneration &&
-    state.analysis.oeePhotoGeneration === state.oeePhotoGeneration;
+  // Fonte do OEE: somente quadro atual confirmado.
+  const editorRows=machineOeeFromEditor();
 
-  const sourceRows = analysisBelongsToCurrentPhoto &&
-    Array.isArray(state.analysis?.machineOee)
-      ? state.analysis.machineOee
-      : machineOeeFromEditor();
+  let sourceRows=[];
+  if(editorRows.length){
+    sourceRows=editorRows;
+  }else if(Array.isArray(state.analysis?.machineOee) && state.analysis.machineOee.length){
+    sourceRows=state.analysis.machineOee;
+  }else{
+    const snapshot=state.currentShiftOee||loadCurrentShiftOeeSnapshot();
+    state.currentShiftOee=snapshot;
+    sourceRows=snapshot?.machineOee||[];
+  }
 
+  // O relatório da produção NÃO cria prioridade.
+  // Ele serve apenas como trava quando declara que a MK não rodou.
+  const productionBlocks=productionReportMachineMentions();
   const map=new Map();
 
   for(const row of sourceRows){
@@ -7200,44 +7411,24 @@ function current12hMachineStatus(){
     if(!machine)continue;
 
     const oee=smartNumeric(row.oee??row.value??row.efficiency);
-    const ran = row.ran !== false && oee !== null && oee > 0;
+    const production=productionBlocks.get(machine);
+
+    const blockedByProduction=Boolean(production?.didNotRun);
+    const ran=
+      !blockedByProduction &&
+      row.ran!==false &&
+      oee!==null &&
+      oee>0;
 
     if(!ran)continue;
-
-    const stoppedHoursRaw=smartNumeric(
-      row.stoppedHours??
-      row.stopHours??
-      row.downtimeHours??
-      row.hoursStopped??
-      row.paradaHoras
-    );
-
-    const stoppedMinutesRaw=smartNumeric(
-      row.stoppedMinutes??
-      row.stopMinutes??
-      row.downtimeMinutes??
-      row.paradaMinutos
-    );
-
-    const stoppedHours=stoppedHoursRaw!==null
-      ? stoppedHoursRaw
-      : stoppedMinutesRaw!==null
-        ? stoppedMinutesRaw/60
-        : null;
 
     map.set(machine,{
       machine,
       oee,
-      produced:smartNumeric(
-        row.producedQuantity??
-        row.production??
-        row.quantidade??
-        row.qty??
-        row.pieces
-      ),
-      stoppedHours,
       ran:true,
-      source:'current-photo'
+      source:'current-photo',
+      productionProblem:production?.problem||'',
+      productionLines:production?.lines||[]
     });
   }
 
@@ -7255,16 +7446,21 @@ function current12hPriorityRows(limit=10){
     if(item.oee===null || item.oee>=65)continue;
 
     const reportRow=report.get(item.machine);
-    const issue=compactIssue(reportRow?.problem||'');
+    const issue=compactIssue(
+      item.productionProblem ||
+      reportRow?.problem ||
+      ''
+    );
     const history=smartHistoryFor(item.machine,issue);
     const actions=smartActionsFromHistory(history,issue);
 
     const maximum=item.oee<50;
+    const sgmanStoppedHours=currentShiftStoppedHoursFromSgman(item.machine);
 
     rows.push({
       machine:item.machine,
       oee:item.oee,
-      stoppedHours:item.stoppedHours,
+      stoppedHours:sgmanStoppedHours,
       produced:item.produced,
       priorityLevel:maximum?'maximum':'high',
       score:
@@ -7307,8 +7503,8 @@ function current12hPriorityRows(limit=10){
 
 function priorityStoppedHoursLabel(row){
   return row.stoppedHours!==null&&row.stoppedHours!==undefined
-    ? `${Number(row.stoppedHours).toFixed(1)} h parada`
-    : 'tempo parado não informado';
+    ? `${Number(row.stoppedHours).toFixed(1).replace('.',',')} h parada`
+    : 'horas paradas: sem dado SGMan';
 }
 
 function supervisorFusionRanking(limit=10){
@@ -7345,10 +7541,18 @@ function renderSupervisorFusionPanel(){
   const counter=$('supervisorPriorityCounter');
   if(counter)counter.textContent=`${selectedCount} de 5 selecionadas`;
 
+  const snapshotStatus=$('currentOeeSnapshotStatus');
+  if(snapshotStatus){
+    const snap=state.currentShiftOee||loadCurrentShiftOeeSnapshot();
+    snapshotStatus.textContent=snap
+      ? `Quadro confirmado: ${snap.boardScope?.label||`${snap.date||''} turno ${snap.shift||''}`} • ${snap.machineOee.filter(r=>r.ran).length} máquina(s) que rodaram`
+      : 'Nenhum quadro OEE confirmado salvo.';
+  }
+
   target.innerHTML=`
     <div class="supervisor-confirm-box">
       <strong>Validação antes de gerar o relatório</strong>
-      <p>As três prioridades vêm do quadro atual e do relatório da produção. O SGMan apenas recomenda o que verificar.</p>
+      <p>As prioridades vêm somente do OEE confirmado das últimas 12h. O SGMan acrescenta horas paradas e recomenda o que verificar, mas não inclui máquinas.</p>
     </div>
 
     <div class="supervisor-fusion-panel">
@@ -7356,8 +7560,8 @@ function renderSupervisorFusionPanel(){
         <article class="supervisor-fusion-row ${row.selected?'is-selected':''}">
           <span class="supervisor-fusion-rank">${index+1}</span>
           <div>
-            <strong>${escapeHtml(row.machine)}${
-              row.oee!==null?` — ${row.oee.toFixed(1)}%`:''
+            <strong>${row.priorityLevel==='maximum'?'🚨 PRIORIDADE MÁXIMA — ':''}${escapeHtml(row.machine)}${
+              row.oee!==null?` — OEE ${row.oee.toFixed(1).replace('.',',')}% • ${priorityStoppedHoursLabel(row)}`:''
             }</strong>
             <p>${escapeHtml(row.reasons.join(' | ')||'Revisar prioridade')}</p>
             <div class="supervisor-fusion-meta">
@@ -7400,6 +7604,10 @@ function renderSupervisorFusionPanel(){
 
       input.closest('.supervisor-fusion-row')
         ?.classList.toggle('is-selected',input.checked);
+
+      if($('maintenanceActionsList')){
+        $('maintenanceActionsList').innerHTML=messageHtml(maintenanceMessage());
+      }
     });
   });
 }
@@ -9359,6 +9567,7 @@ async function analyzeCurrentReport() {
 
     analysis.oeePhotoGeneration = state.oeePhotoGeneration || null;
     state.analysis = analysis;
+    saveCurrentShiftOeeSnapshot(analysis);
     state.actions = generateActions(analysis);
 
     // Novo turno/análise: recalcula as prioridades com o quadro atual
@@ -12061,6 +12270,7 @@ function init() {
 
   state.sgmanHistory = getCachedSgmanHistory();
   state.sgmanMachineHistory = getCachedSgmanMachineHistory();
+  state.currentShiftOee = loadCurrentShiftOeeSnapshot();
   renderSgmanDailyStatus();
   refreshSgmanHistory(false);
 
@@ -12231,6 +12441,7 @@ function init() {
     const dataUrl = await dataUrlFromFile(file);
     state.oeeImageDataUrl = dataUrl;
     state.oeePhotoGeneration = Date.now();
+    clearCurrentShiftOeeSnapshot();
     state.oeeMachineEditorData = [];
     state.oeeRowPreviews = [];
 
@@ -12520,7 +12731,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=86.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=89.0.0');
         registration.update();
       } catch {}
     });
@@ -12590,8 +12801,12 @@ document.addEventListener('click',event=>{
 
 document.addEventListener('click',event=>{
   if(event.target?.id==='refreshSupervisorFusionBtn'){
+    state.currentShiftOee=loadCurrentShiftOeeSnapshot();
     renderSupervisorFusionPanel();
-    showToast('Prioridades atualizadas com quadro e relatório da produção.');
+    if($('maintenanceActionsList') && state.analysis){
+      $('maintenanceActionsList').innerHTML=messageHtml(maintenanceMessage());
+    }
+    showToast('Prioridades atualizadas com o OEE confirmado e horas paradas do SGMan.');
   }
 });
 

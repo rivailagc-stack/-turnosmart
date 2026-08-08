@@ -1,5 +1,5 @@
-PATCH V86
-Use sobre a V85.
+PATCH V89
+Use sobre a V88.
 
 Substitua:
 - app.js
@@ -8,10 +8,8 @@ Substitua:
 - sw.js
 - api/health.js
 
-Depois faça novo deploy e confirme V86.0.0.
+Depois faça novo deploy e confirme V89.0.0.
 
-Teste obrigatório:
-1. Carregue uma foto onde MK108/MK188 não rodaram.
-2. Confira que aparecem como Não rodou no editor.
-3. Analise.
-4. Elas NÃO podem aparecer nas prioridades.
+TESTE:
+Se o turno anterior foi 62% e o atual é 70%, deve aparecer:
+⬆ melhora de 8,0 ponto(s) (62% -> 70%).
