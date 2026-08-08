@@ -1,8 +1,10 @@
-# Testes V70
-1. Confirme V70.0.0.
-2. Carregue OEE atual.
-3. Verifique que máquina estável acima de 70% não aparece como prioridade.
-4. Verifique que a pior máquina entra primeiro.
-5. Teste uma falha de variação de altura.
-6. Confira sugestões baseadas nas OS históricas.
-7. Abra Inteligência e atualize a evolução desde 2025-09.
+# Testes V80
+1. Abra o app e confirme V80.0.0.
+2. Clique em TODAS as abas principais: nenhuma pode travar.
+3. Abra Treinamentos.
+4. Confira TurnoSmart Academy.
+5. Abra Válvula 5/3.
+6. Responda o quiz.
+7. Feche a lição e navegue para outra aba.
+8. Volte aos relatórios, ações e inteligência.
+9. Confirme que a V78 continua funcionando normalmente.

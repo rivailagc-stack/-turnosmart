@@ -1,7 +1,14 @@
-TurnoSmart V70.0.0
-
-- Prioridade do próximo turno baseada no OEE atual, tendência, tempo parado e falhas recentes.
-- Máquina estável e com OEE bom perde prioridade.
-- Histórico do SGMan usado somente para sugerir verificações técnicas.
-- Variação de altura procura no histórico: mola, faca, calço, sensor e vácuo.
-- Nova gestão mensal desde 09/2025 com OS, corretivas, paradas, reincidências, MTTR e MTBF.
+TurnoSmart V81.0.0
+- Layout mobile-first na Inteligência.
+- Filtros empilhados no celular e navegação inferior rolável.
+- Erro de crédito OpenAI não bloqueia mais gestão.
+- Custos continuam independentes da IA.
+- Painel Eficiência por Líder com 4 equipes:
+  Emerson: Carlos, Roberto, Luiz
+  Fider: Jean, Aleilson, Rozental/Rosental
+  Ricardo: Roger, Marcelo
+  Danilo: Thiago, Marcos, Allan
+- OEE por líder é calculado nos dias em que a equipe é identificada pelos executantes do SGMan.
+- Mostra mecânicos previstos e os que realmente possuem registro no SGMan no dia.
+- Filtros por mês, dia, líder, máquina e produto.
+- Gráfico de OEE diário da equipe.
