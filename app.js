@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '78.0.0';
+const APP_VERSION = '79.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v78.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v79.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -497,7 +497,21 @@ function safeSwitchView(name) {
   return true;
 }
 
-async function initializeIntelligenceOnlyWhenNeeded() {
+async 
+function academyState(){state.academy||={loaded:false,lessons:[],current:null,index:0,answered:false,progress:{xp:0,completed:{},wrong:{}}};return state.academy;}
+function academyLoadProgress(){try{const r=localStorage.getItem('turnosmart_academy_progress_v1');if(r)academyState().progress={xp:0,completed:{},wrong:{},...JSON.parse(r)};}catch{}}
+function academySave(){try{localStorage.setItem('turnosmart_academy_progress_v1',JSON.stringify(academyState().progress));}catch{}}
+async function loadAcademy(){const s=academyState();if(s.loaded){renderAcademy();return s;}academyLoadProgress();try{const r=await fetch('/academy-lessons.json?v=79.0.0');const d=await r.json();s.lessons=Array.isArray(d.lessons)?d.lessons:[];s.loaded=true;const tracks=uniqueStrings(s.lessons.map(x=>x.track)).sort();const f=$('academyTrackFilter');if(f)f.innerHTML='<option value="">Todas</option>'+tracks.map(x=>`<option>${escapeHtml(x)}</option>`).join('');renderAcademy();}catch(e){console.warn(e);}return s;}
+function academyDone(id){return Boolean(academyState().progress.completed[id]);}
+function academyWrong(id){return Number(academyState().progress.wrong[id]||0);}
+function academyLevel(xp){return xp>=650?5:xp>=400?4:xp>=220?3:xp>=90?2:1;}
+function renderAcademy(){const s=academyState(),xp=Number(s.progress.xp||0),level=academyLevel(xp);if($('academyXpValue'))$('academyXpValue').textContent=`${xp} XP`;if($('academyLevelValue'))$('academyLevelValue').textContent=`Nível ${level}`;if($('academyProgressBar'))$('academyProgressBar').style.width=`${Math.min(100,(xp%220)/220*100)}%`;if($('academyProgressText'))$('academyProgressText').textContent='Continue avançando nas trilhas.';const track=$('academyTrackFilter')?.value||'',lev=$('academyLevelFilter')?.value||'',q=normalizeKey($('academySearch')?.value||'');const list=s.lessons.filter(l=>(!track||l.track===track)&&(!lev||String(l.level)===lev)&&(!q||normalizeKey(`${l.title} ${l.track}`).includes(q)));const t=$('academyLessonGrid');if(t)t.innerHTML=list.map(l=>`<article class="academy-lesson-card ${academyDone(l.id)?'is-completed':''}"><span class="academy-track-pill">${escapeHtml(l.track)} • N${l.level}</span><h3>${escapeHtml(l.title)}</h3><p>${l.steps.length} etapa(s) • ${l.xp} XP</p><button class="${academyDone(l.id)?'secondary':'primary'}" data-academy-lesson="${l.id}" type="button">${academyDone(l.id)?'Revisar':'Começar'}</button></article>`).join('');}
+function openAcademyLesson(id){const s=academyState(),l=s.lessons.find(x=>x.id===id);if(!l)return;s.current=l;s.index=0;s.answered=false;$('academyLessonModal')?.classList.remove('hidden');renderAcademyStep();}
+function renderAcademyStep(){const s=academyState(),l=s.current,st=l?.steps?.[s.index];if(!st)return;if($('academyLessonTrack'))$('academyLessonTrack').textContent=l.track;if($('academyLessonTitle'))$('academyLessonTitle').textContent=l.title;if($('academyLessonMeta'))$('academyLessonMeta').textContent=`Etapa ${s.index+1}/${l.steps.length} • ${l.xp} XP`;if($('academyStepProgressFill'))$('academyStepProgressFill').style.width=`${(s.index+1)/l.steps.length*100}%`;const c=$('academyLessonContent');if(st.type==='learn'){c.innerHTML=`<span class="eyebrow">${escapeHtml(st.title||'APRENDA')}</span><h3>${escapeHtml(st.title||l.title)}</h3><p class="academy-learn-text">${escapeHtml(st.text||'')}</p>`;s.answered=true;}else{c.innerHTML=`<span class="eyebrow">DESAFIO</span><h3>${escapeHtml(st.question)}</h3><div class="academy-answer-list">${st.options.map((o,i)=>`<button class="academy-answer-btn" data-academy-answer="${i}" type="button">${escapeHtml(o)}</button>`).join('')}</div><div id="academyAnswerFeedback"></div>`;s.answered=false;}if($('academyPrevStepBtn'))$('academyPrevStepBtn').disabled=s.index===0;if($('academyNextStepBtn')){$('academyNextStepBtn').disabled=!s.answered;$('academyNextStepBtn').textContent=s.index===l.steps.length-1?'Concluir':'Continuar';}}
+function answerAcademyQuestion(i){const s=academyState(),st=s.current.steps[s.index];if(s.answered)return;s.answered=true;const ok=Number(i)===Number(st.answer);$$('.academy-answer-btn').forEach((b,bi)=>{b.disabled=true;if(bi===Number(st.answer))b.classList.add('is-correct');else if(bi===Number(i))b.classList.add('is-wrong');});const f=$('academyAnswerFeedback');if(f)f.innerHTML=`<div class="academy-feedback ${ok?'correct':'wrong'}"><strong>${ok?'✅ Correto!':'❌ Ainda não.'}</strong><p>${escapeHtml(st.explain||'')}</p></div>`;if(!ok){s.progress.wrong[s.current.id]=academyWrong(s.current.id)+1;academySave();}$('academyNextStepBtn').disabled=false;}
+function nextAcademyStep(){const s=academyState();if(!s.current)return;if(s.index>=s.current.steps.length-1){if(!academyDone(s.current.id)){s.progress.completed[s.current.id]=new Date().toISOString();s.progress.xp=Number(s.progress.xp||0)+Number(s.current.xp||0);academySave();}$('academyLessonContent').innerHTML=`<div class="academy-finish"><div>🏅</div><h2>Lição concluída</h2><strong>+${s.current.xp} XP</strong></div>`;$('academyNextStepBtn').textContent='Fechar';$('academyNextStepBtn').disabled=false;$('academyNextStepBtn').dataset.finish='1';return;}if($('academyNextStepBtn')?.dataset?.finish==='1'){delete $('academyNextStepBtn').dataset.finish;$('academyLessonModal').classList.add('hidden');renderAcademy();return;}s.index++;renderAcademyStep();}
+function prevAcademyStep(){const s=academyState();if(s.index>0){s.index--;renderAcademyStep();}}
+function initializeIntelligenceOnlyWhenNeeded() {
   if (intelligenceModuleInitialized) return;
 
   intelligenceModuleInitialized = true;
@@ -11921,7 +11935,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=78.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=79.0.0');
         registration.update();
       } catch {}
     });
@@ -12034,3 +12048,18 @@ document.addEventListener('change',event=>{
     if(badge)badge.textContent='🔐 Revalide para recalcular';
   }
 });
+
+document.addEventListener('click',e=>{
+ if(e.target?.dataset?.academyLesson)openAcademyLesson(e.target.dataset.academyLesson);
+ if(e.target?.dataset?.academyAnswer!==undefined)answerAcademyQuestion(Number(e.target.dataset.academyAnswer));
+ if(e.target?.id==='academyNextStepBtn'){
+   if(e.target.dataset.finish==='1'){delete e.target.dataset.finish;$('academyLessonModal')?.classList.add('hidden');renderAcademy();}
+   else nextAcademyStep();
+ }
+ if(e.target?.id==='academyPrevStepBtn')prevAcademyStep();
+ if(e.target?.id==='academyCloseLessonBtn')$('academyLessonModal')?.classList.add('hidden');
+ if(e.target?.id==='academyReviewBtn'){const id=Object.entries(academyState().progress.wrong||{}).sort((a,b)=>b[1]-a[1])[0]?.[0];id?openAcademyLesson(id):showToast('Nenhuma lição com erro para revisar.');}
+});
+document.addEventListener('change',e=>{if(['academyTrackFilter','academyLevelFilter'].includes(e.target?.id))renderAcademy();});
+document.addEventListener('input',e=>{if(e.target?.id==='academySearch')renderAcademy();});
+setTimeout(()=>{if(document.querySelector('#academyLessonGrid'))loadAcademy();},600);

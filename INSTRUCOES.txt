@@ -1,18 +1,1 @@
-PATCH V78
-
-Substitua/adicone:
-- app.js
-- index.html
-- style.css
-- sw.js
-- api/health.js
-- api/management-cost.js  (NOVO)
-
-NA VERCEL:
-Settings > Environment Variables
-Key: MANAGEMENT_PIN
-Value: escolha um PIN somente da gestão
-
-Depois faça novo deploy e confirme V78.0.0.
-
-O arquivo de salários NÃO precisa ser enviado para a Vercel.
+Substitua app.js, index.html, style.css, sw.js, api/health.js e adicione academy-lessons.json. Depois faça deploy e confirme V79.0.0.
