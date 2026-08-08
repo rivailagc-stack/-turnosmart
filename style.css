@@ -2439,3 +2439,30 @@ button:disabled{
   border-left:4px solid #f79009!important;
   background:#fffaeb;
 }
+
+/* ==========================================================
+   V93 — leitura profunda do OEE
+   ========================================================== */
+.oee-candidate-picks{
+  grid-column:1 / -1;
+  display:flex;
+  flex-wrap:wrap;
+  gap:7px;
+  margin-top:3px;
+}
+.oee-candidate-btn{
+  border:1px solid #f79009;
+  background:#fff7ed;
+  color:#9a3412;
+  border-radius:999px;
+  padding:7px 11px;
+  font-weight:900;
+  font-size:.8rem;
+}
+.oee-candidate-btn.is-current{
+  background:#f79009;
+  color:#fff;
+}
+.oee-row-preview{
+  object-fit:cover;
+}

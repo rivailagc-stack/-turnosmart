@@ -199,14 +199,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '92.0.0';
+const APP_VERSION = '93.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v92.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v93.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2274,9 +2274,17 @@ function getOeeCropSettings(image, operationalDate, shift) {
   const columnWidth = (boardEnd - boardStart) / totalColumns;
   const index = boardColumnIndex(operationalDate, shift);
 
-  // Leve folga lateral para compensar perspectiva da foto.
-  const xRatio = Math.max(0, boardStart + index * columnWidth - columnWidth * 0.13);
-  const widthRatio = Math.min(1 - xRatio, columnWidth * 1.26);
+  // V93 — recorte mais estreito da coluna escolhida.
+  // A versão anterior invadia a coluna vizinha e podia capturar números
+  // que não pertenciam ao turno selecionado.
+  const xRatio = Math.max(
+    0,
+    boardStart + index * columnWidth - columnWidth * 0.025
+  );
+  const widthRatio = Math.min(
+    1 - xRatio,
+    columnWidth * 1.07
+  );
 
   // V88 — calibração real do quadro Ecopack:
   // a lista usada pelo TurnoSmart começa na MK138 e termina na MK149.
@@ -2285,8 +2293,8 @@ function getOeeCropSettings(image, operationalDate, shift) {
   // V92 — faixa real das 20 linhas de máquinas.
   // Evita incluir espaço vazio abaixo da MK149, que aumentava artificialmente
   // a altura de cada linha e deslocava o OEE para a máquina errada.
-  const yRatio = 0.300;
-  const heightRatio = 0.625;
+  const yRatio = 0.305;
+  const heightRatio = 0.660;
 
   return {
     sx: Math.round(image.naturalWidth * xRatio),
@@ -2342,90 +2350,129 @@ function createOeeRowPreviews(previewCanvas) {
   return previews;
 }
 
-function preprocessOeeColumn(image, operationalDate, shift) {
-  const crop = getOeeCropSettings(image, operationalDate, shift);
+function oeeVariantFromCanvas(sourceCanvas, mode='ink'){
+  const canvas=document.createElement('canvas');
+  canvas.width=sourceCanvas.width;
+  canvas.height=sourceCanvas.height;
 
-  // Prévia colorida e legível para o usuário.
-  const previewCanvas = document.createElement('canvas');
-  const previewCtx = previewCanvas.getContext('2d');
-  const previewWidth = Math.max(520, Math.min(900, crop.sw * 3.5));
-  const previewHeight = Math.round(previewWidth * (crop.sh / crop.sw));
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  ctx.fillStyle='#fff';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(sourceCanvas,0,0);
 
-  previewCanvas.width = previewWidth;
-  previewCanvas.height = previewHeight;
-  previewCtx.fillStyle = '#ffffff';
-  previewCtx.fillRect(0, 0, previewWidth, previewHeight);
-  previewCtx.imageSmoothingEnabled = true;
-  previewCtx.imageSmoothingQuality = 'high';
-  previewCtx.drawImage(
-    image,
-    crop.sx, crop.sy, crop.sw, crop.sh,
-    0, 0, previewWidth, previewHeight
-  );
+  const imageData=ctx.getImageData(0,0,canvas.width,canvas.height);
+  const pixels=imageData.data;
 
-  // Imagem separada para o OCR. Ela não é mais usada como prévia principal.
-  const ocrCanvas = document.createElement('canvas');
-  const ocrCtx = ocrCanvas.getContext('2d', { willReadFrequently: true });
-  const ocrWidth = Math.max(1200, Math.min(1800, crop.sw * 6));
-  const ocrHeight = Math.round(ocrWidth * (crop.sh / crop.sw));
+  for(let i=0;i<pixels.length;i+=4){
+    const r=pixels[i];
+    const g=pixels[i+1];
+    const b=pixels[i+2];
+    const max=Math.max(r,g,b);
+    const min=Math.min(r,g,b);
+    const saturation=max-min;
+    const luminance=0.299*r+0.587*g+0.114*b;
 
-  ocrCanvas.width = ocrWidth;
-  ocrCanvas.height = ocrHeight;
-  ocrCtx.fillStyle = '#ffffff';
-  ocrCtx.fillRect(0, 0, ocrWidth, ocrHeight);
-  ocrCtx.imageSmoothingEnabled = true;
-  ocrCtx.imageSmoothingQuality = 'high';
-  ocrCtx.drawImage(
-    image,
-    crop.sx, crop.sy, crop.sw, crop.sh,
-    0, 0, ocrWidth, ocrHeight
-  );
+    let value=255;
 
-  const imageData = ocrCtx.getImageData(0, 0, ocrWidth, ocrHeight);
-  const pixels = imageData.data;
-
-  // Tratamento suave:
-  // - mantém os traços da caneta;
-  // - clareia grade e fundo;
-  // - não dilata nem transforma a escrita em blocos pretos.
-  for (let i = 0; i < pixels.length; i += 4) {
-    const r = pixels[i];
-    const g = pixels[i + 1];
-    const b = pixels[i + 2];
-
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const saturation = max - min;
-    const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-
-    let value;
-
-    if (saturation < 15 && luminance > 118) {
-      // Fundo branco e linhas claras da grade.
-      value = 255;
-    } else if (saturation >= 18) {
-      // Caneta colorida: aumenta contraste sem engrossar o traço.
-      value = clampByte(luminance * 0.58 - saturation * 0.55 + 42);
-    } else {
-      // Escrita escura ou partes mais fortes da grade.
-      value = clampByte((luminance - 105) * 1.65 + 105);
+    if(mode==='ink'){
+      // Preserva principalmente canetas vermelha, azul e verde.
+      if(saturation>=14){
+        value=clampByte(luminance*0.42-saturation*0.85+58);
+      }else if(luminance<105){
+        value=clampByte((luminance-90)*1.7+65);
+      }else{
+        value=255;
+      }
+    }else{
+      // Segunda leitura: contraste forte, inclusive escrita escura.
+      if(saturation>=10 && luminance<242){
+        value=clampByte(luminance*0.50-saturation*0.55+38);
+      }else{
+        value=luminance<148?25:luminance<188?120:255;
+      }
     }
 
-    pixels[i] = value;
-    pixels[i + 1] = value;
-    pixels[i + 2] = value;
-    pixels[i + 3] = 255;
+    pixels[i]=value;
+    pixels[i+1]=value;
+    pixels[i+2]=value;
+    pixels[i+3]=255;
   }
 
-  ocrCtx.putImageData(imageData, 0, 0);
+  ctx.putImageData(imageData,0,0);
+  return canvas;
+}
+
+function preprocessOeeColumn(image, operationalDate, shift) {
+  const crop=getOeeCropSettings(image,operationalDate,shift);
+
+  // Prévia colorida grande: facilita conferência visual no celular.
+  const previewCanvas=document.createElement('canvas');
+  const previewCtx=previewCanvas.getContext('2d');
+  const previewHeight=3000;
+  const previewWidth=Math.max(
+    500,
+    Math.round(previewHeight*(crop.sw/crop.sh))
+  );
+
+  previewCanvas.width=previewWidth;
+  previewCanvas.height=previewHeight;
+  previewCtx.fillStyle='#fff';
+  previewCtx.fillRect(0,0,previewWidth,previewHeight);
+  previewCtx.imageSmoothingEnabled=true;
+  previewCtx.imageSmoothingQuality='high';
+  previewCtx.drawImage(
+    image,
+    crop.sx,crop.sy,crop.sw,crop.sh,
+    0,0,previewWidth,previewHeight
+  );
+
+  // OCR dimensionado pela altura das 20 linhas.
+  // ~180 px por linha é suficiente e bem mais leve que a imagem gigante antiga.
+  const ocrCanvas=document.createElement('canvas');
+  const ocrHeight=OEE_BOARD_MACHINES.length*180;
+  const ocrWidth=Math.max(
+    520,
+    Math.round(ocrHeight*(crop.sw/crop.sh))
+  );
+
+  ocrCanvas.width=ocrWidth;
+  ocrCanvas.height=ocrHeight;
+  const ocrCtx=ocrCanvas.getContext('2d');
+  ocrCtx.fillStyle='#fff';
+  ocrCtx.fillRect(0,0,ocrWidth,ocrHeight);
+  ocrCtx.imageSmoothingEnabled=true;
+  ocrCtx.imageSmoothingQuality='high';
+  ocrCtx.drawImage(
+    image,
+    crop.sx,crop.sy,crop.sw,crop.sh,
+    0,0,ocrWidth,ocrHeight
+  );
+
+  const inkCanvas=oeeVariantFromCanvas(ocrCanvas,'ink');
+  const contrastCanvas=oeeVariantFromCanvas(ocrCanvas,'contrast');
 
   return {
     crop,
-    canvas: ocrCanvas,
+    canvas:inkCanvas,
     previewCanvas,
-    previewDataUrl: previewCanvas.toDataURL('image/jpeg', 0.94),
-    ocrDataUrl: ocrCanvas.toDataURL('image/png'),
-    rowPreviews: createOeeRowPreviews(previewCanvas)
+    previewDataUrl:previewCanvas.toDataURL('image/jpeg',0.95),
+    ocrDataUrl:inkCanvas.toDataURL('image/png'),
+    contrastDataUrl:contrastCanvas.toDataURL('image/png'),
+    ocrVariants:[
+      {
+        label:'tinta',
+        dataUrl:inkCanvas.toDataURL('image/png'),
+        width:inkCanvas.width,
+        height:inkCanvas.height
+      },
+      {
+        label:'contraste',
+        dataUrl:contrastCanvas.toDataURL('image/png'),
+        width:contrastCanvas.width,
+        height:contrastCanvas.height
+      }
+    ],
+    rowPreviews:createOeeRowPreviews(previewCanvas)
   };
 }
 
@@ -2473,6 +2520,73 @@ function numericOeeFromWord(text = '') {
   };
 }
 
+function oeeWordsWithPercentPairs(words=[],passLabel=''){
+  const normalized=(words||[]).map(word=>({
+    ...word,
+    _oeePass:passLabel||word._oeePass||'base'
+  }));
+
+  const synthetic=[];
+
+  for(const word of normalized){
+    const raw=String(word.text||'').trim();
+    const parsed=numericOeeFromWord(raw);
+
+    if(!parsed || parsed.hasPercent)continue;
+
+    const box=word.bbox||{};
+    const x0=Number(box.x0??box.left??0);
+    const x1=Number(box.x1??box.right??x0);
+    const y0=Number(box.y0??box.top??0);
+    const y1=Number(box.y1??box.bottom??y0);
+    const height=Math.max(6,y1-y0);
+
+    const percent=normalized.find(other=>{
+      if(other===word)return false;
+      const text=String(other.text||'').trim();
+      if(!/%/.test(text))return false;
+
+      const b=other.bbox||{};
+      const ox0=Number(b.x0??b.left??0);
+      const oy0=Number(b.y0??b.top??0);
+      const oy1=Number(b.y1??b.bottom??oy0);
+
+      const verticalOverlap=
+        Math.min(y1,oy1)-Math.max(y0,oy0);
+
+      const horizontalGap=ox0-x1;
+
+      return (
+        verticalOverlap>-height*0.15 &&
+        horizontalGap>=-height*0.3 &&
+        horizontalGap<=height*1.8
+      );
+    });
+
+    if(percent){
+      const pb=percent.bbox||{};
+      synthetic.push({
+        ...word,
+        text:`${raw}%`,
+        confidence:Math.min(
+          99,
+          (Number(word.confidence||0)+Number(percent.confidence||0))/2+8
+        ),
+        bbox:{
+          x0,
+          y0:Math.min(y0,Number(pb.y0??pb.top??y0)),
+          x1:Math.max(x1,Number(pb.x1??pb.right??x1)),
+          y1:Math.max(y1,Number(pb.y1??pb.bottom??y1))
+        },
+        _oeePass:passLabel||word._oeePass||'base',
+        _syntheticPercent:true
+      });
+    }
+  }
+
+  return [...normalized,...synthetic];
+}
+
 function mapOcrWordsToMachineRows(words = [], canvasHeight = 1, canvasWidth = 1) {
   const rowCount=OEE_BOARD_MACHINES.length;
   const rowHeight=Math.max(1,canvasHeight/rowCount);
@@ -2490,37 +2604,22 @@ function mapOcrWordsToMachineRows(words = [], canvasHeight = 1, canvasWidth = 1)
 
     const centerY=(y0+y1)/2;
     const centerX=(x0+x1)/2;
-
     const rowIndex=Math.floor(centerY/rowHeight);
+
     if(rowIndex<0 || rowIndex>=rowCount)continue;
 
     const rowTop=rowIndex*rowHeight;
     const positionInsideRow=(centerY-rowTop)/rowHeight;
 
-    // Evita número encostado exatamente na linha horizontal da tabela.
-    if(positionInsideRow<0.07 || positionInsideRow>0.93)continue;
-
-    const xRatio=canvasWidth>1?centerX/canvasWidth:0.5;
-    const confidence=Number(word.confidence||0);
-
-    // OEE no quadro costuma aparecer depois da quantidade/observação.
-    // O símbolo % recebe peso alto, mas NÃO é obrigatório.
-    let score=confidence;
-    if(parsed.hasPercent)score+=120;
-    score+=Math.max(0,Math.min(1,xRatio))*22;
-
-    // Faixa mais comum de OEE recebe pequeno bônus, sem impedir
-    // valores realmente baixos.
-    if(parsed.value>=30 && parsed.value<=95)score+=8;
+    if(positionInsideRow<0.05 || positionInsideRow>0.95)continue;
 
     rowBuckets[rowIndex].push({
       value:parsed.value,
       hasPercent:parsed.hasPercent,
-      confidence,
-      x:centerX,
-      y:centerY,
+      confidence:Number(word.confidence||0),
+      xRatio:canvasWidth>1?centerX/canvasWidth:0.5,
       raw:parsed.raw||word.text,
-      score
+      pass:String(word._oeePass||'base')
     });
   }
 
@@ -2532,32 +2631,97 @@ function mapOcrWordsToMachineRows(words = [], canvasHeight = 1, canvasWidth = 1)
         machine,
         oee:'',
         confidence:0,
-        source:'OEE não reconhecido — confirmar pela foto',
-        ran:false,
-        ambiguous:false
+        source:'OEE não reconhecido — revisar pela foto',
+        ran:true,
+        ambiguous:true,
+        needsReview:true,
+        alternatives:[],
+        hasPercentEvidence:false,
+        consensusPasses:0
       };
     }
 
-    candidates.sort((a,b)=>b.score-a.score);
-    const chosen=candidates[0];
-    const second=candidates[1];
+    // Agrupa o mesmo valor reconhecido em diferentes tratamentos da foto.
+    const groups=new Map();
+
+    for(const item of candidates){
+      const key=(Math.round(item.value*10)/10).toFixed(1);
+      if(!groups.has(key)){
+        groups.set(key,{
+          value:item.value,
+          items:[],
+          passes:new Set(),
+          percentPasses:new Set(),
+          maxConfidence:0,
+          xRatios:[]
+        });
+      }
+
+      const group=groups.get(key);
+      group.items.push(item);
+      group.passes.add(item.pass);
+      if(item.hasPercent)group.percentPasses.add(item.pass);
+      group.maxConfidence=Math.max(group.maxConfidence,item.confidence);
+      group.xRatios.push(item.xRatio);
+    }
+
+    const ranked=[...groups.values()].map(group=>{
+      const passCount=group.passes.size;
+      const percentCount=group.percentPasses.size;
+      const avgX=group.xRatios.reduce((a,b)=>a+b,0)/group.xRatios.length;
+
+      let score=group.maxConfidence;
+      score+=passCount*95;
+      score+=percentCount*260;
+      score+=avgX*85;
+
+      if(group.value>=30 && group.value<=95)score+=25;
+
+      // Valor extremamente baixo precisa de confirmação forte.
+      if(group.value<20 && passCount<2)score-=180;
+      if(group.value<20 && percentCount===0)score-=110;
+
+      return {
+        ...group,
+        passCount,
+        percentCount,
+        avgX,
+        score
+      };
+    }).sort((a,b)=>b.score-a.score);
+
+    const chosen=ranked[0];
+    const second=ranked[1];
+    const scoreGap=second?chosen.score-second.score:999;
 
     const ambiguous=Boolean(
-      second &&
-      Math.abs(chosen.score-second.score)<18 &&
-      Math.abs(chosen.value-second.value)>=6
+      (
+        second &&
+        Math.abs(chosen.value-second.value)>=4 &&
+        scoreGap<85
+      ) ||
+      (
+        chosen.value<20 &&
+        chosen.passCount<2
+      ) ||
+      (
+        chosen.percentCount===0 &&
+        chosen.passCount<2 &&
+        chosen.maxConfidence<62
+      )
     );
 
     return {
       machine,
       oee:chosen.value,
-      confidence:ambiguous
-        ? Math.min(55,chosen.confidence)
-        : chosen.confidence,
-      source:chosen.raw,
+      confidence:Math.min(100,Math.round(chosen.maxConfidence+chosen.passCount*8)),
+      source:chosen.items[0]?.raw||String(chosen.value),
       ran:true,
       ambiguous,
-      alternatives:candidates.slice(0,3).map(item=>item.value)
+      needsReview:ambiguous,
+      alternatives:ranked.slice(0,4).map(item=>item.value),
+      hasPercentEvidence:chosen.percentCount>0,
+      consensusPasses:chosen.passCount
     };
   });
 }
@@ -2618,12 +2782,24 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
               ? (
                   row.oee === ''
                     ? '⚠️ OEE não reconhecido — confira a foto'
-                    : row.ambiguous
-                      ? `⚠️ Leitura duvidosa — opções ${escapeHtml((row.alternatives||[]).join(' / '))}`
-                      : `${Math.round(row.confidence || 0)}% confiança — confirme`
+                    : row.needsReview
+                      ? '⚠️ Leitura duvidosa — toque no valor correto'
+                      : `✅ ${Math.round(row.confidence || 0)}% confiança • ${row.consensusPasses||1} leitura(s)`
                 )
               : 'Não rodou — fora da prioridade'}
             </small>
+            ${ran && (row.alternatives||[]).length>1
+              ? `<div class="oee-candidate-picks">${
+                  (row.alternatives||[]).slice(0,4).map(value=>`
+                    <button
+                      type="button"
+                      class="oee-candidate-btn ${Number(value)===Number(row.oee)?'is-current':''}"
+                      data-index="${index}"
+                      data-value="${escapeHtml(String(value))}"
+                    >${escapeHtml(String(value).replace('.',','))}%</button>
+                  `).join('')
+                }</div>`
+              : ''}
           </div>`;
       }).join('')}
     </div>
@@ -2679,10 +2855,36 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
       state.oeeMachineEditorData[index].oee = Number.isFinite(value) ? value : '';
       state.oeeMachineEditorData[index].ran = raw !== '';
       state.oeeMachineEditorData[index].confidence = 100;
+      state.oeeMachineEditorData[index].ambiguous = false;
+      state.oeeMachineEditorData[index].needsReview = false;
+      state.oeeMachineEditorData[index].consensusPasses = 2;
       event.target.closest('.oee-editor-row')?.classList.remove('confidence-low', 'confidence-warning', 'confidence-empty');
       event.target.closest('.oee-editor-row')?.classList.add('confidence-good');
       const small = event.target.closest('.oee-editor-row')?.querySelector('small');
       if (small) small.textContent = raw === '' ? 'Revisar' : 'Confirmado';
+    });
+  });
+
+  $$('.oee-candidate-btn').forEach(button=>{
+    button.addEventListener('click',()=>{
+      const index=Number(button.dataset.index);
+      const value=Number(String(button.dataset.value||'').replace(',','.'));
+      const row=state.oeeMachineEditorData[index];
+
+      if(!row || !Number.isFinite(value))return;
+
+      row.oee=value;
+      row.ran=true;
+      row.confidence=100;
+      row.ambiguous=false;
+      row.needsReview=false;
+      row.consensusPasses=2;
+      row.source='Confirmado pelo usuário entre alternativas do OCR';
+
+      renderOeeMachineEditor(state.oeeMachineEditorData);
+
+      if($('oeeOcrText'))$('oeeOcrText').value=editorOeeText();
+      state.oeeOcrText=$('oeeOcrText')?.value||'';
     });
   });
 
@@ -2699,6 +2901,7 @@ function machineOeeFromEditor() {
     }))
     .filter(row =>
       row.ran === true &&
+      row.needsReview !== true &&
       Number.isFinite(row.oee) &&
       row.oee > 0 &&
       row.oee <= 100
@@ -2711,95 +2914,152 @@ function editorOeeText() {
     .join('\n');
 }
 
+async function runOeeOcrPass(variant,scope,statusEl,passIndex,totalPasses){
+  const result=await window.Tesseract.recognize(
+    variant.dataUrl,
+    'eng',
+    {
+      logger:info=>{
+        if(
+          info.status==='recognizing text' &&
+          typeof info.progress==='number'
+        ){
+          statusEl.textContent=
+            `Lendo ${scope.label} • passagem ${passIndex}/${totalPasses} `+
+            `${Math.round(info.progress*100)}%`;
+        }
+      }
+    },
+    {
+      tessedit_char_whitelist:'0123456789%.,',
+      tessedit_pageseg_mode:'6',
+      preserve_interword_spaces:'1'
+    }
+  );
+
+  return oeeWordsWithPercentPairs(
+    result?.data?.words||[],
+    variant.label
+  );
+}
+
 async function processOeeColumnPhoto() {
-  const file = $('oeeImageInput')?.files?.[0];
-  if (!file) {
+  const file=$('oeeImageInput')?.files?.[0];
+
+  if(!file){
     showToast('Escolha a foto do quadro primeiro.');
     return [];
   }
 
-  const statusEl = $('oeeStatus');
-  const operationalDate = $('reportDate').value || todayISO();
-  const shift = $('reportShift').value || '1';
-  const scope = boardScopeForReport(operationalDate, shift);
+  const statusEl=$('oeeStatus');
+  const operationalDate=$('reportDate').value||todayISO();
+  const shift=$('reportShift').value||'1';
+  const scope=boardScopeForReport(operationalDate,shift);
 
-  try {
-    statusEl.textContent = `Recortando ${scope.label} — linhas MK138 até MK149...`;
-    const fullDataUrl = state.oeeImageDataUrl || await dataUrlFromFile(file);
-    state.oeeImageDataUrl = fullDataUrl;
+  try{
+    statusEl.textContent=
+      `Melhorando a foto e isolando ${scope.label}...`;
 
-    const image = await loadImageElement(fullDataUrl);
-    const processed = preprocessOeeColumn(image, operationalDate, shift);
-    state.oeeCropDataUrl = processed.previewDataUrl;
-    state.oeeRowPreviews = processed.rowPreviews || [];
+    const fullDataUrl=
+      state.oeeImageDataUrl||
+      await dataUrlFromFile(file);
 
-    $('oeeCropPreview').src = processed.previewDataUrl;
-    $('oeeOcrPreview').src = processed.ocrDataUrl;
-    $('oeeCropPreviewWrap').classList.remove('hidden');
+    state.oeeImageDataUrl=fullDataUrl;
 
-    if (!window.Tesseract) throw new Error('OCR não carregado.');
-    statusEl.textContent = `Lendo somente ${scope.label}...`;
-
-    const result = await window.Tesseract.recognize(
-      processed.ocrDataUrl,
-      'eng',
-      {
-        logger: info => {
-          if (info.status === 'recognizing text' && typeof info.progress === 'number') {
-            statusEl.textContent = `Lendo ${scope.label}... ${Math.round(info.progress * 100)}%`;
-          }
-        }
-      },
-      {
-        tessedit_char_whitelist: '0123456789%.,',
-        tessedit_pageseg_mode: '6',
-        preserve_interword_spaces: '1'
-      }
+    const image=await loadImageElement(fullDataUrl);
+    const processed=preprocessOeeColumn(
+      image,
+      operationalDate,
+      shift
     );
 
-    const words = result?.data?.words || [];
+    state.oeeCropDataUrl=processed.previewDataUrl;
+    state.oeeRowPreviews=processed.rowPreviews||[];
+
+    $('oeeCropPreview').src=processed.previewDataUrl;
+    $('oeeOcrPreview').src=processed.ocrDataUrl;
+    $('oeeCropPreviewWrap').classList.remove('hidden');
+
+    if(!window.Tesseract)throw new Error('OCR não carregado.');
+
+    const allWords=[];
+    const variants=processed.ocrVariants||[
+      {
+        label:'base',
+        dataUrl:processed.ocrDataUrl,
+        width:processed.canvas.width,
+        height:processed.canvas.height
+      }
+    ];
+
+    for(let index=0;index<variants.length;index++){
+      const passWords=await runOeeOcrPass(
+        variants[index],
+        scope,
+        statusEl,
+        index+1,
+        variants.length
+      );
+      allWords.push(...passWords);
+    }
+
     const productionBlocks=productionReportMachineMentions();
-    const rows = mapOcrWordsToMachineRows(
-      words,
+
+    const rows=mapOcrWordsToMachineRows(
+      allWords,
       processed.canvas.height,
       processed.canvas.width
     ).map(row=>{
       const reportRow=productionBlocks.get(row.machine);
       const explicitlyDidNotRun=Boolean(reportRow?.didNotRun);
 
+      if(explicitlyDidNotRun){
+        return {
+          ...row,
+          ran:false,
+          oee:'',
+          ambiguous:false,
+          needsReview:false,
+          source:'Relatório produção: não rodou'
+        };
+      }
+
       return {
         ...row,
-        ran:explicitlyDidNotRun
-          ? false
-          : row.oee!==''
-            ? true
-            : true,
-        oee:explicitlyDidNotRun?'':row.oee,
-        source:explicitlyDidNotRun
-          ? 'Relatório produção: não rodou'
-          : row.source
+        ran:true
       };
     });
-    state.oeeMachineEditorData = rows;
+
+    state.oeeMachineEditorData=rows;
     renderOeeMachineEditor(rows);
 
-    const detected = rows.filter(row => row.oee !== '').length;
-    const ambiguousCount=rows.filter(row=>row.ambiguous).length;
-    const unresolvedCount=rows.filter(row=>row.ran!==false && row.oee==='').length;
-    statusEl.textContent =
-      `${detected} OEE(s) lido(s) em ${scope.label}` +
-      `${ambiguousCount?` • ${ambiguousCount} duvidoso(s)`:''}` +
-      `${unresolvedCount?` • ${unresolvedCount} para revisar`:''}.`;
+    const accepted=rows.filter(
+      row=>row.oee!=='' && !row.needsReview && row.ran!==false
+    ).length;
+    const review=rows.filter(
+      row=>row.ran!==false && row.needsReview
+    ).length;
+    const missing=rows.filter(
+      row=>row.ran!==false && row.oee===''
+    ).length;
 
-    // Mantém compatibilidade com histórico e painel.
-    $('oeeOcrText').value = editorOeeText();
-    state.oeeOcrText = $('oeeOcrText').value;
+    statusEl.textContent=
+      `Foto melhorada • ${scope.label}: ${accepted} OEE confirmado(s)`+
+      `${review?` • ${review} para revisar`:''}`+
+      `${missing?` • ${missing} não reconhecido(s)`:''}.`;
+
+    $('oeeOcrText').value=editorOeeText();
+    state.oeeOcrText=$('oeeOcrText').value;
+
     return rows;
-  } catch (error) {
+  }catch(error){
     console.error(error);
-    statusEl.textContent = 'Não consegui ler automaticamente. Preencha a tabela manualmente usando a foto recortada.';
+    statusEl.textContent=
+      'Não consegui concluir a leitura. Use a foto ampliada e confirme os valores na tabela.';
     renderOeeMachineEditor([]);
-    showToast('Leitura automática incompleta. Confirme os valores manualmente.');
+    showToast(
+      'Leitura automática incompleta. Confirme os valores manualmente.'
+    );
     return [];
   }
 }
@@ -4073,7 +4333,10 @@ function maintenanceMessage() {
 
       lines.push(`${index+1}. ${priorityLabel}*${row.machine}*${oeeText}`);
       actions.forEach(action=>lines.push(`   • ${action}`));
-      lines.push(`   Histórico técnico: ${row.historyCount||0} OS semelhante(s) no SGMan.`);
+      if(row.issue){
+        lines.push(`   Problema do turno: ${compactIssue(row.issue)}.`);
+      }
+      lines.push(`   Histórico técnico: ${row.historyCount||0} OS relacionada(s) no SGMan usadas para definir verificações.`);
     });
   }
 
@@ -7077,49 +7340,156 @@ function smartOrderText(order={}){
   ].filter(Boolean).join(' '));
 }
 
+function uniqueObjectsBy(items=[],keyFn=item=>item){
+  const seen=new Set();
+  const result=[];
+
+  for(const item of items){
+    const key=keyFn(item);
+    if(seen.has(key))continue;
+    seen.add(key);
+    result.push(item);
+  }
+
+  return result;
+}
+
 function smartHistoryFor(machine,issue=''){
   const machineCode=normalizeMachineCode(machine);
-  const words=normalizeKey(issue)
+
+  const exactWords=normalizeKey(issue)
     .split(/\s+/)
     .filter(word=>word.length>=4);
 
-  return smartSgmanItems()
+  const familyTerms=issueFamilyTerms(issue);
+
+  const combinedOrders=uniqueObjectsBy(
+    [
+      ...smartSgmanItems(),
+      ...(typeof machineHistoryForMachine==='function'
+        ? machineHistoryForMachine(machineCode)
+        : [])
+    ],
+    order=>String(
+      order.id||
+      order.os||
+      order.externalId||
+      `${order.startDate||order.data_inicio||''}-${smartOrderText(order)}`
+    )
+  );
+
+  const scored=combinedOrders
     .filter(order=>
       normalizeMachineCode(
-        order.machine||order.tag||order.equipment||order.maquina||''
-      )===machineCode
+        order.machine||
+        order.tag||
+        order.equipment||
+        order.maquina||
+        ''
+      )===machineCode ||
+      (
+        typeof orderBelongsToMachineTree==='function' &&
+        orderBelongsToMachineTree(order,machineCode,'')
+      )
     )
     .map(order=>{
       const text=smartOrderText(order);
-      const matches=words.filter(word=>text.includes(word)).length;
-      return {order,text,score:matches*10};
+      const exactMatches=exactWords.filter(word=>text.includes(word)).length;
+      const familyMatches=familyTerms.filter(term=>text.includes(term)).length;
+
+      return {
+        order,
+        text,
+        score:exactMatches*14+familyMatches*7
+      };
     })
-    .filter(item=>item.score>0 || !words.length)
+    .filter(item=>item.score>0)
     .sort((a,b)=>b.score-a.score)
-    .slice(0,250)
-    .map(item=>item.order);
+    .slice(0,80);
+
+  return scored.map(item=>item.order);
 }
 
 function smartActionsFromHistory(orders,issue=''){
-  const text=normalizeKey(orders.map(smartOrderText).join(' '));
-  const catalog=[
-    ['mola','Conferir tensão, deformação e quebra da mola da rotulatriz.'],
-    ['posicao faca','Conferir posição, alinhamento e aperto da faca.'],
-    ['faca','Verificar corte, desgaste, folga e condição da contrafaca.'],
-    ['calco','Conferir calços e nivelamento do conjunto.'],
-    ['sensor','Verificar posição, leitura, fixação e repetibilidade dos sensores.'],
-    ['vacuo','Medir vácuo e verificar mangueiras, ventosas, válvulas e vazamentos.'],
-    ['bobina','Conferir alinhamento, tensão, freio e roletes da bobina.'],
-    ['came','Inspecionar came, leva, sincronismo, folga e fixação.'],
-    ['carrinho','Conferir alinhamento, folga, curso e sincronismo do carrinho.'],
-    ['rolamento','Inspecionar rolamentos, folgas, ruído, temperatura e lubrificação.']
-  ];
+  const text=normalizeKey(
+    (orders||[])
+      .map(order=>[
+        smartOrderText(order),
+        typeof historicalResolutionText==='function'
+          ? historicalResolutionText(order)
+          : ''
+      ].join(' '))
+      .join(' ')
+  );
 
-  const actions=catalog
-    .filter(([word])=>text.includes(normalizeKey(word)))
-    .map(([,action])=>action);
+  const actions=[];
+
+  if(/mola|rotulatriz/.test(text)){
+    actions.push(
+      'Verificar mola da rotulatriz, posição, tensão e sincronismo.'
+    );
+  }
+
+  if(/tampao/.test(text)){
+    actions.push(
+      'Conferir regulagem, posição, vedação e aperto do tampão de cola.'
+    );
+  }
+
+  if(/cola|disco de cola/.test(text)){
+    actions.push(
+      'Conferir regulagem do tampão/disco de cola, vazão e aplicação.'
+    );
+  }
+
+  if(/posicao.{0,20}faca|faca.{0,20}(posicao|regul|ajust|alinh)/.test(text)){
+    actions.push(
+      'Conferir posição, alinhamento e aperto da faca.'
+    );
+  }else if(/faca|contrafaca/.test(text)){
+    actions.push(
+      'Verificar corte, desgaste, folga e condição da faca/contrafaca.'
+    );
+  }
+
+  if(/calco/.test(text)){
+    actions.push(
+      'Conferir calços e nivelamento do conjunto.'
+    );
+  }
+
+  if(/sensor/.test(text)){
+    actions.push(
+      'Verificar posição, leitura, fixação e repetibilidade dos sensores.'
+    );
+  }
+
+  if(/vacuo/.test(text)){
+    actions.push(
+      'Medir vácuo e verificar mangueiras, ventosas, válvulas e vazamentos.'
+    );
+  }
+
+  if(/bobina|desbobin/.test(text)){
+    actions.push(
+      'Conferir alinhamento, tensão, freio e roletes da bobina.'
+    );
+  }
+
+  if(/came|leva|sincronismo/.test(text)){
+    actions.push(
+      'Inspecionar came, leva, sincronismo, folga e fixação.'
+    );
+  }
+
+  if(/rolamento/.test(text)){
+    actions.push(
+      'Inspecionar rolamentos, folgas, ruído, temperatura e lubrificação.'
+    );
+  }
 
   const issueKey=normalizeKey(issue);
+
   if(issueKey.includes('variacao') && issueKey.includes('altura')){
     actions.push(
       'Conferir mola e sincronismo da rotulatriz.',
@@ -7128,7 +7498,7 @@ function smartActionsFromHistory(orders,issue=''){
     );
   }
 
-  return uniqueStrings(actions).slice(0,4);
+  return uniqueStrings(actions).slice(0,5);
 }
 
 
@@ -7682,10 +8052,152 @@ function productionLineDurationMinutes(line){
   return total;
 }
 
+function failureLabelFromProductionLine(line=''){
+  const text=normalizeKey(line);
+
+  if(/falta (?:de )?faixa|faixa falt/.test(text))return 'falta de faixa';
+  if(/falta (?:de )?fundo|fundo falt/.test(text))return 'falta de fundo';
+  if(/fundo.*enrosc|enrosc.*fundo/.test(text))return 'fundo enroscando';
+  if(/faixa.*enrosc|enrosc.*faixa/.test(text))return 'faixa enroscando';
+  if(/peca.*volt|voltando.*molde/.test(text))return 'peças voltando nos moldes';
+  if(/bobina.*romp|romp.*bobina/.test(text))return 'bobina se rompendo';
+  if(/fundo.*descol/.test(text))return 'fundo descolado';
+  if(/lateral.*descol/.test(text))return 'lateral descolada';
+  if(/fundo.*tort|tort.*fundo/.test(text))return 'fundo torto';
+  if(/bobina.*fora de posicao/.test(text))return 'bobina fora de posição';
+
+  return compactIssue(line)
+    .replace(/^\d+\)?\s*/,'')
+    .slice(0,90);
+}
+
+function productionFailureOccurrence(line=''){
+  const text=normalizeKey(line);
+
+  if(
+    /\b(min|minuto|minutos|hora|horas|batidas)\b/.test(text) &&
+    !/\b\d+\s*x\b/.test(text)
+  ){
+    // Uma linha pode ter tempo e falha; nesse caso não usa o tempo como contagem.
+    const x=text.match(/\b(\d{1,3})\s*x\b/);
+    if(x)return Number(x[1]);
+  }
+
+  const x=text.match(/\b(\d{1,3})\s*x\b/);
+  if(x)return Number(x[1]);
+
+  const vezes=text.match(/\b(\d{1,3})\s*(?:vez|vezes)\b/);
+  if(vezes)return Number(vezes[1]);
+
+  const recurrentProblem=
+    /falta (?:de )?faixa|falta (?:de )?fundo|enrosc|voltando|rompendo|descolad|fora de posicao/.test(text);
+
+  if(!recurrentProblem)return 0;
+
+  const numbers=[...text.matchAll(/\b(\d{1,3})\b/g)]
+    .map(match=>({
+      value:Number(match[1]),
+      index:match.index||0,
+      tail:text.slice((match.index||0)+match[0].length,(match.index||0)+match[0].length+12)
+    }))
+    .filter(item=>
+      item.value>=2 &&
+      item.value<=100 &&
+      !/^\s*(?:min|minuto|hora|h|batidas)/.test(item.tail)
+    );
+
+  return numbers.length
+    ? Math.max(...numbers.map(item=>item.value))
+    : 0;
+}
+
+function smartActionsFromProductionLines(lines=[]){
+  const technical=(lines||[])
+    .map(line=>String(line||'').trim())
+    .filter(Boolean)
+    .filter(line=>!isRoutineProductionLine(line));
+
+  const actions=[];
+
+  for(const line of technical){
+    const count=productionFailureOccurrence(line);
+
+    if(count>=3){
+      const label=failureLabelFromProductionLine(line);
+      actions.push(
+        `Investigar e eliminar a causa das ${count} ocorrências de ${label} registradas no turno.`
+      );
+    }
+  }
+
+  const text=normalizeKey(technical.join(' '));
+
+  if(/falta (?:de )?faixa|faixa.*enrosc|faixa.*fora/.test(text)){
+    actions.push(
+      'Verificar alimentação da faixa, bobina, sensor, rolo e sincronismo da rotulatriz.'
+    );
+  }
+
+  if(/fundo.*enrosc|fundo.*romp|fundo.*tort|falta (?:de )?fundo/.test(text)){
+    actions.push(
+      'Verificar alimentação do fundo, posição da faca/contrafaca, alinhamento e sincronismo.'
+    );
+  }
+
+  if(/fundo.*descol|cola|colagem/.test(text)){
+    actions.push(
+      'Conferir aplicação de cola, regulagem do tampão/disco de cola e vazão.'
+    );
+  }
+
+  if(/bobina/.test(text)){
+    actions.push(
+      'Conferir alinhamento, tensão, freio e roletes da bobina.'
+    );
+  }
+
+  return uniqueStrings(actions).slice(0,4);
+}
+
+function issueFamilyTerms(issue=''){
+  const key=normalizeKey(issue);
+  const terms=[];
+
+  if(/faixa/.test(key)){
+    terms.push(
+      'faixa','rotulatriz','mola','tampao','cola','bobina','sensor','rolo'
+    );
+  }
+
+  if(/fundo/.test(key)){
+    terms.push(
+      'fundo','faca','contrafaca','cola','tampao','bobina','sensor'
+    );
+  }
+
+  if(/altura/.test(key)){
+    terms.push(
+      'altura','mola','rotulatriz','faca','calco','sensor'
+    );
+  }
+
+  if(/cola|descol/.test(key)){
+    terms.push(
+      'cola','tampao','disco','vedacao','regulagem'
+    );
+  }
+
+  if(/bobina/.test(key)){
+    terms.push(
+      'bobina','freio','rolo','alinhamento','tensao'
+    );
+  }
+
+  return uniqueStrings(terms.map(normalizeKey));
+}
+
 function productionLineRecurrenceCount(line){
-  const text=normalizeKey(line||'');
-  const matches=[...text.matchAll(/\b(\d{1,3})\s*x\b/g)];
-  return matches.reduce((sum,m)=>sum+Math.min(100,Number(m[1])||0),0);
+  return productionFailureOccurrence(line);
 }
 
 function isRoutineProductionLine(line){
@@ -7741,6 +8253,9 @@ function provisionalTechnicalPriorityRows(limit=10){
 
     const issue=compactIssue(technicalLines.join(' '));
     const history=smartHistoryFor(machine,issue);
+    const productionActions=smartActionsFromProductionLines(
+      block.lines||[]
+    );
     const historyActions=smartActionsFromHistory(history,issue);
 
     let severityBonus=0;
@@ -7763,14 +8278,13 @@ function provisionalTechnicalPriorityRows(limit=10){
       severityBonus +
       Math.min(history.length,20)*5;
 
-    const actions=historyActions.length
-      ? historyActions.slice(0,4)
-      : [
-          `Atuar imediatamente nos problemas registrados: ${technicalLines.slice(0,2).join(' / ')}.`,
-          'Eliminar a causa da falha e evitar regulagem temporária.',
-          'Testar em produção e acompanhar até confirmar estabilidade.',
-          'Registrar problema, causa, serviço e resultado no SGMan.'
-        ];
+    const actions=uniqueStrings([
+      ...productionActions,
+      ...historyActions,
+      `Atuar imediatamente nos problemas registrados: ${technicalLines.slice(0,2).join(' / ')}.`,
+      'Testar em produção e acompanhar até confirmar estabilidade.',
+      'Registrar problema, causa, serviço e resultado no SGMan.'
+    ]).slice(0,5);
 
     rows.push({
       machine,
@@ -7833,7 +8347,14 @@ function current12hPriorityRows(limit=10){
       ''
     );
     const history=smartHistoryFor(item.machine,issue);
-    const actions=smartActionsFromHistory(history,issue);
+    const productionActions=smartActionsFromProductionLines(
+      reportRow?.lines||[]
+    );
+    const historyActions=smartActionsFromHistory(history,issue);
+    const actions=uniqueStrings([
+      ...productionActions,
+      ...historyActions
+    ]).slice(0,5);
 
     const maximum=item.oee<50;
     const sgmanStoppedHours=currentShiftStoppedHoursFromSgman(item.machine);
@@ -7858,7 +8379,7 @@ function current12hPriorityRows(limit=10){
       ].filter(Boolean)),
       issue,
       actions:actions.length?actions:[
-        'Atuar imediatamente na principal causa da parada.',
+        'Investigar a principal causa registrada no relatório da produção.',
         'Eliminar a causa e evitar regulagem temporária.',
         'Testar em produção e confirmar estabilidade.',
         'Registrar causa, serviço e resultado no SGMan.'
@@ -13184,7 +13705,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=92.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=93.0.0');
         registration.update();
       } catch {}
     });

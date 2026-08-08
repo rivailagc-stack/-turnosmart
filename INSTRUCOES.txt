@@ -1,5 +1,5 @@
-PATCH V92
-Use sobre a V91.
+PATCH V93
+Use sobre a V92.
 
 Substitua:
 - app.js
@@ -8,14 +8,14 @@ Substitua:
 - sw.js
 - api/health.js
 
-Depois faça deploy e confirme V92.0.0.
+Depois faça deploy e confirme V93.0.0.
 
-TESTE:
+TESTE COM A FOTO ATUAL:
 1. Cole o relatório da produção.
-2. Tire/carregue a foto do quadro.
-3. Confira a coluna correta (ex.: SÁBADO A).
-4. A tabela deve trazer OEE mesmo quando o OCR perder o símbolo %.
-5. Valor duvidoso aparece para revisão.
-6. Nas Ações:
-   50% OEE = 6,0 h equivalentes de perda/12h.
-   Se houver SGMan, aparece também a parada real registrada.
+2. Carregue a foto.
+3. Confirme SÁBADO A.
+4. O app fará duas leituras.
+5. Se houver dúvida (ex.: 13 / 64), aparecem botões com as alternativas.
+6. Valor duvidoso NÃO entra na prioridade até ser confirmado.
+7. Depois analise e abra Ações.
+8. A prioridade vem do OEE; as ações vêm do relatório + SGMan.
