@@ -1,10 +1,15 @@
-PATCH V81
-Use sobre a V80.
+PATCH V82
+Use sobre a V81.
+
 Substitua:
 - app.js
 - index.html
 - style.css
 - sw.js
 - api/health.js
-Depois faça deploy e confirme V81.0.0.
-Para custos, mantenha MANAGEMENT_PIN configurado na Vercel. Custos não usam OpenAI.
+- academy-lessons.json
+
+Opcional:
+- ACADEMY_CONTEUDO.md (documentação)
+
+Depois faça novo deploy e confirme V82.0.0.

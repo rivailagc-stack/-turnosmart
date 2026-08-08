@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=81.0.0" />
+  <link rel="stylesheet" href="style.css?v=82.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -20,7 +20,7 @@
       <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V81.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V82.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -957,11 +957,25 @@
         </div>
       </div>
 
+      <div class="academy-daily-strip">
+        <div><span>🔥 Sequência</span><strong id="academyStreakValue">0 dias</strong></div>
+        <div><span>🎯 Meta diária</span><strong id="academyDailyGoalValue">0/2 lições</strong></div>
+        <div><span>🧠 Revisões</span><strong id="academyReviewCountValue">0</strong></div>
+        <div><span>🏆 Dominadas</span><strong id="academyMasteredValue">0</strong></div>
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div><span class="eyebrow">DOMÍNIO POR TRILHA</span><h3>Seu mapa de conhecimento</h3></div>
+        </div>
+        <div id="academyMasteryGrid" class="academy-mastery-grid"></div>
+      </div>
+
       <div class="card">
         <div class="academy-toolbar">
           <label>Trilha<select id="academyTrackFilter"><option value="">Todas</option></select></label>
           <label>Nível<select id="academyLevelFilter"><option value="">Todos</option><option value="1">N1</option><option value="2">N2</option></select></label>
-          <label>Pesquisar<input id="academySearch" type="search" placeholder="motor, válvula, rolamento..."></label>
+          <label>Pesquisar<input id="academySearch" type="search" placeholder="broca, paquímetro, rolamento, válvula, motor..."></label>
           <button id="academyReviewBtn" class="secondary" type="button">Revisar erros</button>
         </div>
         <div id="academyLessonGrid" class="academy-lesson-grid"></div>
@@ -1317,6 +1331,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=81.0.0"></script>
+  <script src="app.js?v=82.0.0"></script>
 </body>
 </html>

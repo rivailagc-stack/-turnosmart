@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '81.0.0';
+const APP_VERSION = '82.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v81.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v82.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -499,13 +499,13 @@ function safeSwitchView(name) {
 
 
 function academyState(){
-  state.academy ||= {loaded:false,lessons:[],current:null,index:0,answered:false,finished:false,progress:{xp:0,completed:{},wrong:{}}};
+  state.academy ||= {loaded:false,lessons:[],current:null,index:0,answered:false,finished:false,progress:{xp:0,completed:{},wrong:{},streak:0,lastStudyDay:'',daily:{day:'',count:0}}};
   return state.academy;
 }
 function academyLoadProgress(){
   try{
     const raw=localStorage.getItem('turnosmart_academy_progress_v1');
-    if(raw)academyState().progress={xp:0,completed:{},wrong:{},...JSON.parse(raw)};
+    if(raw)academyState().progress={xp:0,completed:{},wrong:{},streak:0,lastStudyDay:'',daily:{day:'',count:0},...JSON.parse(raw)};
   }catch{}
 }
 function academySave(){
@@ -516,7 +516,7 @@ async function loadAcademy(){
   if(s.loaded){renderAcademy();return s;}
   academyLoadProgress();
   try{
-    const r=await fetch('/academy-lessons.json?v=80.0.0');
+    const r=await fetch('/academy-lessons.json?v=82.0.0');
     if(!r.ok)throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
     s.lessons=Array.isArray(d.lessons)?d.lessons:[];
@@ -533,7 +533,59 @@ async function loadAcademy(){
 function academyDone(id){return Boolean(academyState().progress.completed[id]);}
 function academyWrong(id){return Number(academyState().progress.wrong[id]||0);}
 function academyLevel(xp){return xp>=650?5:xp>=400?4:xp>=220?3:xp>=90?2:1;}
+
+function academyLocalDay(){
+  const d=new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function academyYesterday(day){
+  const d=new Date(`${day}T12:00:00`);
+  d.setDate(d.getDate()-1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function academyRegisterStudy(){
+  const s=academyState(), p=s.progress;
+  const today=academyLocalDay();
+  p.daily ||= {day:today,count:0};
+  if(p.daily.day!==today)p.daily={day:today,count:0};
+  p.daily.count=Number(p.daily.count||0)+1;
+
+  if(p.lastStudyDay!==today){
+    if(p.lastStudyDay===academyYesterday(today))p.streak=Number(p.streak||0)+1;
+    else p.streak=1;
+    p.lastStudyDay=today;
+  }
+  academySave();
+}
+function renderAcademyMastery(){
+  const s=academyState(), p=s.progress;
+  const today=academyLocalDay();
+  const daily=(p.daily?.day===today)?Number(p.daily.count||0):0;
+  const completedCount=Object.keys(p.completed||{}).length;
+  const reviewCount=Object.values(p.wrong||{}).filter(v=>Number(v)>0).length;
+
+  if($('academyStreakValue'))$('academyStreakValue').textContent=`${Number(p.streak||0)} dia${Number(p.streak||0)===1?'':'s'}`;
+  if($('academyDailyGoalValue'))$('academyDailyGoalValue').textContent=`${Math.min(daily,2)}/2 lições`;
+  if($('academyReviewCountValue'))$('academyReviewCountValue').textContent=String(reviewCount);
+  if($('academyMasteredValue'))$('academyMasteredValue').textContent=String(completedCount);
+
+  const target=$('academyMasteryGrid');
+  if(!target)return;
+
+  const tracks=uniqueStrings(s.lessons.map(l=>l.track)).sort();
+  target.innerHTML=tracks.map(track=>{
+    const list=s.lessons.filter(l=>l.track===track);
+    const done=list.filter(l=>academyDone(l.id)).length;
+    const pct=list.length?Math.round(done/list.length*100):0;
+    return `<article class="academy-mastery-card">
+      <div><strong>${escapeHtml(track)}</strong><span>${done}/${list.length}</span></div>
+      <div class="academy-mastery-bar"><div style="width:${pct}%"></div></div>
+      <small>${pct}% dominado</small>
+    </article>`;
+  }).join('');
+}
 function renderAcademy(){
+  renderAcademyMastery();
   const s=academyState();
   const xp=Number(s.progress.xp||0);
   const level=academyLevel(xp);
@@ -550,7 +602,7 @@ function renderAcademy(){
   const list=s.lessons.filter(l=>
     (!track||l.track===track) &&
     (!lev||String(l.level)===lev) &&
-    (!q||normalizeKey(`${l.title} ${l.track}`).includes(q))
+    (!q||normalizeKey(`${l.title} ${l.track} ${l.objective||''} ${(l.tags||[]).join(' ')}`).includes(q))
   );
 
   const target=$('academyLessonGrid');
@@ -559,7 +611,8 @@ function renderAcademy(){
       <article class="academy-lesson-card ${academyDone(l.id)?'is-completed':''}">
         <span class="academy-track-pill">${escapeHtml(l.track)} • N${l.level}</span>
         <h3>${escapeHtml(l.title)}</h3>
-        <p>${l.steps.length} etapa(s) • ${l.xp} XP</p>
+        <p>${escapeHtml(l.objective||'')}</p>
+        <small>${l.steps.length} etapa(s) • ${l.xp} XP</small>
         <button class="${academyDone(l.id)?'secondary':'primary'}"
           data-academy-lesson="${escapeHtml(l.id)}"
           type="button">${academyDone(l.id)?'Revisar':'Começar'}</button>
@@ -604,6 +657,7 @@ function renderAcademyStep(){
       <span class="eyebrow">${escapeHtml(step.title||'APRENDA')}</span>
       <h3>${escapeHtml(step.title||lesson.title)}</h3>
       <p class="academy-learn-text">${escapeHtml(step.text||'')}</p>
+      ${lesson.safety?`<div class="academy-safety-note">🛡️ ${escapeHtml(lesson.safety)}</div>`:''}
     `;
     s.answered=true;
   }else{
@@ -667,6 +721,7 @@ function finishAcademyLesson(){
     s.progress.completed[lesson.id]=new Date().toISOString();
     s.progress.xp=Number(s.progress.xp||0)+Number(lesson.xp||0);
     academySave();
+    academyRegisterStudy();
   }
 
   s.finished=true;
@@ -12335,7 +12390,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=81.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=82.0.0');
         registration.update();
       } catch {}
     });

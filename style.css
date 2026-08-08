@@ -2174,3 +2174,105 @@ main,.view,.card,.section-head,.sgman-management-card,.powerbi-sgman-card,.leade
   .bottom-nav button,.bottom-nav .nav-item{flex-basis:70px;min-width:70px}
   .sgman-chart-card canvas{min-width:460px!important}
 }
+
+/* ==========================================================
+   V82 ACADEMY 2.0
+   ========================================================== */
+.academy-daily-strip{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:10px;
+  margin:12px 0 16px;
+}
+.academy-daily-strip>div{
+  min-width:0;
+  padding:12px 14px;
+  border:1px solid #e4e7ec;
+  border-radius:14px;
+  background:#fff;
+}
+.academy-daily-strip span{
+  display:block;
+  color:#667085;
+  font-size:.78rem;
+  margin-bottom:4px;
+}
+.academy-daily-strip strong{
+  display:block;
+  font-size:1.05rem;
+  color:#1d2939;
+}
+.academy-mastery-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+}
+.academy-mastery-card{
+  padding:12px;
+  border:1px solid #e4e7ec;
+  border-radius:13px;
+  background:#f8fafc;
+}
+.academy-mastery-card>div:first-child{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:8px;
+}
+.academy-mastery-card span,.academy-mastery-card small{
+  color:#667085;
+  font-size:.76rem;
+}
+.academy-mastery-bar{
+  height:7px;
+  border-radius:999px;
+  background:#e4e7ec;
+  overflow:hidden;
+  margin-bottom:5px;
+}
+.academy-mastery-bar>div{
+  height:100%;
+  background:linear-gradient(90deg,#f28c00,#ffb13b);
+  border-radius:999px;
+}
+.academy-lesson-card p{
+  min-height:44px;
+  margin:7px 0;
+  color:#667085;
+  font-size:.9rem;
+}
+.academy-lesson-card small{
+  display:block;
+  margin-bottom:10px;
+  color:#98a2b3;
+}
+.academy-safety-note{
+  margin-top:16px;
+  padding:12px;
+  border-radius:12px;
+  border:1px solid #fedf89;
+  background:#fffaeb;
+  color:#7a2e0e;
+  line-height:1.45;
+}
+@media(max-width:760px){
+  .academy-daily-strip{
+    display:flex;
+    overflow-x:auto;
+    gap:8px;
+    padding-bottom:4px;
+    -webkit-overflow-scrolling:touch;
+  }
+  .academy-daily-strip>div{
+    flex:0 0 145px;
+  }
+  .academy-mastery-grid{
+    grid-template-columns:1fr;
+  }
+  .academy-lesson-grid{
+    grid-template-columns:1fr!important;
+  }
+  .academy-lesson-card{
+    min-height:auto;
+  }
+}
