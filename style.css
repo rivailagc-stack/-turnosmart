@@ -2126,3 +2126,51 @@ button.secondary,
 @media(max-width:560px){
   .academy-toolbar,.academy-lesson-grid{grid-template-columns:1fr}
 }
+
+/* ==========================================================
+   V81 MOBILE-FIRST / INTELIGÊNCIA
+   ========================================================== */
+html,body{max-width:100%;overflow-x:hidden}
+main,.view,.card,.section-head,.sgman-management-card,.powerbi-sgman-card,.leader-performance-card{min-width:0;max-width:100%}
+.card{box-sizing:border-box}
+.bottom-nav{overflow-x:auto;overflow-y:hidden;justify-content:flex-start;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.bottom-nav::-webkit-scrollbar{display:none}
+.bottom-nav button,.bottom-nav .nav-item{flex:0 0 78px;min-width:78px}
+.sgman-orders-table-wrap{max-width:100%;overflow:auto;-webkit-overflow-scrolling:touch}
+.leader-filter-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin:14px 0}
+.leader-filter-grid input,.leader-filter-grid select{width:100%}
+.leader-performance-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}
+.leader-kpi-card{padding:14px;border:1px solid var(--line);border-radius:16px;background:#fff;min-width:0}
+.leader-kpi-card strong{display:block;font-size:1.8rem;margin:8px 0;color:var(--ecopack-graphite,#222831)}
+.leader-kpi-card p,.leader-kpi-card small{color:var(--muted)}
+.leader-team-badge{display:inline-flex;padding:5px 8px;border-radius:999px;background:#fff4e6;color:#9a5700;font-size:.75rem;font-weight:900}
+.leader-members{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+.leader-members span{font-size:.72rem;padding:4px 7px;border-radius:999px;background:#f2f4f7}
+.leader-chart-grid{display:grid;grid-template-columns:1.3fr .7fr;gap:14px;margin:18px 0}
+.leader-day-roster{padding:12px;background:#f8fafc;border-radius:12px}
+.day-team-head{display:flex;justify-content:space-between;gap:10px;margin-bottom:10px}
+
+@media(max-width:760px){
+  body{font-size:15px}
+  .app-shell,.page-shell,.content,.main-content{width:100%!important;max-width:100%!important;padding-left:10px!important;padding-right:10px!important}
+  .card{border-radius:16px!important;padding:14px!important;margin-left:0!important;margin-right:0!important}
+  .section-head{display:block!important}
+  .section-head button{width:100%;margin-top:10px}
+  .powerbi-sgman-filters,.sgman-management-filters,.labor-unlock-grid,.leader-filter-grid,.academy-toolbar{grid-template-columns:1fr!important}
+  .powerbi-sgman-kpis,.sgman-management-kpis,.labor-cost-kpis,.leader-performance-cards{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .powerbi-sgman-grid,.powerbi-sgman-ranking-grid,.sgman-management-chart-grid,.sgman-management-ranking-grid,.labor-cost-grid,.leader-chart-grid{grid-template-columns:1fr!important}
+  .manager-kpi,.leader-kpi-card{padding:12px!important}
+  .manager-kpi strong,.leader-kpi-card strong{font-size:1.45rem!important;word-break:break-word}
+  .sgman-chart-card{padding:10px!important}
+  .sgman-chart-card canvas{min-width:520px!important}
+  .button-row{display:grid!important;grid-template-columns:1fr!important;gap:8px!important}
+  .button-row button{width:100%!important}
+  input,select,textarea,button{max-width:100%;box-sizing:border-box}
+  .toast{left:12px!important;right:12px!important;max-width:none!important;width:auto!important;bottom:90px!important}
+  .sgman-orders-table{min-width:760px!important}
+}
+@media(max-width:480px){
+  .powerbi-sgman-kpis,.sgman-management-kpis,.labor-cost-kpis,.leader-performance-cards{grid-template-columns:1fr!important}
+  .bottom-nav button,.bottom-nav .nav-item{flex-basis:70px;min-width:70px}
+  .sgman-chart-card canvas{min-width:460px!important}
+}

@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=80.0.0" />
+  <link rel="stylesheet" href="style.css?v=81.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -20,7 +20,7 @@
       <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V80.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V81.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -216,6 +216,57 @@
     <table class="sgman-orders-table powerbi-cross-table">
       <thead><tr><th>Máquina</th><th>OEE</th><th>Produção</th><th>Horas efetivas</th><th>Perda manutenção</th><th>OS SGMan</th><th>Corretivas</th><th>MTTR</th><th>Custo SGMan</th><th>Mão de obra</th></tr></thead>
       <tbody id="powerBiCrossTableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card leader-performance-card">
+  <div class="section-head">
+    <div>
+      <span class="eyebrow">EFICIÊNCIA POR LÍDER</span>
+      <h2>Resultado das 4 equipes</h2>
+      <p class="muted">Cruza OEE do Power BI com os executantes do SGMan e a composição conhecida das equipes.</p>
+    </div>
+  </div>
+
+  <div class="leader-filter-grid">
+    <label>Mês<input id="leaderPerformanceMonth" type="month"></label>
+    <label>Dia<input id="leaderPerformanceDay" type="date"></label>
+    <label>Líder
+      <select id="leaderPerformanceLeader">
+        <option value="">Todos os líderes</option>
+        <option value="Emerson">Emerson</option>
+        <option value="Fider">Fider</option>
+        <option value="Ricardo">Ricardo</option>
+        <option value="Danilo">Danilo</option>
+      </select>
+    </label>
+    <label>Máquina<select id="leaderPerformanceMachine"><option value="">Todas</option></select></label>
+    <label>Produto<select id="leaderPerformanceProduct"><option value="">Todos</option></select></label>
+  </div>
+
+  <div class="button-row compact-row">
+    <button id="applyLeaderPerformanceBtn" class="primary" type="button">Aplicar</button>
+    <button id="clearLeaderPerformanceBtn" class="ghost" type="button">Limpar</button>
+  </div>
+
+  <div id="leaderPerformanceCards" class="leader-performance-cards"></div>
+
+  <div class="leader-chart-grid">
+    <section class="sgman-chart-card">
+      <div class="section-head"><div><span class="eyebrow">MÊS</span><h3>OEE diário da equipe</h3></div></div>
+      <canvas id="leaderDailyOeeChart" height="220"></canvas>
+    </section>
+    <section class="sgman-chart-card">
+      <div class="section-head"><div><span class="eyebrow">EQUIPE DO DIA</span><h3>Mecânicos que rodaram</h3></div></div>
+      <div id="leaderDayRoster" class="leader-day-roster"></div>
+    </section>
+  </div>
+
+  <div class="sgman-orders-table-wrap">
+    <table class="sgman-orders-table">
+      <thead><tr><th>Líder</th><th>OEE médio</th><th>Dias identificados</th><th>OS</th><th>MTTR</th><th>Mão de obra</th></tr></thead>
+      <tbody id="leaderPerformanceTableBody"></tbody>
     </table>
   </div>
 </div>
@@ -1266,6 +1317,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=80.0.0"></script>
+  <script src="app.js?v=81.0.0"></script>
 </body>
 </html>

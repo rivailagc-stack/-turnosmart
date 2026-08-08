@@ -1,16 +1,10 @@
-PATCH V80
-
-Use este patch sobre a V78 estável.
-
-Substitua/adicone:
+PATCH V81
+Use sobre a V80.
+Substitua:
 - app.js
 - index.html
 - style.css
 - sw.js
 - api/health.js
-- academy-lessons.json
-
-Depois faça novo deploy e confirme V80.0.0.
-
-IMPORTANTE:
-Não use os arquivos da V79.
+Depois faça deploy e confirme V81.0.0.
+Para custos, mantenha MANAGEMENT_PIN configurado na Vercel. Custos não usam OpenAI.
