@@ -2415,3 +2415,15 @@ button:disabled{
   cursor:not-allowed!important;
   box-shadow:none!important;
 }
+
+/* ==========================================================
+   V91 — fallback técnico verdadeiro
+   ========================================================== */
+.current-oee-snapshot-status.technical-mode{
+  background:#fffaeb;
+  border-color:#fedf89;
+  color:#93370d;
+}
+.supervisor-fusion-row:has(strong:first-child){
+  min-width:0;
+}

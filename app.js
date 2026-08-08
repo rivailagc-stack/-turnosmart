@@ -199,14 +199,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '90.0.0';
+const APP_VERSION = '91.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v90.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v91.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -3963,10 +3963,12 @@ function maintenanceMessage() {
     ].join('\n');
   }
 
-  // Segunda barreira: somente OEE atual abaixo de 65 permanece.
+  // Segunda barreira:
+  // - modo OEE: somente <65%.
+  // - modo técnico provisório: mantém apenas falhas técnicas reais do turno.
   supervisorRows=supervisorRows.filter(row=>
-    row.oee!==null &&
-    row.oee<65
+    (row.oee!==null && row.oee<65) ||
+    row.provisional===true
   );
 
   const lowOee=supervisorRows
@@ -4011,30 +4013,50 @@ function maintenanceMessage() {
   lines.push('');
   lines.push('*AÇÕES PARA CORREÇÃO*');
 
+  if(state.maintenancePriorityMode==='technical'){
+    lines.push('⚠️ *Modo provisório:* OEE por máquina não foi recuperado. Prioridades abaixo vêm das falhas técnicas do relatório da produção, ordenadas por tempo/gravidade e cruzadas com SGMan.');
+  }
+
   if(!supervisorRows.length){
-    lines.push('Nenhuma máquina abaixo de 65% foi identificada no quadro atual. Confira os valores do OEE.');
+    lines.push(
+      state.maintenancePriorityMode==='technical'
+        ? 'Nenhuma falha técnica válida foi identificada no relatório atual.'
+        : 'Nenhuma máquina abaixo de 65% foi identificada no quadro atual. Confira os valores do OEE.'
+    );
   }else{
     supervisorRows.forEach((row,index)=>{
       const oeeText=row.oee!==null
         ? ` — OEE ${row.oee.toFixed(1).replace('.', ',')}% • ${priorityStoppedHoursLabel(row)}`
-        : '';
+        : row.stoppedHours!==null
+          ? ` — ${Number(row.stoppedHours).toFixed(1).replace('.',',')} h de parada/ajuste informadas`
+          : '';
       const actions=(row.actions||[]).slice(0,4);
 
-      lines.push(`${index+1}. ${row.priorityLevel==='maximum'?'🚨 *PRIORIDADE MÁXIMA* — ':''}*${row.machine}*${oeeText}`);
+      const priorityLabel=row.priorityLevel==='maximum'
+        ? '🚨 *PRIORIDADE MÁXIMA* — '
+        : row.provisional
+          ? '🛠️ *PRIORIDADE TÉCNICA* — '
+          : '';
+
+      lines.push(`${index+1}. ${priorityLabel}*${row.machine}*${oeeText}`);
       actions.forEach(action=>lines.push(`   • ${action}`));
       lines.push(`   Histórico técnico: ${row.historyCount||0} OS semelhante(s) no SGMan.`);
     });
   }
 
-  if(lowOee.length){
-    lines.push(`OEE abaixo ou igual a 65: ${lowOee.map(row=>`${row.machine} ${row.oee.toFixed(1).replace('.', ',')}%`).join(' | ')}.`);
+  if(lowOee.length && state.maintenancePriorityMode==='oee'){
+    lines.push(`OEE abaixo de 65: ${lowOee.map(row=>`${row.machine} ${row.oee.toFixed(1).replace('.', ',')}%`).join(' | ')}.`);
   }
 
   if(recurrence.length){
     lines.push(`Reincidência entre as prioridades atuais: ${recurrence.join(', ')}.`);
   }
 
-  lines.push('*Foco:* resolver o mais rápido possível as prioridades selecionadas, testar estabilidade e registrar a causa real no SGMan.');
+  lines.push(
+    state.maintenancePriorityMode==='technical'
+      ? '*Foco:* atacar imediatamente as falhas técnicas do turno, recuperar o OEE por máquina assim que possível, testar estabilidade e registrar causa real no SGMan.'
+      : '*Foco:* resolver o mais rápido possível as prioridades selecionadas, testar estabilidade e registrar a causa real no SGMan.'
+  );
 
   return lines.join('\n');
 }
@@ -7335,7 +7357,13 @@ function hasSelectedMaintenancePriority(){
     : supervisorFusionRanking(10)
   );
 
-  return rows.some(row=>row.selected && row.oee!==null && row.oee<65);
+  return rows.some(row=>
+    row.selected &&
+    (
+      (row.oee!==null && row.oee<65) ||
+      row.provisional===true
+    )
+  );
 }
 
 function updateMaintenanceShareAvailability(){
@@ -7541,7 +7569,7 @@ function applyAutomaticSupervisorSelection(rows=[]){
 
 
 function fallbackCurrentShiftPriorities(limit=10){
-  return current12hPriorityRows(limit);
+  return maintenancePriorityRows(limit);
 }
 
 function current12hMachineStatus(){
@@ -7591,6 +7619,168 @@ function current12hMachineStatus(){
   }
 
   return map;
+}
+
+
+function productionLineDurationMinutes(line){
+  const text=normalizeKey(line||'').replace(',', '.');
+  let total=0;
+
+  // 1:29 hora / 2:43 horas
+  const hm=text.match(/\b(\d{1,2})\s*:\s*(\d{1,2})\s*(?:h|hora|horas)?\b/);
+  if(hm){
+    total+=Number(hm[1])*60+Number(hm[2]);
+  }
+
+  // 1 hora / 2 horas
+  const hours=[...text.matchAll(/\b(\d+(?:\.\d+)?)\s*(?:h|hora|horas)\b/g)];
+  for(const match of hours){
+    // Evita somar novamente formato 1:29.
+    if(hm && match.index>=hm.index && match.index<=hm.index+hm[0].length)continue;
+    total+=Number(match[1])*60;
+  }
+
+  // 30 min / 20 minutos
+  const mins=[...text.matchAll(/\b(\d+(?:\.\d+)?)\s*(?:min|minuto|minutos)\b/g)];
+  for(const match of mins){
+    total+=Number(match[1]);
+  }
+
+  return total;
+}
+
+function productionLineRecurrenceCount(line){
+  const text=normalizeKey(line||'');
+  const matches=[...text.matchAll(/\b(\d{1,3})\s*x\b/g)];
+  return matches.reduce((sum,m)=>sum+Math.min(100,Number(m[1])||0),0);
+}
+
+function isRoutineProductionLine(line){
+  const text=normalizeKey(line||'').trim();
+  return (
+    !text ||
+    /^\d+\)?\s*limpeza (?:da |de )?maquina/.test(text) ||
+    /\blimpeza dos moldes\b/.test(text) ||
+    /^\d+\)?\s*ok\b/.test(text) ||
+    /\bfalta de mao de obra\b/.test(text) ||
+    /\bem manutencao\b/.test(text) ||
+    /\bparada ate 2 ordem\b/.test(text) ||
+    /\bparada ate segunda ordem\b/.test(text)
+  );
+}
+
+function technicalProductionLines(block){
+  if(!block || block.didNotRun)return [];
+
+  return (block.lines||[])
+    .slice(1)
+    .map(line=>String(line||'').trim())
+    .filter(line=>!isRoutineProductionLine(line))
+    .filter(line=>{
+      const text=normalizeKey(line);
+      return (
+        /\bproblema\b|\btroca\b|\bajuste\b|\bregulagem\b|\benrosc|\bromp|\bdescol|\btort|\btrav|\bqueb|\bqueim|\bsolto\b|\bfora de posicao\b|\bvoltando\b|\bamassad|\bresistencia\b|\bmola\b|\bfaca\b|\bfundo\b|\bbobina\b|\bcola\b|\brolo\b|\btirante\b|\bmotor\b|\bpapel\b|\bfaixa\b|\bslide\b|\bprensa\b|\bcalco\b|\bparafuso\b|\b60 batidas\b/.test(text) ||
+        productionLineDurationMinutes(line)>0 ||
+        productionLineRecurrenceCount(line)>0
+      );
+    });
+}
+
+function provisionalTechnicalPriorityRows(limit=10){
+  const blocks=productionReportMachineBlocks();
+  const rows=[];
+
+  for(const [machine,block] of blocks){
+    if(block.didNotRun)continue;
+
+    const technicalLines=technicalProductionLines(block);
+    if(!technicalLines.length)continue;
+
+    const explicitMinutes=technicalLines.reduce(
+      (sum,line)=>sum+productionLineDurationMinutes(line),
+      0
+    );
+
+    const recurrenceCount=technicalLines.reduce(
+      (sum,line)=>sum+productionLineRecurrenceCount(line),
+      0
+    );
+
+    const issue=compactIssue(technicalLines.join(' '));
+    const history=smartHistoryFor(machine,issue);
+    const historyActions=smartActionsFromHistory(history,issue);
+
+    let severityBonus=0;
+    const normalized=normalizeKey(technicalLines.join(' '));
+
+    if(/\bmotor\b.*\btrav|\bresistencia\b.*\bqueim|\btirante\b|\bqueb/.test(normalized)){
+      severityBonus+=120;
+    }
+    if(/\benrosc|\bromp|\bdescol|\btort|\bfora de posicao|\bvoltando/.test(normalized)){
+      severityBonus+=70;
+    }
+    if(/\bregulagem|\bajuste|\btroca\b/.test(normalized)){
+      severityBonus+=30;
+    }
+
+    const score=
+      explicitMinutes*3 +
+      Math.min(recurrenceCount,100)*2 +
+      technicalLines.length*20 +
+      severityBonus +
+      Math.min(history.length,20)*5;
+
+    const actions=historyActions.length
+      ? historyActions.slice(0,4)
+      : [
+          `Atuar imediatamente nos problemas registrados: ${technicalLines.slice(0,2).join(' / ')}.`,
+          'Eliminar a causa da falha e evitar regulagem temporária.',
+          'Testar em produção e acompanhar até confirmar estabilidade.',
+          'Registrar problema, causa, serviço e resultado no SGMan.'
+        ];
+
+    rows.push({
+      machine,
+      oee:null,
+      stoppedHours:explicitMinutes>0?explicitMinutes/60:null,
+      produced:null,
+      priorityLevel:'technical',
+      provisional:true,
+      score,
+      reasons:uniqueStrings([
+        'Prioridade técnica provisória — OEE por máquina não recuperado',
+        explicitMinutes>0?`${(explicitMinutes/60).toFixed(1)} h de paradas/ajustes informados pela produção`:'',
+        recurrenceCount>0?`${recurrenceCount} ocorrência(s) repetidas informadas`:'',
+        history.length?`${history.length} OS semelhante(s) no SGMan`:''
+      ].filter(Boolean)),
+      issue,
+      productionLines:technicalLines,
+      actions,
+      historyCount:history.length,
+      sources:uniqueStrings([
+        'production',
+        history.length?'sgman':''
+      ].filter(Boolean)),
+      selected:false
+    });
+  }
+
+  return rows
+    .sort((a,b)=>b.score-a.score)
+    .slice(0,limit)
+    .map((row,index)=>({...row,selected:index<5}));
+}
+
+function maintenancePriorityRows(limit=10){
+  const oeeRows=current12hPriorityRows(limit);
+  if(oeeRows.length){
+    state.maintenancePriorityMode='oee';
+    return oeeRows;
+  }
+
+  const provisional=provisionalTechnicalPriorityRows(limit);
+  state.maintenancePriorityMode=provisional.length?'technical':'empty';
+  return provisional;
 }
 
 function current12hPriorityRows(limit=10){
@@ -7666,10 +7856,13 @@ function priorityStoppedHoursLabel(row){
 }
 
 function supervisorFusionRanking(limit=10){
-  // V86: ranking operacional do turno é EXCLUSIVAMENTE da foto atual.
-  // Nunca cai para Power BI, SGMan, relatório antigo ou cache.
-  const currentRows=current12hPriorityRows(limit);
-  return applyAutomaticSupervisorSelection(currentRows);
+  // V91:
+  // Preferência absoluta: OEE por máquina confirmado.
+  // Se o OEE por máquina não foi recuperado, usa prioridade TÉCNICA
+  // provisória baseada no relatório atual da produção + SGMan.
+  // O fallback nunca inventa valor de OEE.
+  const rows=maintenancePriorityRows(limit);
+  return applyAutomaticSupervisorSelection(rows);
 }
 
 function sourceBadge(source){
@@ -7704,9 +7897,19 @@ function renderSupervisorFusionPanel(){
   const snapshotStatus=$('currentOeeSnapshotStatus');
   if(snapshotStatus){
     const snap=state.currentShiftOee||loadCurrentShiftOeeSnapshot();
-    snapshotStatus.textContent=snap
-      ? `Quadro confirmado: ${snap.boardScope?.label||`${snap.date||''} turno ${snap.shift||''}`} • ${snap.machineOee.filter(r=>r.ran).length} máquina(s) que rodaram`
-      : 'Nenhum quadro OEE confirmado salvo.';
+
+    if(state.maintenancePriorityMode==='oee'){
+      snapshotStatus.textContent=snap
+        ? `✅ Prioridade por OEE confirmado: ${snap.boardScope?.label||`${snap.date||''} turno ${snap.shift||''}`} • ${snap.machineOee.filter(r=>r.ran).length} máquina(s) que rodaram`
+        : '✅ Prioridade por OEE confirmado.';
+      snapshotStatus.classList.remove('technical-mode');
+    }else if(state.maintenancePriorityMode==='technical'){
+      snapshotStatus.textContent='⚠️ OEE por máquina não recuperado. Mostrando prioridade técnica provisória pelo relatório da produção + SGMan.';
+      snapshotStatus.classList.add('technical-mode');
+    }else{
+      snapshotStatus.textContent='Nenhum OEE por máquina ou falha técnica válida foi encontrado.';
+      snapshotStatus.classList.add('technical-mode');
+    }
   }
 
   target.innerHTML=`
@@ -7720,8 +7923,18 @@ function renderSupervisorFusionPanel(){
         <article class="supervisor-fusion-row ${row.selected?'is-selected':''}">
           <span class="supervisor-fusion-rank">${index+1}</span>
           <div>
-            <strong>${row.priorityLevel==='maximum'?'🚨 PRIORIDADE MÁXIMA — ':''}${escapeHtml(row.machine)}${
-              row.oee!==null?` — OEE ${row.oee.toFixed(1).replace('.',',')}% • ${priorityStoppedHoursLabel(row)}`:''
+            <strong>${
+              row.priorityLevel==='maximum'
+                ? '🚨 PRIORIDADE MÁXIMA — '
+                : row.provisional
+                  ? '🛠️ PRIORIDADE TÉCNICA — '
+                  : ''
+            }${escapeHtml(row.machine)}${
+              row.oee!==null
+                ? ` — OEE ${row.oee.toFixed(1).replace('.',',')}% • ${priorityStoppedHoursLabel(row)}`
+                : row.stoppedHours!==null
+                  ? ` — ${Number(row.stoppedHours).toFixed(1).replace('.',',')} h informadas`
+                  : ''
             }</strong>
             <p>${escapeHtml(row.reasons.join(' | ')||'Revisar prioridade')}</p>
             <div class="supervisor-fusion-meta">
@@ -12907,7 +13120,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=90.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=91.0.0');
         registration.update();
       } catch {}
     });
