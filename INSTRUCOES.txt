@@ -1,5 +1,5 @@
-PATCH V89
-Use sobre a V88.
+PATCH V90
+Use sobre a V89.
 
 Substitua:
 - app.js
@@ -8,8 +8,10 @@ Substitua:
 - sw.js
 - api/health.js
 
-Depois faça novo deploy e confirme V89.0.0.
+Depois faça deploy e confirme V90.0.0.
 
-TESTE:
-Se o turno anterior foi 62% e o atual é 70%, deve aparecer:
-⬆ melhora de 8,0 ponto(s) (62% -> 70%).
+Na tela Ações:
+- o app tenta recuperar automaticamente a última análise do mesmo turno;
+- se recuperar, prioridades voltam;
+- se não recuperar, Compartilhar/Copiar ficam bloqueados;
+- use "Ler novamente a foto do quadro".

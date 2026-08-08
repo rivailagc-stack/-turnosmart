@@ -2388,3 +2388,30 @@ main,.view,.card,.section-head,.sgman-management-card,.powerbi-sgman-card,.leade
   font-size:.72rem;
   font-weight:850;
 }
+
+/* ==========================================================
+   V90 — recuperação automática do quadro
+   ========================================================== */
+.priority-empty-recovery{
+  padding:18px;
+  border:1px dashed #f79009;
+  border-radius:16px;
+  background:#fffaf3;
+  text-align:center;
+}
+.priority-empty-recovery strong{
+  display:block;
+  margin-bottom:6px;
+  font-size:1.05rem;
+  color:#93370d;
+}
+.priority-empty-recovery p{
+  color:#667085;
+  margin:0 0 14px;
+}
+button.is-disabled,
+button:disabled{
+  opacity:.45!important;
+  cursor:not-allowed!important;
+  box-shadow:none!important;
+}

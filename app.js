@@ -199,14 +199,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '89.0.0';
+const APP_VERSION = '90.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v89.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v90.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -3945,10 +3945,9 @@ function maintenanceMessage() {
 
   if(!fusionRows.length){
     return [
-      '*AÇÕES DA MANUTENÇÃO*',
-      '⚠️ Nenhuma prioridade disponível.',
-      'Confirme a foto do quadro das últimas 12h e os valores de OEE.',
-      'Máquinas que não rodaram devem permanecer como “Não rodou”.'
+      '*PRIORIDADES AINDA NÃO CARREGADAS*',
+      '📷 Leia novamente a foto do quadro OEE deste turno.',
+      'O relatório de manutenção será liberado somente depois que houver OEE por máquina confirmado.'
     ].join('\n');
   }
 
@@ -4206,6 +4205,14 @@ function renderActions() {
   $('actionsContent').classList.toggle('hidden', !has);
   if (!has) return;
 
+  recoverCurrentShiftOeeSnapshot();
+
+  if(!state.supervisorFusionRows?.length){
+    state.supervisorFusionRows=applyAutomaticSupervisorSelection(
+      supervisorFusionRanking(10)
+    );
+  }
+
   const maintenanceResponsible = findMaintenanceResponsible(
     state.analysis.responsibleDate,
     state.analysis.responsibleShift,
@@ -4219,6 +4226,7 @@ function renderActions() {
   $('maintenanceActionsList').innerHTML = messageHtml(maintenanceMessage());
   $('productionActionsList').innerHTML = messageHtml(productionMessage());
   renderSgmanMachineAnalysis();
+  updateMaintenanceShareAvailability();
 }
 
 function fillScaleForm(crew) {
@@ -4299,6 +4307,10 @@ function renderHistory() {
     if (!item) return;
     state.analysis = item.analysis;
     state.actions = item.actions || [];
+    saveCurrentShiftOeeSnapshot(state.analysis);
+    state.supervisorFusionRows=applyAutomaticSupervisorSelection(
+      supervisorFusionRanking(10)
+    );
     renderAnalysis();
     renderActions();
     renderOeeDashboard();
@@ -7207,6 +7219,152 @@ function currentBoardMap(){
 
 
 
+
+function machineOeeRowsFromAnalysisForRecovery(analysis){
+  if(!analysis)return [];
+
+  let rows=Array.isArray(analysis.machineOee)
+    ? analysis.machineOee
+    : [];
+
+  if(!rows.length && analysis.oeeOcrText){
+    rows=extractAllMachineOeeFromText(analysis.oeeOcrText);
+  }
+
+  return rows
+    .map(row=>({
+      machine:normalizeMachineCode(row.machine||row.maquina||row.mk||''),
+      oee:smartNumeric(row.oee??row.value??row.efficiency),
+      ran:row.ran!==false
+    }))
+    .filter(row=>
+      row.machine &&
+      row.ran &&
+      row.oee!==null &&
+      row.oee>0 &&
+      row.oee<=100
+    );
+}
+
+function recoverCurrentShiftOeeSnapshot(){
+  const existing=state.currentShiftOee||loadCurrentShiftOeeSnapshot();
+  if(existing?.machineOee?.length){
+    state.currentShiftOee=existing;
+    return existing;
+  }
+
+  const current=state.analysis;
+  const currentRows=machineOeeRowsFromAnalysisForRecovery(current);
+
+  if(currentRows.length){
+    const recovered={
+      savedAt:new Date().toISOString(),
+      date:current?.date||todayISO(),
+      shift:String(current?.shift||'1'),
+      boardScope:current?.boardScope||null,
+      machineOee:currentRows
+    };
+
+    try{
+      localStorage.setItem(STORAGE.currentShiftOee,JSON.stringify(recovered));
+    }catch{}
+    state.currentShiftOee=recovered;
+    return recovered;
+  }
+
+  const history=getHistory();
+  let candidates=history
+    .map(record=>({
+      record,
+      analysis:record.analysis||{}
+    }))
+    .filter(item=>item.analysis);
+
+  // Se existe uma análise aberta, só recupera o mesmo dia/turno.
+  if(current?.date){
+    const currentShift=String(current.shift||'1');
+    candidates=candidates.filter(item=>
+      String(item.analysis.date||item.record.date||'')===String(current.date) &&
+      String(item.analysis.shift||item.record.shift||'1')===currentShift
+    );
+  }else{
+    // Sem análise aberta, limita a ontem/hoje para não ressuscitar quadro antigo.
+    const nowNoon=parseISODateAtNoon(todayISO());
+    candidates=candidates.filter(item=>{
+      const date=String(item.analysis.date||item.record.date||'');
+      if(!date)return false;
+      const d=parseISODateAtNoon(date);
+      return Math.abs(nowNoon-d)<=36*3600000;
+    });
+  }
+
+  for(const item of candidates){
+    const rows=machineOeeRowsFromAnalysisForRecovery(item.analysis);
+    if(!rows.length)continue;
+
+    const recovered={
+      savedAt:new Date().toISOString(),
+      date:item.analysis.date||item.record.date||todayISO(),
+      shift:String(item.analysis.shift||item.record.shift||'1'),
+      boardScope:item.analysis.boardScope||null,
+      machineOee:rows
+    };
+
+    try{
+      localStorage.setItem(STORAGE.currentShiftOee,JSON.stringify(recovered));
+    }catch{}
+
+    state.currentShiftOee=recovered;
+
+    // Se a análise aberta não possui machineOee, restaura os valores dela também.
+    if(state.analysis && !Array.isArray(state.analysis.machineOee)){
+      state.analysis.machineOee=rows;
+    }else if(state.analysis && !state.analysis.machineOee?.length){
+      state.analysis.machineOee=rows;
+    }
+
+    return recovered;
+  }
+
+  return null;
+}
+
+function hasSelectedMaintenancePriority(){
+  const rows=(state.supervisorFusionRows?.length
+    ? state.supervisorFusionRows
+    : supervisorFusionRanking(10)
+  );
+
+  return rows.some(row=>row.selected && row.oee!==null && row.oee<65);
+}
+
+function updateMaintenanceShareAvailability(){
+  const available=hasSelectedMaintenancePriority();
+  const share=$('shareMaintenanceBtn');
+  const copy=$('copyMaintenanceBtn');
+
+  for(const button of [share,copy]){
+    if(!button)continue;
+    button.disabled=!available;
+    button.classList.toggle('is-disabled',!available);
+    button.title=available
+      ? ''
+      : 'Confirme o quadro OEE e selecione pelo menos uma prioridade.';
+  }
+
+  return available;
+}
+
+function openOeePhotoReader(){
+  switchView('novo');
+  setTimeout(()=>{
+    const input=$('oeeImageInput');
+    const target=input?.closest('.card')||input;
+    target?.scrollIntoView({behavior:'smooth',block:'center'});
+    input?.focus?.();
+  },120);
+}
+
 function saveCurrentShiftOeeSnapshot(analysis){
   if(!analysis || !Array.isArray(analysis.machineOee) || !analysis.machineOee.length)return;
 
@@ -7531,6 +7689,8 @@ function renderSupervisorFusionPanel(){
   const target=$('supervisorFusionPanel');
   if(!target)return;
 
+  recoverCurrentShiftOeeSnapshot();
+
   let rows=supervisorFusionRanking(10);
   if(!rows.length){
     rows=fallbackCurrentShiftPriorities(10);
@@ -7575,7 +7735,13 @@ function renderSupervisorFusionPanel(){
             Prioridade
           </label>
         </article>
-      `).join(''):'<p class="muted">Nenhuma prioridade atual identificada.</p>'}
+      `).join(''):`
+        <div class="priority-empty-recovery">
+          <strong>Sem prioridades carregadas</strong>
+          <p>Não encontrei OEE por máquina salvo para este turno.</p>
+          <button id="readOeePhotoAgainBtn" class="primary" type="button">📷 Ler novamente a foto do quadro</button>
+        </div>
+      `}
     </div>
   `;
 
@@ -7608,8 +7774,12 @@ function renderSupervisorFusionPanel(){
       if($('maintenanceActionsList')){
         $('maintenanceActionsList').innerHTML=messageHtml(maintenanceMessage());
       }
+      updateMaintenanceShareAvailability();
     });
   });
+
+  $('readOeePhotoAgainBtn')?.addEventListener('click',openOeePhotoReader);
+  updateMaintenanceShareAvailability();
 }
 
 function confirmedSupervisorPlan(){
@@ -12484,7 +12654,13 @@ function init() {
     }
   });
 
-  $('copyMaintenanceBtn').addEventListener('click', () => copyText(maintenanceMessage(), 'Mensagem da manutenção copiada.'));
+  $('copyMaintenanceBtn').addEventListener('click', () => {
+    if(!updateMaintenanceShareAvailability()){
+      showToast('Confirme o quadro OEE e selecione pelo menos uma prioridade.');
+      return;
+    }
+    copyText(maintenanceMessage(), 'Mensagem da manutenção copiada.');
+  });
   $('copyProductionBtn').addEventListener('click', () => copyText(productionMessage(), 'Mensagem da produção copiada.'));
   $('shareMaintenanceBtn').addEventListener('click', async () => {
     const text = maintenanceMessage();
@@ -12731,7 +12907,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=89.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=90.0.0');
         registration.update();
       } catch {}
     });
@@ -12802,6 +12978,7 @@ document.addEventListener('click',event=>{
 document.addEventListener('click',event=>{
   if(event.target?.id==='refreshSupervisorFusionBtn'){
     state.currentShiftOee=loadCurrentShiftOeeSnapshot();
+    recoverCurrentShiftOeeSnapshot();
     renderSupervisorFusionPanel();
     if($('maintenanceActionsList') && state.analysis){
       $('maintenanceActionsList').innerHTML=messageHtml(maintenanceMessage());
