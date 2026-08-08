@@ -1,184 +1,60 @@
-const https=require('https');
+const SALARY_DATA = [{"name": "gustavo", "role": "jovem aprendiz", "salary": 1747.2, "aliases": ["gustavo"]}, {"name": "rogger", "role": "ASSISTENTE DE MANUTENÇÃO", "salary": 3150.0, "aliases": ["roger", "rogger"]}, {"name": "thiago", "role": "mecanico de producao", "salary": 3465.0, "aliases": ["thiago"]}, {"name": "igor", "role": "", "salary": 3811.0, "aliases": ["igor"]}, {"name": "marcelo", "role": "mecanico de producao", "salary": 3465.0, "aliases": ["marcelo"]}, {"name": "jeanderson", "role": "mecanico de producao", "salary": 3465.0, "aliases": ["jean", "jeanderson"]}, {"name": "roberto", "role": "mecanico de producao", "salary": 3811.0, "aliases": ["roberto"]}, {"name": "ALEILSON DE SOUZA ALMEIDA", "role": "MECANICO DE PRODUÇÃO NIVEL I", "salary": 4192.0, "aliases": ["aleilson", "aleilsondesouzaalmeida"]}, {"name": "MARCOS ROBERTO", "role": "MECANICO DE PRODUÇÃO NIVEL I", "salary": 3811.0, "aliases": ["marcos", "marcosroberto"]}, {"name": "CARLOS DA SILVA MATOS", "role": "MECANICO DE PRODUÇÃO NIVEL II", "salary": 4192.0, "aliases": ["carlos", "carlosdasilvamatos"]}, {"name": "LUIZ AFONSO VIEIRA JUNIOR", "role": "Lider de Manutenção", "salary": 4611.0, "aliases": ["luiz", "luizafonsovieirajunior"]}, {"name": "ALLAN TEODORAK SOARES", "role": "Lider de Manutenção", "salary": 4611.0, "aliases": ["allan", "allanteodoraksoares"]}, {"name": "joao", "role": "MECANICO DE PRODUÇÃO NIVEL III", "salary": 4611.0, "aliases": ["joao"]}, {"name": "Rosental", "role": "Lider de Manutenção", "salary": 4410.0, "aliases": ["rosental"]}, {"name": "DANILO NEPOMUCENO DA SILVA", "role": "LIDER DE MANUTENÇÃO I", "salary": 6595.0, "aliases": ["danilo", "danilonepomucenodasilva"]}, {"name": "FIDERLANIO SOARES REIS", "role": "LIDER DE MANUTENÇÃO I", "salary": 6595.0, "aliases": ["fider", "fiderlanio", "fiderlaniosoaresreis"]}, {"name": "RICARDO DOLA SERAFIM", "role": "LIDER DE MANUTENÇÃO I", "salary": 6595.0, "aliases": ["ricardo", "ricardodolaserafim"]}, {"name": "EMERSON DAVID NUNES", "role": "LIDER DE MANUTENÇÃO I", "salary": 6595.0, "aliases": ["emerson", "emersondavidnunes"]}];
 
-function send(res,status,body){
-  res.status(status).json(body);
+function normalize(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
 }
 
-function requestOpenAI(payload){
-  const apiKey=process.env.OPENAI_API_KEY;
+function safeNumber(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
 
-  if(!apiKey){
-    return Promise.resolve(null);
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'Método não permitido.' });
   }
 
-  const body=JSON.stringify(payload);
+  const configuredPin = String(process.env.MANAGEMENT_PIN || '').trim();
 
-  return new Promise((resolve,reject)=>{
-    const request=https.request({
-      method:'POST',
-      hostname:'api.openai.com',
-      path:'/v1/responses',
-      headers:{
-        Authorization:`Bearer ${apiKey}`,
-        'Content-Type':'application/json',
-        'Content-Length':Buffer.byteLength(body)
-      }
-    },response=>{
-      let text='';
-
-      response.on('data',chunk=>text+=chunk);
-
-      response.on('end',()=>{
-        let data={};
-
-        try{
-          data=text?JSON.parse(text):{};
-        }catch{
-          return reject(new Error('Resposta inválida da inteligência artificial.'));
-        }
-
-        if(response.statusCode<200||response.statusCode>=300){
-          return reject(new Error(
-            data?.error?.message||
-            `Erro da IA ${response.statusCode}`
-          ));
-        }
-
-        resolve(data);
-      });
+  if (!configuredPin) {
+    return res.status(503).json({
+      ok: false,
+      code: 'MANAGEMENT_PIN_REQUIRED',
+      error: 'Configure MANAGEMENT_PIN nas variáveis de ambiente da Vercel.'
     });
+  }
 
-    request.on('error',reject);
-    request.write(body);
-    request.end();
+  const pin = String(req.body?.pin || '').trim();
+
+  if (!pin || pin !== configuredPin) {
+    return res.status(401).json({ ok: false, error: 'PIN de gestão inválido.' });
+  }
+
+  const hoursPerMonth = safeNumber(req.body?.hoursPerMonth, 220);
+  const employerMultiplier = safeNumber(req.body?.employerMultiplier, 1);
+
+  const rates = SALARY_DATA.map(item => {
+    const companyMonthlyCost = item.salary * employerMultiplier;
+    const hourlyCost = companyMonthlyCost / hoursPerMonth;
+
+    return {
+      name: item.name,
+      role: item.role,
+      aliases: item.aliases,
+      hourlyCost: Number(hourlyCost.toFixed(4)),
+      companyMonthlyCost: Number(companyMonthlyCost.toFixed(2))
+    };
+  });
+
+  return res.status(200).json({
+    ok: true,
+    hoursPerMonth,
+    employerMultiplier,
+    count: rates.length,
+    rates
   });
 }
-
-function responseText(response){
-  if(typeof response?.output_text==='string'){
-    return response.output_text;
-  }
-
-  const texts=[];
-
-  for(const item of response?.output||[]){
-    for(const content of item?.content||[]){
-      if(typeof content?.text==='string'){
-        texts.push(content.text);
-      }
-    }
-  }
-
-  return texts.join('\n');
-}
-
-module.exports=async(req,res)=>{
-  if(req.method!=='POST'){
-    res.setHeader('Allow','POST');
-    return send(res,405,{
-      ok:false,
-      error:'Método não permitido.'
-    });
-  }
-
-  try{
-    if(!process.env.OPENAI_API_KEY){
-      return send(res,503,{
-        ok:false,
-        error:'OPENAI_API_KEY não configurada.'
-      });
-    }
-
-    const body=req.body||{};
-    const organization=body.organization||{};
-    const references=Array.isArray(body.sgmanReferences)
-      ? body.sgmanReferences
-      : [];
-
-    const prompt=`
-Você é o Mecânico IA de uma plataforma profissional de manutenção industrial.
-
-Empresa: ${organization.companyName||'não informada'}
-Unidade: ${organization.unitName||'não informada'}
-Departamento: ${organization.departmentName||'Manutenção'}
-Máquina: ${body.machine||'aplicação geral'}
-Componente: ${body.component||'não informado'}
-Tipo de orientação: ${body.mode||'diagnosis'}
-Prioridade: ${body.priority||'normal'}
-Pergunta ou sintoma: ${body.problem||'não informado'}
-
-Histórico relevante do SGMan:
-${references.length
-  ? references.map((item,index)=>`${index+1}. ${item}`).join('\n')
-  : 'Nenhuma referência disponível.'}
-
-Resumo da consulta:
-${body.historySummary
-  ? JSON.stringify(body.historySummary)
-  : 'Sem resumo disponível.'}
-
-Crie uma resposta técnica em português brasileiro.
-
-Regras:
-1. Comece pelos testes mais rápidos, seguros e prováveis.
-2. Separe alimentação, comando, componente, carga mecânica e lógica.
-3. Não mande trocar peça sem confirmar a causa.
-4. Não invente tensão, resistência, pressão, torque ou folga.
-5. Quando depender do modelo, oriente consultar placa, manual ou componente igual.
-6. Inclua bloqueio e energias residuais.
-7. Nunca ensine a burlar CLP, relé de segurança, cortina de luz ou intertravamento.
-8. Use o histórico do SGMan como referência, não como prova definitiva.
-9. Para máquina parada, priorize restauração segura e depois causa raiz.
-10. Para reincidência, inclua ação preventiva e forma de evitar retorno.
-11. Responda de modo curto, direto e utilizável no chão de fábrica.
-
-Responda somente JSON válido:
-{
-  "title":"título da orientação",
-  "summary":"entendimento técnico da situação",
-  "immediateActions":["ação 1","ação 2","ação 3"],
-  "tests":"testes numerados em uma única string",
-  "probableCauses":"causas prováveis numeradas",
-  "safety":"cuidados e bloqueio",
-  "releaseCriteria":"como testar, acompanhar e liberar",
-  "sgmanRecord":"o que registrar na OS",
-  "confidence":"alta, média ou baixa, com justificativa curta"
-}
-`;
-
-    const response=await requestOpenAI({
-      model:process.env.OPENAI_MODEL||'gpt-4.1-mini',
-      input:[{
-        role:'user',
-        content:[{
-          type:'input_text',
-          text:prompt
-        }]
-      }],
-      max_output_tokens:1600
-    });
-
-    const text=responseText(response)
-      .replace(/^```json\s*/i,'')
-      .replace(/```$/,'')
-      .trim();
-
-    let answer;
-
-    try{
-      answer=JSON.parse(text);
-    }catch{
-      throw new Error('A IA não devolveu o formato técnico esperado.');
-    }
-
-    return send(res,200,{
-      ok:true,
-      answer
-    });
-  }catch(error){
-    return send(res,500,{
-      ok:false,
-      error:error.message
-    });
-  }
-};
