@@ -1,15 +1,1 @@
-PATCH V82
-Use sobre a V81.
-
-Substitua:
-- app.js
-- index.html
-- style.css
-- sw.js
-- api/health.js
-- academy-lessons.json
-
-Opcional:
-- ACADEMY_CONTEUDO.md (documentação)
-
-Depois faça novo deploy e confirme V82.0.0.
+Use sobre a V82. Substitua app.js, index.html, style.css, sw.js e api/health.js. Depois faça deploy e confirme V83.0.0.

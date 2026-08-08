@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '82.0.0';
+const APP_VERSION = '83.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v82.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v83.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -3819,23 +3819,23 @@ function maintenanceMessage() {
   // SGMan entra somente para sugerir verificações técnicas.
   let fusionRows=(state.supervisorFusionRows?.length
     ? state.supervisorFusionRows
-    : supervisorFusionRanking(5)
+    : supervisorFusionRanking(10)
   );
 
   if(!fusionRows.length){
-    fusionRows=fallbackCurrentShiftPriorities(3);
+    fusionRows=fallbackCurrentShiftPriorities(10);
   }
 
-  let supervisorRows=fusionRows.filter(row=>row.selected).slice(0,3);
+  let supervisorRows=fusionRows.filter(row=>row.selected).slice(0,5);
 
   if(!supervisorRows.length){
     fusionRows=applyAutomaticSupervisorSelection(fusionRows);
     state.supervisorFusionRows=fusionRows;
-    supervisorRows=fusionRows.filter(row=>row.selected).slice(0,3);
+    supervisorRows=fusionRows.filter(row=>row.selected).slice(0,5);
   }
 
   if(!supervisorRows.length){
-    supervisorRows=fallbackCurrentShiftPriorities(3);
+    supervisorRows=fallbackCurrentShiftPriorities(10);
     fusionRows=supervisorRows;
   }
 
@@ -7016,7 +7016,7 @@ function loadSavedSupervisorPriorities(){
     const raw=localStorage.getItem(supervisorPriorityStorageKey());
     const parsed=raw?JSON.parse(raw):[];
     return Array.isArray(parsed)
-      ? parsed.map(normalizeMachineCode).filter(Boolean).slice(0,3)
+      ? parsed.map(normalizeMachineCode).filter(Boolean).slice(0,5)
       : [];
   }catch{
     return [];
@@ -7043,9 +7043,9 @@ function applyAutomaticSupervisorSelection(rows=[]){
   const saved=loadSavedSupervisorPriorities()
     .filter(machine=>available.has(machine));
 
-  const automatic=rows.slice(0,3).map(row=>row.machine);
+  const automatic=rows.slice(0,5).map(row=>row.machine);
   const selected=saved.length
-    ? uniqueStrings([...saved,...automatic]).slice(0,3)
+    ? uniqueStrings([...saved,...automatic]).slice(0,5)
     : automatic;
 
   saveSupervisorPriorities(selected);
@@ -7057,7 +7057,7 @@ function applyAutomaticSupervisorSelection(rows=[]){
 }
 
 
-function fallbackCurrentShiftPriorities(limit=3){
+function fallbackCurrentShiftPriorities(limit=10){
   const machineOee=[
     ...(state.analysis?.machineOee||[]),
     ...(machineOeeFromEditor?.()||[])
@@ -7105,14 +7105,15 @@ function fallbackCurrentShiftPriorities(limit=3){
           reportRow?.mentioned?'production':'',
           history.length?'sgman':''
         ].filter(Boolean)),
-        selected:true
+        selected:false
       };
     })
     .sort((a,b)=>a.oee-b.oee)
-    .slice(0,limit);
+    .slice(0,limit)
+    .map((row,index)=>({...row,selected:index<5}));
 }
 
-function supervisorFusionRanking(limit=5){
+function supervisorFusionRanking(limit=10){
   const report=productionReportMachineMentions();
   const board=currentBoardMap();
   const machines=new Set([...report.keys(),...board.keys()]);
@@ -7223,12 +7224,15 @@ function renderSupervisorFusionPanel(){
   const target=$('supervisorFusionPanel');
   if(!target)return;
 
-  let rows=supervisorFusionRanking(5);
+  let rows=supervisorFusionRanking(10);
   if(!rows.length){
-    rows=fallbackCurrentShiftPriorities(5);
+    rows=fallbackCurrentShiftPriorities(10);
   }
   rows=applyAutomaticSupervisorSelection(rows);
   state.supervisorFusionRows=rows;
+  const selectedCount=rows.filter(row=>row.selected).length;
+  const counter=$('supervisorPriorityCounter');
+  if(counter)counter.textContent=`${selectedCount} de 5 selecionadas`;
 
   target.innerHTML=`
     <div class="supervisor-confirm-box">
@@ -7264,9 +7268,9 @@ function renderSupervisorFusionPanel(){
     input.addEventListener('change',()=>{
       const selected=$$('.supervisor-priority-check:checked');
 
-      if(selected.length>3){
+      if(selected.length>5){
         input.checked=false;
-        showToast('Escolha no máximo três prioridades.');
+        showToast('Escolha no máximo cinco prioridades.');
         return;
       }
 
@@ -7280,6 +7284,8 @@ function renderSupervisorFusionPanel(){
       }));
 
       saveSupervisorPriorities(selectedMachines);
+      const counter=$('supervisorPriorityCounter');
+      if(counter)counter.textContent=`${selectedMachines.length} de 5 selecionadas`;
 
       input.closest('.supervisor-fusion-row')
         ?.classList.toggle('is-selected',input.checked);
@@ -7290,19 +7296,19 @@ function renderSupervisorFusionPanel(){
 function confirmedSupervisorPlan(){
   let rows=(state.supervisorFusionRows?.length
     ? state.supervisorFusionRows
-    : supervisorFusionRanking(5)
+    : supervisorFusionRanking(10)
   );
 
   if(!rows.length){
-    rows=fallbackCurrentShiftPriorities(3);
+    rows=fallbackCurrentShiftPriorities(10);
   }
 
-  let selected=rows.filter(row=>row.selected).slice(0,3);
+  let selected=rows.filter(row=>row.selected).slice(0,5);
 
   if(!selected.length){
     rows=applyAutomaticSupervisorSelection(rows);
     state.supervisorFusionRows=rows;
-    selected=rows.filter(row=>row.selected).slice(0,3);
+    selected=rows.filter(row=>row.selected).slice(0,5);
   }
 
   return selected.map((row,index)=>{
@@ -9248,9 +9254,9 @@ async function analyzeCurrentReport() {
     try{
       localStorage.removeItem(supervisorPriorityStorageKey());
     }catch{}
-    state.supervisorFusionRows=supervisorFusionRanking(5);
+    state.supervisorFusionRows=supervisorFusionRanking(10);
     if(!state.supervisorFusionRows.length){
-      state.supervisorFusionRows=fallbackCurrentShiftPriorities(3);
+      state.supervisorFusionRows=fallbackCurrentShiftPriorities(10);
     }
     state.supervisorFusionRows=applyAutomaticSupervisorSelection(
       state.supervisorFusionRows
@@ -12390,7 +12396,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=82.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=83.0.0');
         registration.update();
       } catch {}
     });
