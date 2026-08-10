@@ -1,16 +1,13 @@
-PATCH V83
+PATCH V84
 
 Substitua:
 - app.js
 - index.html
-- style.css
 - sw.js
 - api/health.js
-
-ADICIONE:
 - api/oee-vision.js
 
-Não precisa criar uma nova chave:
-usa a OPENAI_API_KEY que já está configurada.
+Depois faça novo deploy e confirme V84.0.0.
 
-Depois faça novo deploy e confirme V83.0.0.
+A leitura agora é feita máquina por máquina, usando o código impresso
+como âncora da linha.
