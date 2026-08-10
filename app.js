@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '86.0.0';
+const APP_VERSION = '87.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v86.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v87.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -3115,6 +3115,115 @@ async function recognizeOeeInRowCanvas(canvas,workerProgress=null){
   return parsePercentCandidatesFromOcr(result?.data);
 }
 
+
+function percentCandidatesFromFullOcr(words=[],bounds,anchors,rowHeight){
+  const results=new Map();
+
+  const left=Number(bounds?.left||0);
+  const right=Number(bounds?.right||Infinity);
+  const toleranceY=Math.max(12,rowHeight*0.44);
+
+  for(const anchor of anchors){
+    if(!Number.isFinite(anchor.y))continue;
+
+    const candidates=[];
+
+    for(const word of words){
+      const center=bboxCenter(word);
+
+      if(center.x<left || center.x>right)continue;
+      if(Math.abs(center.y-anchor.y)>toleranceY)continue;
+
+      const text=String(word.text||'').trim();
+      const parts=text.match(/\d{1,3}(?:[.,]\d+)?\s*%?/g)||[];
+
+      for(const raw of parts){
+        const value=Number(
+          raw.replace('%','').replace(',','.').trim()
+        );
+
+        if(!Number.isFinite(value) || value<20 || value>100)continue;
+
+        const hasPercent=raw.includes('%');
+        const confidence=Number(word.confidence||0);
+
+        candidates.push({
+          value,
+          hasPercent,
+          confidence,
+          raw:text,
+          x:center.x,
+          y:center.y,
+          verticalDistance:Math.abs(center.y-anchor.y)
+        });
+      }
+    }
+
+    candidates.sort((a,b)=>{
+      if(a.hasPercent!==b.hasPercent)return a.hasPercent?-1:1;
+      if(a.verticalDistance!==b.verticalDistance){
+        return a.verticalDistance-b.verticalDistance;
+      }
+      return b.confidence-a.confidence;
+    });
+
+    results.set(anchor.machine,candidates);
+  }
+
+  return results;
+}
+
+function buildFastOeeRows(anchors=[],candidateMap=new Map()){
+  return OEE_BOARD_MACHINES.map(machine=>{
+    const anchor=anchors.find(item=>item.machine===machine);
+    const candidates=candidateMap.get(machine)||[];
+    const chosen=candidates[0]||null;
+
+    if(!chosen){
+      return {
+        machine,
+        oee:'',
+        candidateOee:'',
+        confidence:0,
+        source:'Sem percentual reconhecido na mesma linha',
+        needsConfirmation:false,
+        ambiguous:false,
+        ocrSource:true,
+        anchorConfidence:Number(anchor?.confidence||0)
+      };
+    }
+
+    const competing=candidates.filter(item=>
+      Math.abs(Number(item.value)-Number(chosen.value))>5 &&
+      item.verticalDistance<=chosen.verticalDistance+8
+    );
+
+    const ambiguous=competing.some(item=>
+      item.hasPercent || Number(item.confidence||0)>=55
+    );
+
+    const needsConfirmation=
+      ambiguous ||
+      !chosen.hasPercent ||
+      Number(chosen.confidence||0)<60 ||
+      Boolean(anchor?.interpolated);
+
+    return {
+      machine,
+      oee:chosen.value,
+      candidateOee:chosen.value,
+      confidence:Number(chosen.confidence||0),
+      source:
+        `${chosen.raw} | âncora ${anchor?.raw||machine}`+
+        `${anchor?.interpolated?' (linha estimada)':''}`,
+      needsConfirmation,
+      ambiguous,
+      ocrSource:true,
+      anchorConfidence:Number(anchor?.confidence||0)
+    };
+  });
+}
+
 async function processOeeColumnPhoto() {
   const file=$('oeeImageInput')?.files?.[0];
 
@@ -3131,10 +3240,9 @@ async function processOeeColumnPhoto() {
   const statusEl=$('oeeStatus');
   const operationalDate=$('reportDate').value||todayISO();
   const shift=$('reportShift').value||'1';
-  const scope=boardScopeForReport(operationalDate,shift);
 
   try{
-    statusEl.textContent='OCR: preparando a foto inteira...';
+    statusEl.textContent='OCR rápido: preparando a foto inteira...';
 
     const fullDataUrl=
       state.oeeImageDataUrl||
@@ -3149,7 +3257,6 @@ async function processOeeColumnPhoto() {
       shift
     );
 
-    // Foto original continua inteira para visualização.
     state.oeeCropDataUrl=processed.previewDataUrl;
     state.oeeRowPreviews=[];
 
@@ -3158,10 +3265,9 @@ async function processOeeColumnPhoto() {
     $('oeeCropPreviewWrap').classList.remove('hidden');
 
     // --------------------------------------------------------
-    // PASSO 1: reconhecer os números impressos das máquinas.
+    // PASSO 1: máquinas impressas
     // --------------------------------------------------------
-    statusEl.textContent=
-      'OCR 1/2: localizando as máquinas impressas na coluna esquerda...';
+    statusEl.textContent='OCR 1/2: localizando as máquinas...';
 
     const machinePass=await window.Tesseract.recognize(
       processed.previewDataUrl,
@@ -3184,25 +3290,20 @@ async function processOeeColumnPhoto() {
       }
     );
 
-    // As coordenadas do machinePass pertencem à previewCanvas.
-    const anchorCanvas=processed.previewCanvas;
+    const canvas=processed.previewCanvas;
 
     const anchors=findMachineAnchorsFromPrintedOcr(
       machinePass?.data?.words||[],
-      anchorCanvas.width,
-      anchorCanvas.height
+      canvas.width,
+      canvas.height
     );
 
-    const knownAnchors=anchors.filter(a=>
+    const known=anchors.filter(a=>
       Number.isFinite(a.y) &&
       !a.interpolated
     );
 
-    // Calcula altura típica entre linhas usando âncoras reconhecidas.
-    const ys=knownAnchors
-      .map(a=>a.y)
-      .sort((a,b)=>a-b);
-
+    const ys=known.map(a=>a.y).sort((a,b)=>a-b);
     const gaps=[];
 
     for(let i=1;i<ys.length;i++){
@@ -3215,105 +3316,65 @@ async function processOeeColumnPhoto() {
     const rowHeight=
       gaps.length
         ? gaps[Math.floor(gaps.length/2)]
-        : anchorCanvas.height*0.034;
+        : canvas.height*0.034;
 
     const bounds=chooseOeeColumnBounds(
-      anchorCanvas,
+      canvas,
       anchors,
       operationalDate,
       shift
     );
 
     // --------------------------------------------------------
-    // PASSO 2: uma linha por vez, mesma máquina -> mesma célula.
+    // PASSO 2: percentuais na foto inteira (UMA chamada)
     // --------------------------------------------------------
-    const rows=[];
+    statusEl.textContent='OCR 2/2: lendo os percentuais...';
 
-    for(let i=0;i<anchors.length;i++){
-      const anchor=anchors[i];
-
-      statusEl.textContent=
-        `OCR 2/2: ${anchor.machine} (${i+1}/${anchors.length})...`;
-
-      const rowCanvas=makeOeeRowCanvas(
-        anchorCanvas,
-        anchor,
-        bounds,
-        rowHeight
-      );
-
-      if(!rowCanvas){
-        rows.push({
-          machine:anchor.machine,
-          oee:'',
-          candidateOee:'',
-          confidence:0,
-          source:'Máquina não localizada',
-          needsConfirmation:false,
-          ambiguous:false,
-          ocrSource:true
-        });
-        continue;
+    const percentPass=await window.Tesseract.recognize(
+      processed.previewDataUrl,
+      'eng',
+      {
+        logger:info=>{
+          if(
+            info.status==='recognizing text' &&
+            typeof info.progress==='number'
+          ){
+            statusEl.textContent=
+              `OCR 2/2: OEE ${Math.round(info.progress*100)}%`;
+          }
+        }
+      },
+      {
+        tessedit_char_whitelist:'0123456789%.,',
+        tessedit_pageseg_mode:'11',
+        preserve_interword_spaces:'1'
       }
+    );
 
-      let candidates=[];
+    const candidateMap=percentCandidatesFromFullOcr(
+      percentPass?.data?.words||[],
+      bounds,
+      anchors,
+      rowHeight
+    );
 
-      try{
-        candidates=await recognizeOeeInRowCanvas(rowCanvas);
-      }catch(error){
-        console.warn('OCR linha',anchor.machine,error);
-      }
-
-      const chosen=candidates[0]||null;
-
-      if(!chosen){
-        rows.push({
-          machine:anchor.machine,
-          oee:'',
-          candidateOee:'',
-          confidence:0,
-          source:'Sem percentual reconhecido na mesma linha',
-          needsConfirmation:false,
-          ambiguous:false,
-          ocrSource:true,
-          anchorConfidence:anchor.confidence
-        });
-        continue;
-      }
-
-      // Proteção extra: número sem % exige revisão.
-      const confidence=Number(chosen.confidence||0);
-      const needsConfirmation=
-        !chosen.hasPercent ||
-        confidence<65 ||
-        Boolean(anchor.interpolated);
-
-      rows.push({
-        machine:anchor.machine,
-        oee:chosen.value,
-        candidateOee:chosen.value,
-        confidence,
-        source:
-          `${chosen.raw} | âncora ${anchor.raw}`+
-          `${anchor.interpolated?' (linha estimada)':''}`,
-        needsConfirmation,
-        ambiguous:false,
-        ocrSource:true,
-        anchorConfidence:anchor.confidence
-      });
-    }
+    const rows=buildFastOeeRows(
+      anchors,
+      candidateMap
+    );
 
     state.oeeMachineEditorData=rows;
     renderOeeMachineEditor(rows);
 
     const detected=usefulOeeReadCount(rows);
-    const anchored=knownAnchors.length;
+    const uncertain=rows.filter(row=>row.needsConfirmation).length;
 
     statusEl.textContent=
-      `OCR local: ${anchored} máquinas localizadas e `+
-      `${detected} OEE provável(is). `+
-      `Confira os campos amarelos antes de analisar.`;
+      `OCR concluído: ${detected} OEE encontrado(s)`+
+      `${uncertain?` • ${uncertain} para conferência`:''}. `+
+      `Você já pode analisar o relatório.`;
 
+    // Usa somente os OEE confiáveis automaticamente.
     $('oeeOcrText').value=editorOeeText();
     state.oeeOcrText=$('oeeOcrText').value;
 
@@ -3322,11 +3383,10 @@ async function processOeeColumnPhoto() {
     console.error(error);
 
     statusEl.textContent=
-      `OCR falhou: ${error.message}. Preencha somente os valores faltantes.`;
+      `OCR não conseguiu concluir (${error.message}). `+
+      `O relatório pode ser analisado normalmente sem os OEE não confirmados.`;
 
-    renderOeeMachineEditor([]);
-
-    showToast(`OCR: ${error.message}`);
+    showToast('OCR incompleto. O relatório continuará sem bloquear.');
 
     return [];
   }
@@ -6292,7 +6352,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=86.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=87.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -9668,12 +9728,17 @@ async function analyzeCurrentReport() {
 
     const text = $('reportText').value.trim();
 
-    if (!text) {
+    const hasOeeInput=
+      machineOeeFromEditor().length>0 ||
+      Boolean($('oeeImageInput')?.files?.[0]) ||
+      Boolean($('oeeOcrText')?.value.trim());
+
+    if (!text && !hasOeeInput) {
       setAnalysisRunStatus(
-        'Cole ou digite o relatório antes de analisar.',
+        'Informe o relatório da produção ou carregue a foto do OEE.',
         'error'
       );
-      showToast('Cole o relatório antes de analisar.');
+      showToast('Informe o relatório ou carregue a foto do OEE.');
       return;
     }
 
@@ -9695,14 +9760,13 @@ async function analyzeCurrentReport() {
     }
 
     const pendingRows=pendingOeeConfirmation();
+
+    // V87: OCR nunca bloqueia o relatório.
+    // Valores duvidosos são simplesmente ignorados até confirmação.
     if(pendingRows.length){
-      setAnalysisRunStatus(
-        `${pendingRows.length} linha(s) do OEE precisam de confirmação manual antes da análise.`,
-        'warning'
+      console.warn(
+        `${pendingRows.length} OEE duvidoso(s) foram ignorados na prioridade automática.`
       );
-      showToast('Alguns OEE foram preenchidos, mas precisam de conferência. Toque no valor correto para confirmar.');
-      switchView('novo');
-      return;
     }
 
     const oeeText = editorValues.length
@@ -9721,7 +9785,10 @@ async function analyzeCurrentReport() {
       state.manualSchedule
     );
 
-    const analysis = parseReport(text, scheduleInfo);
+    const analysis = parseReport(
+      text || 'Relatório de produção não informado. Análise baseada no OEE disponível.',
+      scheduleInfo
+    );
     analysis.oeeOcrText = oeeText;
     analysis.machineOee = editorValues.length
       ? editorValues
@@ -12889,7 +12956,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=86.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=87.0.0');
         registration.update();
       } catch {}
     });

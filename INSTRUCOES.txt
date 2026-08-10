@@ -1,13 +1,14 @@
-PATCH V86
+PATCH V87
 
 Substitua:
 - app.js
 - index.html
+- style.css
 - sw.js
 - api/health.js
-- api/oee-vision.js
 
-A leitura do OEE não usa mais OpenAI.
-Não precisa colocar crédito na API para ler o quadro.
+Depois faça novo deploy e confirme V87.0.0.
 
-Depois faça novo deploy e confirme V86.0.0.
+Mudança principal:
+O OCR não bloqueia mais o relatório.
+Mesmo se não ler todos os OEE, Analisar relatório continua funcionando.

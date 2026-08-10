@@ -2176,3 +2176,9 @@ button.secondary,
 .oee-editor-row.confidence-warning small{
   color:#b54708;
 }
+
+
+/* V87 - análise nunca bloqueada pelo OCR */
+.oee-editor-head .muted{
+  color:#667085;
+}
