@@ -2128,3 +2128,37 @@ button.secondary,
   line-height:1.25;
 }
 
+
+
+/* ==========================================================
+   V82 — LEITURA OEE SEM RECORTE
+   ========================================================== */
+.oee-row-placeholder,
+.oee-row-preview{
+  display:none !important;
+}
+
+.oee-editor-row{
+  min-height:0 !important;
+}
+
+.oee-editor-input{
+  font-size:1.5rem;
+  font-weight:900;
+  text-align:center;
+}
+
+.oee-editor-row.confidence-warning{
+  border-color:#f79009 !important;
+  background:#fff8eb !important;
+}
+
+.oee-editor-row.confidence-good{
+  border-color:#32d583 !important;
+  background:#f6fef9 !important;
+}
+
+.oee-editor-row.confidence-empty{
+  border-color:#d92d20 !important;
+  background:#fff6f5 !important;
+}

@@ -1,12 +1,16 @@
-PATCH V81
+PATCH V82
 
 Substitua:
 - app.js
 - index.html
+- style.css
 - sw.js
 - api/health.js
 
-Depois faça novo deploy e confirme V81.0.0.
+Depois faça novo deploy e confirme V82.0.0.
 
-A foto não será mais recortada.
-O OCR analisa a imagem inteira e usa apenas coordenadas para localizar o dia/turno.
+Após atualizar:
+- envie novamente a foto original;
+- aguarde os valores aparecerem;
+- confira somente os campos amarelos;
+- analise o relatório.
