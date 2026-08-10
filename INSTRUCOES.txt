@@ -1,4 +1,4 @@
-PATCH V89
+PATCH V90
 
 Substitua:
 - app.js
@@ -7,6 +7,8 @@ Substitua:
 - sw.js
 - api/health.js
 
-Depois faça novo deploy e confirme V89.0.0.
+Depois faça deploy e confirme V90.0.0.
 
-Essa versão restaura o recorte OCR das versões antigas.
+A correção principal é o zoom:
+agora começa em MK138 e termina em MK149,
+sem pegar o cabeçalho.

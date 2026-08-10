@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '89.0.0';
+const APP_VERSION = '90.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v89.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v90.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -3627,32 +3627,119 @@ function associatePercentToMachineRows(anchors=[],percentWords=[],fullHeight=1){
 
 
 function getLegacyOeeCropSettings(image, operationalDate, shift) {
-  // Método legado que apresentava melhor leitura.
-  // Coluna fixa de máquinas + 14 colunas de turno no quadro.
-  const boardStart = 0.085;
-  const boardEnd = 0.995;
-  const totalColumns = 14;
-  const columnWidth = (boardEnd - boardStart) / totalColumns;
-  const index = boardColumnIndex(operationalDate, shift);
+  // V90: recorte calculado a partir das linhas reais do quadro.
+  // Não usa mais posição fixa que pegava o cabeçalho.
 
-  const xRatio = Math.max(
+  const naturalWidth=image.naturalWidth||image.width;
+  const naturalHeight=image.naturalHeight||image.height;
+
+  const temp=document.createElement('canvas');
+  const ctx=temp.getContext('2d',{willReadFrequently:true});
+
+  const scale=Math.min(1,1200/Math.max(1,naturalWidth));
+  temp.width=Math.max(1,Math.round(naturalWidth*scale));
+  temp.height=Math.max(1,Math.round(naturalHeight*scale));
+
+  ctx.fillStyle='#fff';
+  ctx.fillRect(0,0,temp.width,temp.height);
+  ctx.drawImage(
+    image,
+    0,0,naturalWidth,naturalHeight,
+    0,0,temp.width,temp.height
+  );
+
+  // Detecta linhas verticais do quadro.
+  const verticalLines=detectBoardVerticalLines(temp);
+
+  // Divisória entre a coluna MK e a primeira coluna de produção.
+  let machineDivider=verticalLines.find(x=>
+    x>temp.width*0.20 &&
+    x<temp.width*0.42
+  );
+
+  if(!Number.isFinite(machineDivider)){
+    machineDivider=temp.width*0.285;
+  }
+
+  const afterMachine=verticalLines
+    .filter(x=>x>machineDivider+temp.width*0.06)
+    .sort((a,b)=>a-b);
+
+  const expectedIndex=boardColumnIndex(
+    operationalDate,
+    shift
+  );
+
+  let left;
+  let right;
+
+  // Na foto estreita, normalmente só há uma coluna útil visível.
+  if(expectedIndex===0){
+    left=machineDivider;
+    right=
+      afterMachine.find(x=>x>machineDivider+temp.width*0.20) ||
+      temp.width*0.72;
+  }else{
+    const usableStart=machineDivider;
+    const usableEnd=temp.width*0.99;
+    const expectedColumns=10;
+    const columnWidth=(usableEnd-usableStart)/expectedColumns;
+
+    left=usableStart+expectedIndex*columnWidth;
+    right=usableStart+(expectedIndex+1)*columnWidth;
+
+    if(afterMachine.length>=expectedIndex+1){
+      left=
+        expectedIndex===0
+          ?machineDivider
+          :(afterMachine[expectedIndex-1]||left);
+
+      right=afterMachine[expectedIndex]||right;
+    }
+  }
+
+  // IMPORTANTE:
+  // As máquinas começam bem abaixo do cabeçalho.
+  // Na foto do quadro, MK138 inicia por volta de 29-31% da altura.
+  // MK149 termina por volta de 91-93%.
+  //
+  // Mantemos pequena folga para não cortar MK138/MK149.
+  const topRatio=0.285;
+  const bottomRatio=0.935;
+
+  const sx=Math.max(
     0,
-    boardStart + index * columnWidth - columnWidth * 0.13
+    Math.round((left/temp.width)*naturalWidth)
   );
 
-  const widthRatio = Math.min(
-    1 - xRatio,
-    columnWidth * 1.26
+  const ex=Math.min(
+    naturalWidth,
+    Math.round((right/temp.width)*naturalWidth)
   );
 
-  const yRatio = 0.175;
-  const heightRatio = 0.79;
+  const sy=Math.max(
+    0,
+    Math.round(naturalHeight*topRatio)
+  );
+
+  const ey=Math.min(
+    naturalHeight,
+    Math.round(naturalHeight*bottomRatio)
+  );
 
   return {
-    sx: Math.round((image.naturalWidth || image.width) * xRatio),
-    sy: Math.round((image.naturalHeight || image.height) * yRatio),
-    sw: Math.round((image.naturalWidth || image.width) * widthRatio),
-    sh: Math.round((image.naturalHeight || image.height) * heightRatio)
+    sx,
+    sy,
+    sw:Math.max(1,ex-sx),
+    sh:Math.max(1,ey-sy),
+    debug:{
+      machineDividerRatio:machineDivider/temp.width,
+      leftRatio:left/temp.width,
+      rightRatio:right/temp.width,
+      topRatio,
+      bottomRatio,
+      expectedIndex
+    }
   };
 }
 
@@ -3951,7 +4038,7 @@ async function processOeeColumnPhoto() {
 
   try{
     statusEl.textContent=
-      `Recortando internamente somente ${scope.label}...`;
+      `Localizando automaticamente a coluna ${scope.label} e as linhas MK138–MK149...`;
 
     const fullDataUrl=
       state.oeeImageDataUrl||
@@ -3967,6 +4054,11 @@ async function processOeeColumnPhoto() {
       image,
       operationalDate,
       shift
+    );
+
+    console.log(
+      'V90 recorte OEE',
+      processed.crop?.debug||processed.crop
     );
 
     // V89 volta a mostrar o recorte que realmente foi usado.
@@ -7013,7 +7105,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=89.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=90.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -13617,7 +13709,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=89.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=90.0.0');
         registration.update();
       } catch {}
     });
