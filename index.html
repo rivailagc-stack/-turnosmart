@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=93.0.0" />
+  <link rel="stylesheet" href="style.css?v=80.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -20,7 +20,7 @@
       <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V93.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V80.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -216,57 +216,6 @@
     <table class="sgman-orders-table powerbi-cross-table">
       <thead><tr><th>Máquina</th><th>OEE</th><th>Produção</th><th>Horas efetivas</th><th>Perda manutenção</th><th>OS SGMan</th><th>Corretivas</th><th>MTTR</th><th>Custo SGMan</th><th>Mão de obra</th></tr></thead>
       <tbody id="powerBiCrossTableBody"></tbody>
-    </table>
-  </div>
-</div>
-
-<div class="card leader-performance-card">
-  <div class="section-head">
-    <div>
-      <span class="eyebrow">EFICIÊNCIA POR LÍDER</span>
-      <h2>Resultado das 4 equipes</h2>
-      <p class="muted">Cruza OEE do Power BI com os executantes do SGMan e a composição conhecida das equipes.</p>
-    </div>
-  </div>
-
-  <div class="leader-filter-grid">
-    <label>Mês<input id="leaderPerformanceMonth" type="month"></label>
-    <label>Dia<input id="leaderPerformanceDay" type="date"></label>
-    <label>Líder
-      <select id="leaderPerformanceLeader">
-        <option value="">Todos os líderes</option>
-        <option value="Emerson">Emerson</option>
-        <option value="Fider">Fider</option>
-        <option value="Ricardo">Ricardo</option>
-        <option value="Danilo">Danilo</option>
-      </select>
-    </label>
-    <label>Máquina<select id="leaderPerformanceMachine"><option value="">Todas</option></select></label>
-    <label>Produto<select id="leaderPerformanceProduct"><option value="">Todos</option></select></label>
-  </div>
-
-  <div class="button-row compact-row">
-    <button id="applyLeaderPerformanceBtn" class="primary" type="button">Aplicar</button>
-    <button id="clearLeaderPerformanceBtn" class="ghost" type="button">Limpar</button>
-  </div>
-
-  <div id="leaderPerformanceCards" class="leader-performance-cards"></div>
-
-  <div class="leader-chart-grid">
-    <section class="sgman-chart-card">
-      <div class="section-head"><div><span class="eyebrow">MÊS</span><h3>OEE diário da equipe</h3></div></div>
-      <canvas id="leaderDailyOeeChart" height="220"></canvas>
-    </section>
-    <section class="sgman-chart-card">
-      <div class="section-head"><div><span class="eyebrow">EQUIPE DO DIA</span><h3>Mecânicos que rodaram</h3></div></div>
-      <div id="leaderDayRoster" class="leader-day-roster"></div>
-    </section>
-  </div>
-
-  <div class="sgman-orders-table-wrap">
-    <table class="sgman-orders-table">
-      <thead><tr><th>Líder</th><th>OEE médio</th><th>Dias identificados</th><th>OS</th><th>MTTR</th><th>Mão de obra</th></tr></thead>
-      <tbody id="leaderPerformanceTableBody"></tbody>
     </table>
   </div>
 </div>
@@ -737,13 +686,11 @@
         <div class="section-head">
           <div>
             <span class="eyebrow">INTELIGÊNCIA DO SUPERVISOR</span>
-            <h2>Prioridades das últimas 12h — escolha até 5</h2>
-            <p class="muted">V93: a foto é tratada em duas leituras e o OEE só entra automático quando há consenso suficiente. Valores duvidosos mostram alternativas para tocar.</p>
+            <h2>Prioridades automáticas do próximo turno</h2>
+            <p class="muted">As três piores máquinas já vêm selecionadas automaticamente. Você pode trocar antes de compartilhar.</p>
           </div>
           <button id="refreshSupervisorFusionBtn" class="secondary" type="button">Atualizar prioridades</button>
         </div>
-        <div id="supervisorPriorityCounter" class="supervisor-priority-counter">5 de 5 selecionadas</div>
-        <div id="currentOeeSnapshotStatus" class="current-oee-snapshot-status"></div>
         <div id="supervisorFusionPanel"></div>
       </div>
       <div id="emptyActions" class="card empty-state">
@@ -759,7 +706,7 @@
             </div>
             <span id="responsibleBadge" class="badge neutral">Responsável não definido</span>
           </div>
-          <p class="muted">Prioridade: OEE da foto. Ação: falhas/repetições do relatório da produção + soluções semelhantes do SGMan.</p>
+          <p class="muted">Ações técnicas com foco na coluna correta do quadro, OEE abaixo de 65, reincidência e SGMan.</p>
           <div id="maintenanceActionsList" class="actions-list"></div>
           <div class="button-row sticky-actions">
             <button id="shareMaintenanceBtn" class="primary" type="button">Compartilhar manutenção</button>
@@ -944,59 +891,6 @@
 
 
     <section id="view-treinamentos" class="view">
-
-      <div class="card academy-hero-card">
-        <div>
-          <span class="eyebrow">TURNOSMART ACADEMY</span>
-          <h2>Microlições industriais</h2>
-          <p>Veja, identifique, teste, responda e revise. XP e progresso ficam salvos.</p>
-        </div>
-        <div class="academy-progress-box">
-          <strong id="academyXpValue">0 XP</strong>
-          <span id="academyLevelValue">Nível 1</span>
-          <div class="academy-progress-track"><div id="academyProgressBar"></div></div>
-          <small id="academyProgressText">Comece uma lição.</small>
-        </div>
-      </div>
-
-      <div class="academy-daily-strip">
-        <div><span>🔥 Sequência</span><strong id="academyStreakValue">0 dias</strong></div>
-        <div><span>🎯 Meta diária</span><strong id="academyDailyGoalValue">0/2 lições</strong></div>
-        <div><span>🧠 Revisões</span><strong id="academyReviewCountValue">0</strong></div>
-        <div><span>🏆 Dominadas</span><strong id="academyMasteredValue">0</strong></div>
-      </div>
-
-      <div class="card">
-        <div class="section-head">
-          <div><span class="eyebrow">DOMÍNIO POR TRILHA</span><h3>Seu mapa de conhecimento</h3></div>
-        </div>
-        <div id="academyMasteryGrid" class="academy-mastery-grid"></div>
-      </div>
-
-      <div class="card">
-        <div class="academy-toolbar">
-          <label>Trilha<select id="academyTrackFilter"><option value="">Todas</option></select></label>
-          <label>Nível<select id="academyLevelFilter"><option value="">Todos</option><option value="1">N1</option><option value="2">N2</option></select></label>
-          <label>Pesquisar<input id="academySearch" type="search" placeholder="broca, paquímetro, rolamento, válvula, motor..."></label>
-          <button id="academyReviewBtn" class="secondary" type="button">Revisar erros</button>
-        </div>
-        <div id="academyLessonGrid" class="academy-lesson-grid"></div>
-      </div>
-
-      <div id="academyLessonModal" class="academy-modal hidden">
-        <div class="academy-modal-card">
-          <button id="academyCloseLessonBtn" class="academy-close-btn" type="button">×</button>
-          <span id="academyLessonTrack" class="eyebrow"></span>
-          <h2 id="academyLessonTitle"></h2>
-          <p id="academyLessonMeta" class="muted"></p>
-          <div class="academy-progress-track"><div id="academyStepProgressFill"></div></div>
-          <div id="academyLessonContent" class="academy-lesson-content"></div>
-          <div class="academy-modal-actions">
-            <button id="academyPrevStepBtn" class="ghost" type="button">Voltar</button>
-            <button id="academyNextStepBtn" class="primary" type="button">Continuar</button>
-          </div>
-        </div>
-      </div>
       <div class="hero card training-hero"><div><span class="badge">TREINAMENTOS E PROCEDIMENTOS</span><h2>Conhecimento da manutenção</h2><p>Cadastre padrões, checklists e treinamentos. Funciona localmente e pode sincronizar com Supabase.</p></div><button id="refreshTrainingBtn" class="secondary" type="button">Atualizar nuvem</button></div>
       <div id="trainingDashboard" class="training-dashboard"></div>
       <div class="card visual-builder"><div class="section-head"><div><span class="eyebrow">FOTO OU VÍDEO</span><h2>Criar treinamento visual</h2></div></div><p class="muted">Envie uma foto ou vídeo, informe o assunto e o aplicativo cria uma explicação organizada para você revisar e salvar.</p><div class="grid two"><label>Título da lição
@@ -1333,6 +1227,6 @@
   <div id="toast" class="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=93.0.0"></script>
+  <script src="app.js?v=80.0.0"></script>
 </body>
 </html>

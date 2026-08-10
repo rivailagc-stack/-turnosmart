@@ -1,5 +1,4 @@
-PATCH V93
-Use sobre a V92.
+PATCH V80
 
 Substitua:
 - app.js
@@ -8,14 +7,8 @@ Substitua:
 - sw.js
 - api/health.js
 
-Depois faça deploy e confirme V93.0.0.
+Depois faça novo deploy e confirme V80.0.0.
 
-TESTE COM A FOTO ATUAL:
-1. Cole o relatório da produção.
-2. Carregue a foto.
-3. Confirme SÁBADO A.
-4. O app fará duas leituras.
-5. Se houver dúvida (ex.: 13 / 64), aparecem botões com as alternativas.
-6. Valor duvidoso NÃO entra na prioridade até ser confirmado.
-7. Depois analise e abra Ações.
-8. A prioridade vem do OEE; as ações vêm do relatório + SGMan.
+IMPORTANTE:
+Após atualizar, carregue novamente a foto do quadro.
+Valores de OEE com baixa confiança precisarão ser confirmados manualmente.

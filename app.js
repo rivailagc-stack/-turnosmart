@@ -12,8 +12,7 @@ const STORAGE = {
   training: 'turnosmart_training_v1',
   trainingProgress: 'turnosmart_training_progress_v1',
   trainingMedia: 'turnosmart_training_media_v1',
-  liveDashboardHistory: 'turnosmart_live_dashboard_history_v1',
-  currentShiftOee: 'turnosmart_current_shift_oee_v87'
+  liveDashboardHistory: 'turnosmart_live_dashboard_history_v1'
 };
 
 
@@ -199,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '93.0.0';
+const APP_VERSION = '80.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v93.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v80.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -496,288 +495,6 @@ function safeSwitchView(name) {
 
   window.scrollTo({ top: 0, behavior: 'auto' });
   return true;
-}
-
-
-function academyState(){
-  state.academy ||= {loaded:false,lessons:[],current:null,index:0,answered:false,finished:false,progress:{xp:0,completed:{},wrong:{},streak:0,lastStudyDay:'',daily:{day:'',count:0}}};
-  return state.academy;
-}
-function academyLoadProgress(){
-  try{
-    const raw=localStorage.getItem('turnosmart_academy_progress_v1');
-    if(raw)academyState().progress={xp:0,completed:{},wrong:{},streak:0,lastStudyDay:'',daily:{day:'',count:0},...JSON.parse(raw)};
-  }catch{}
-}
-function academySave(){
-  try{localStorage.setItem('turnosmart_academy_progress_v1',JSON.stringify(academyState().progress));}catch{}
-}
-async function loadAcademy(){
-  const s=academyState();
-  if(s.loaded){renderAcademy();return s;}
-  academyLoadProgress();
-  try{
-    const r=await fetch('/academy-lessons.json?v=82.0.0');
-    if(!r.ok)throw new Error(`HTTP ${r.status}`);
-    const d=await r.json();
-    s.lessons=Array.isArray(d.lessons)?d.lessons:[];
-    s.loaded=true;
-    const tracks=uniqueStrings(s.lessons.map(x=>x.track)).sort();
-    const f=$('academyTrackFilter');
-    if(f)f.innerHTML='<option value="">Todas</option>'+tracks.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join('');
-    renderAcademy();
-  }catch(error){
-    console.warn('Academy não carregou:',error);
-  }
-  return s;
-}
-function academyDone(id){return Boolean(academyState().progress.completed[id]);}
-function academyWrong(id){return Number(academyState().progress.wrong[id]||0);}
-function academyLevel(xp){return xp>=650?5:xp>=400?4:xp>=220?3:xp>=90?2:1;}
-
-function academyLocalDay(){
-  const d=new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-function academyYesterday(day){
-  const d=new Date(`${day}T12:00:00`);
-  d.setDate(d.getDate()-1);
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-function academyRegisterStudy(){
-  const s=academyState(), p=s.progress;
-  const today=academyLocalDay();
-  p.daily ||= {day:today,count:0};
-  if(p.daily.day!==today)p.daily={day:today,count:0};
-  p.daily.count=Number(p.daily.count||0)+1;
-
-  if(p.lastStudyDay!==today){
-    if(p.lastStudyDay===academyYesterday(today))p.streak=Number(p.streak||0)+1;
-    else p.streak=1;
-    p.lastStudyDay=today;
-  }
-  academySave();
-}
-function renderAcademyMastery(){
-  const s=academyState(), p=s.progress;
-  const today=academyLocalDay();
-  const daily=(p.daily?.day===today)?Number(p.daily.count||0):0;
-  const completedCount=Object.keys(p.completed||{}).length;
-  const reviewCount=Object.values(p.wrong||{}).filter(v=>Number(v)>0).length;
-
-  if($('academyStreakValue'))$('academyStreakValue').textContent=`${Number(p.streak||0)} dia${Number(p.streak||0)===1?'':'s'}`;
-  if($('academyDailyGoalValue'))$('academyDailyGoalValue').textContent=`${Math.min(daily,2)}/2 lições`;
-  if($('academyReviewCountValue'))$('academyReviewCountValue').textContent=String(reviewCount);
-  if($('academyMasteredValue'))$('academyMasteredValue').textContent=String(completedCount);
-
-  const target=$('academyMasteryGrid');
-  if(!target)return;
-
-  const tracks=uniqueStrings(s.lessons.map(l=>l.track)).sort();
-  target.innerHTML=tracks.map(track=>{
-    const list=s.lessons.filter(l=>l.track===track);
-    const done=list.filter(l=>academyDone(l.id)).length;
-    const pct=list.length?Math.round(done/list.length*100):0;
-    return `<article class="academy-mastery-card">
-      <div><strong>${escapeHtml(track)}</strong><span>${done}/${list.length}</span></div>
-      <div class="academy-mastery-bar"><div style="width:${pct}%"></div></div>
-      <small>${pct}% dominado</small>
-    </article>`;
-  }).join('');
-}
-function renderAcademy(){
-  renderAcademyMastery();
-  const s=academyState();
-  const xp=Number(s.progress.xp||0);
-  const level=academyLevel(xp);
-
-  if($('academyXpValue'))$('academyXpValue').textContent=`${xp} XP`;
-  if($('academyLevelValue'))$('academyLevelValue').textContent=`Nível ${level}`;
-  if($('academyProgressBar'))$('academyProgressBar').style.width=`${Math.min(100,(xp%220)/220*100)}%`;
-  if($('academyProgressText'))$('academyProgressText').textContent='Continue avançando nas trilhas.';
-
-  const track=$('academyTrackFilter')?.value||'';
-  const lev=$('academyLevelFilter')?.value||'';
-  const q=normalizeKey($('academySearch')?.value||'');
-
-  const list=s.lessons.filter(l=>
-    (!track||l.track===track) &&
-    (!lev||String(l.level)===lev) &&
-    (!q||normalizeKey(`${l.title} ${l.track} ${l.objective||''} ${(l.tags||[]).join(' ')}`).includes(q))
-  );
-
-  const target=$('academyLessonGrid');
-  if(target){
-    target.innerHTML=list.map(l=>`
-      <article class="academy-lesson-card ${academyDone(l.id)?'is-completed':''}">
-        <span class="academy-track-pill">${escapeHtml(l.track)} • N${l.level}</span>
-        <h3>${escapeHtml(l.title)}</h3>
-        <p>${escapeHtml(l.objective||'')}</p>
-        <small>${l.steps.length} etapa(s) • ${l.xp} XP</small>
-        <button class="${academyDone(l.id)?'secondary':'primary'}"
-          data-academy-lesson="${escapeHtml(l.id)}"
-          type="button">${academyDone(l.id)?'Revisar':'Começar'}</button>
-      </article>
-    `).join('') || '<p class="muted">Nenhuma lição encontrada.</p>';
-  }
-}
-function openAcademyLesson(id){
-  const s=academyState();
-  const lesson=s.lessons.find(x=>x.id===id);
-  if(!lesson)return;
-  s.current=lesson;
-  s.index=0;
-  s.answered=false;
-  s.finished=false;
-  $('academyLessonModal')?.classList.remove('hidden');
-  renderAcademyStep();
-}
-function closeAcademyLesson(){
-  $('academyLessonModal')?.classList.add('hidden');
-  const s=academyState();
-  s.current=null;
-  s.index=0;
-  s.answered=false;
-  s.finished=false;
-  renderAcademy();
-}
-function renderAcademyStep(){
-  const s=academyState();
-  const lesson=s.current;
-  const step=lesson?.steps?.[s.index];
-  if(!lesson||!step)return;
-
-  if($('academyLessonTrack'))$('academyLessonTrack').textContent=lesson.track;
-  if($('academyLessonTitle'))$('academyLessonTitle').textContent=lesson.title;
-  if($('academyLessonMeta'))$('academyLessonMeta').textContent=`Etapa ${s.index+1}/${lesson.steps.length} • ${lesson.xp} XP`;
-  if($('academyStepProgressFill'))$('academyStepProgressFill').style.width=`${((s.index+1)/lesson.steps.length)*100}%`;
-
-  const content=$('academyLessonContent');
-  if(step.type==='learn'){
-    content.innerHTML=`
-      <span class="eyebrow">${escapeHtml(step.title||'APRENDA')}</span>
-      <h3>${escapeHtml(step.title||lesson.title)}</h3>
-      <p class="academy-learn-text">${escapeHtml(step.text||'')}</p>
-      ${lesson.safety?`<div class="academy-safety-note">🛡️ ${escapeHtml(lesson.safety)}</div>`:''}
-    `;
-    s.answered=true;
-  }else{
-    content.innerHTML=`
-      <span class="eyebrow">DESAFIO</span>
-      <h3>${escapeHtml(step.question)}</h3>
-      <div class="academy-answer-list">
-        ${(step.options||[]).map((option,i)=>`
-          <button class="academy-answer-btn" data-academy-answer="${i}" type="button">${escapeHtml(option)}</button>
-        `).join('')}
-      </div>
-      <div id="academyAnswerFeedback"></div>
-    `;
-    s.answered=false;
-  }
-
-  if($('academyPrevStepBtn'))$('academyPrevStepBtn').disabled=s.index===0;
-  if($('academyNextStepBtn')){
-    $('academyNextStepBtn').disabled=!s.answered;
-    $('academyNextStepBtn').textContent=s.index===lesson.steps.length-1?'Concluir':'Continuar';
-  }
-}
-function answerAcademyQuestion(index){
-  const s=academyState();
-  const step=s.current?.steps?.[s.index];
-  if(!step||step.type!=='quiz'||s.answered)return;
-
-  s.answered=true;
-  const correct=Number(index)===Number(step.answer);
-
-  $$('.academy-answer-btn').forEach((button,i)=>{
-    button.disabled=true;
-    if(i===Number(step.answer))button.classList.add('is-correct');
-    else if(i===Number(index))button.classList.add('is-wrong');
-  });
-
-  const feedback=$('academyAnswerFeedback');
-  if(feedback){
-    feedback.innerHTML=`
-      <div class="academy-feedback ${correct?'correct':'wrong'}">
-        <strong>${correct?'✅ Correto!':'❌ Ainda não.'}</strong>
-        <p>${escapeHtml(step.explain||'')}</p>
-      </div>
-    `;
-  }
-
-  if(!correct){
-    s.progress.wrong[s.current.id]=academyWrong(s.current.id)+1;
-    academySave();
-  }
-
-  if($('academyNextStepBtn'))$('academyNextStepBtn').disabled=false;
-}
-function finishAcademyLesson(){
-  const s=academyState();
-  const lesson=s.current;
-  if(!lesson)return;
-
-  const already=academyDone(lesson.id);
-  if(!already){
-    s.progress.completed[lesson.id]=new Date().toISOString();
-    s.progress.xp=Number(s.progress.xp||0)+Number(lesson.xp||0);
-    academySave();
-    academyRegisterStudy();
-  }
-
-  s.finished=true;
-
-  if($('academyLessonContent')){
-    $('academyLessonContent').innerHTML=`
-      <div class="academy-finish">
-        <div class="academy-medal">🏅</div>
-        <h2>Lição concluída</h2>
-        <p>${escapeHtml(lesson.title)}</p>
-        <strong>+${already?0:lesson.xp} XP</strong>
-      </div>
-    `;
-  }
-
-  if($('academyNextStepBtn')){
-    $('academyNextStepBtn').disabled=false;
-    $('academyNextStepBtn').textContent='Fechar';
-  }
-  if($('academyPrevStepBtn'))$('academyPrevStepBtn').disabled=true;
-}
-function nextAcademyStep(){
-  const s=academyState();
-  if(!s.current)return;
-
-  if(s.finished){
-    closeAcademyLesson();
-    return;
-  }
-
-  if(!s.answered)return;
-
-  if(s.index>=s.current.steps.length-1){
-    finishAcademyLesson();
-    return;
-  }
-
-  s.index++;
-  s.answered=false;
-  renderAcademyStep();
-}
-function prevAcademyStep(){
-  const s=academyState();
-  if(s.finished||s.index<=0)return;
-  s.index--;
-  s.answered=false;
-  renderAcademyStep();
-}
-function reviewAcademyWrong(){
-  const id=Object.entries(academyState().progress.wrong||{})
-    .filter(([,count])=>Number(count)>0)
-    .sort((a,b)=>Number(b[1])-Number(a[1]))[0]?.[0];
-
-  if(id)openAcademyLesson(id);
-  else showToast('Nenhuma lição com erro para revisar.');
 }
 
 async function initializeIntelligenceOnlyWhenNeeded() {
@@ -2249,6 +1966,82 @@ const OEE_BOARD_MACHINES = [
   'MK-222', 'MK-170', 'MK-176', 'MK-188', 'MK-149'
 ];
 
+// ==========================================================
+// REGRA OFICIAL DE PRIORIDADE DO TURNO — V80
+// A prioridade atual vem SOMENTE do OEE confirmado da foto.
+// Relatório da produção explica o problema.
+// SGMan orienta o que verificar.
+// Power BI serve como tendência/histórico.
+// ==========================================================
+const OEE_SHIFT_HOURS = 12;
+const OEE_PRIORITY_LIMIT = 65;
+const OEE_MAX_PRIORITY_LIMIT = 50;
+const OEE_AUTO_CONFIDENCE_MIN = 85;
+
+function oeeLostHours(oee){
+  const value=Number(oee);
+  if(!Number.isFinite(value))return null;
+  const bounded=Math.max(0,Math.min(100,value));
+  return OEE_SHIFT_HOURS*(1-bounded/100);
+}
+
+function formatOeeLostHours(oee){
+  const hours=oeeLostHours(oee);
+  return hours===null
+    ? '—'
+    : `${hours.toFixed(1).replace('.', ',')} h`;
+}
+
+function oeePriorityMeta(oee){
+  const value=Number(oee);
+
+  if(!Number.isFinite(value) || value>=OEE_PRIORITY_LIMIT){
+    return {
+      eligible:false,
+      key:'none',
+      label:'Sem prioridade',
+      icon:'🟢'
+    };
+  }
+
+  if(value<=OEE_MAX_PRIORITY_LIMIT){
+    return {
+      eligible:true,
+      key:'max',
+      label:'PRIORIDADE MÁXIMA',
+      icon:'🔴'
+    };
+  }
+
+  return {
+    eligible:true,
+    key:'high',
+    label:'PRIORIDADE ALTA',
+    icon:'🟠'
+  };
+}
+
+function oeeObjectiveActions(specificActions=[],oee=null){
+  const meta=oeePriorityMeta(oee);
+
+  const base=meta.key==='max'
+    ? [
+        'Atuar imediatamente e resolver durante o turno.',
+        'Não deixar o problema continuar para o próximo turno.'
+      ]
+    : [
+        'Analisar e resolver durante o turno.',
+        'Não deixar o problema continuar para o próximo turno.'
+      ];
+
+  return uniqueStrings([
+    ...base,
+    ...specificActions.slice(0,2),
+    'Testar em produção, confirmar estabilidade e registrar a causa real no SGMan.'
+  ]).slice(0,5);
+}
+
+
 function loadImageElement(dataUrl) {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -2274,27 +2067,13 @@ function getOeeCropSettings(image, operationalDate, shift) {
   const columnWidth = (boardEnd - boardStart) / totalColumns;
   const index = boardColumnIndex(operationalDate, shift);
 
-  // V93 — recorte mais estreito da coluna escolhida.
-  // A versão anterior invadia a coluna vizinha e podia capturar números
-  // que não pertenciam ao turno selecionado.
-  const xRatio = Math.max(
-    0,
-    boardStart + index * columnWidth - columnWidth * 0.025
-  );
-  const widthRatio = Math.min(
-    1 - xRatio,
-    columnWidth * 1.07
-  );
+  // Leve folga lateral para compensar perspectiva da foto.
+  const xRatio = Math.max(0, boardStart + index * columnWidth - columnWidth * 0.13);
+  const widthRatio = Math.min(1 - xRatio, columnWidth * 1.26);
 
-  // V88 — calibração real do quadro Ecopack:
-  // a lista usada pelo TurnoSmart começa na MK138 e termina na MK149.
-  // MK02 e MK08 ficam acima e não entram nessa régua.
-  // Isso evita deslocar o OEE de uma máquina para outra.
-  // V92 — faixa real das 20 linhas de máquinas.
-  // Evita incluir espaço vazio abaixo da MK149, que aumentava artificialmente
-  // a altura de cada linha e deslocava o OEE para a máquina errada.
-  const yRatio = 0.305;
-  const heightRatio = 0.660;
+  // Começa onde iniciam as linhas das máquinas, removendo cabeçalho/produção total.
+  const yRatio = 0.175;
+  const heightRatio = 0.79;
 
   return {
     sx: Math.round(image.naturalWidth * xRatio),
@@ -2350,378 +2129,190 @@ function createOeeRowPreviews(previewCanvas) {
   return previews;
 }
 
-function oeeVariantFromCanvas(sourceCanvas, mode='ink'){
-  const canvas=document.createElement('canvas');
-  canvas.width=sourceCanvas.width;
-  canvas.height=sourceCanvas.height;
-
-  const ctx=canvas.getContext('2d',{willReadFrequently:true});
-  ctx.fillStyle='#fff';
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-  ctx.drawImage(sourceCanvas,0,0);
-
-  const imageData=ctx.getImageData(0,0,canvas.width,canvas.height);
-  const pixels=imageData.data;
-
-  for(let i=0;i<pixels.length;i+=4){
-    const r=pixels[i];
-    const g=pixels[i+1];
-    const b=pixels[i+2];
-    const max=Math.max(r,g,b);
-    const min=Math.min(r,g,b);
-    const saturation=max-min;
-    const luminance=0.299*r+0.587*g+0.114*b;
-
-    let value=255;
-
-    if(mode==='ink'){
-      // Preserva principalmente canetas vermelha, azul e verde.
-      if(saturation>=14){
-        value=clampByte(luminance*0.42-saturation*0.85+58);
-      }else if(luminance<105){
-        value=clampByte((luminance-90)*1.7+65);
-      }else{
-        value=255;
-      }
-    }else{
-      // Segunda leitura: contraste forte, inclusive escrita escura.
-      if(saturation>=10 && luminance<242){
-        value=clampByte(luminance*0.50-saturation*0.55+38);
-      }else{
-        value=luminance<148?25:luminance<188?120:255;
-      }
-    }
-
-    pixels[i]=value;
-    pixels[i+1]=value;
-    pixels[i+2]=value;
-    pixels[i+3]=255;
-  }
-
-  ctx.putImageData(imageData,0,0);
-  return canvas;
-}
-
 function preprocessOeeColumn(image, operationalDate, shift) {
-  const crop=getOeeCropSettings(image,operationalDate,shift);
+  const crop = getOeeCropSettings(image, operationalDate, shift);
 
-  // Prévia colorida grande: facilita conferência visual no celular.
-  const previewCanvas=document.createElement('canvas');
-  const previewCtx=previewCanvas.getContext('2d');
-  const previewHeight=3000;
-  const previewWidth=Math.max(
-    500,
-    Math.round(previewHeight*(crop.sw/crop.sh))
-  );
+  // Prévia colorida e legível para o usuário.
+  const previewCanvas = document.createElement('canvas');
+  const previewCtx = previewCanvas.getContext('2d');
+  const previewWidth = Math.max(520, Math.min(900, crop.sw * 3.5));
+  const previewHeight = Math.round(previewWidth * (crop.sh / crop.sw));
 
-  previewCanvas.width=previewWidth;
-  previewCanvas.height=previewHeight;
-  previewCtx.fillStyle='#fff';
-  previewCtx.fillRect(0,0,previewWidth,previewHeight);
-  previewCtx.imageSmoothingEnabled=true;
-  previewCtx.imageSmoothingQuality='high';
+  previewCanvas.width = previewWidth;
+  previewCanvas.height = previewHeight;
+  previewCtx.fillStyle = '#ffffff';
+  previewCtx.fillRect(0, 0, previewWidth, previewHeight);
+  previewCtx.imageSmoothingEnabled = true;
+  previewCtx.imageSmoothingQuality = 'high';
   previewCtx.drawImage(
     image,
-    crop.sx,crop.sy,crop.sw,crop.sh,
-    0,0,previewWidth,previewHeight
+    crop.sx, crop.sy, crop.sw, crop.sh,
+    0, 0, previewWidth, previewHeight
   );
 
-  // OCR dimensionado pela altura das 20 linhas.
-  // ~180 px por linha é suficiente e bem mais leve que a imagem gigante antiga.
-  const ocrCanvas=document.createElement('canvas');
-  const ocrHeight=OEE_BOARD_MACHINES.length*180;
-  const ocrWidth=Math.max(
-    520,
-    Math.round(ocrHeight*(crop.sw/crop.sh))
-  );
+  // Imagem separada para o OCR. Ela não é mais usada como prévia principal.
+  const ocrCanvas = document.createElement('canvas');
+  const ocrCtx = ocrCanvas.getContext('2d', { willReadFrequently: true });
+  const ocrWidth = Math.max(1200, Math.min(1800, crop.sw * 6));
+  const ocrHeight = Math.round(ocrWidth * (crop.sh / crop.sw));
 
-  ocrCanvas.width=ocrWidth;
-  ocrCanvas.height=ocrHeight;
-  const ocrCtx=ocrCanvas.getContext('2d');
-  ocrCtx.fillStyle='#fff';
-  ocrCtx.fillRect(0,0,ocrWidth,ocrHeight);
-  ocrCtx.imageSmoothingEnabled=true;
-  ocrCtx.imageSmoothingQuality='high';
+  ocrCanvas.width = ocrWidth;
+  ocrCanvas.height = ocrHeight;
+  ocrCtx.fillStyle = '#ffffff';
+  ocrCtx.fillRect(0, 0, ocrWidth, ocrHeight);
+  ocrCtx.imageSmoothingEnabled = true;
+  ocrCtx.imageSmoothingQuality = 'high';
   ocrCtx.drawImage(
     image,
-    crop.sx,crop.sy,crop.sw,crop.sh,
-    0,0,ocrWidth,ocrHeight
+    crop.sx, crop.sy, crop.sw, crop.sh,
+    0, 0, ocrWidth, ocrHeight
   );
 
-  const inkCanvas=oeeVariantFromCanvas(ocrCanvas,'ink');
-  const contrastCanvas=oeeVariantFromCanvas(ocrCanvas,'contrast');
+  const imageData = ocrCtx.getImageData(0, 0, ocrWidth, ocrHeight);
+  const pixels = imageData.data;
+
+  // Tratamento suave:
+  // - mantém os traços da caneta;
+  // - clareia grade e fundo;
+  // - não dilata nem transforma a escrita em blocos pretos.
+  for (let i = 0; i < pixels.length; i += 4) {
+    const r = pixels[i];
+    const g = pixels[i + 1];
+    const b = pixels[i + 2];
+
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const saturation = max - min;
+    const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+
+    let value;
+
+    if (saturation < 15 && luminance > 118) {
+      // Fundo branco e linhas claras da grade.
+      value = 255;
+    } else if (saturation >= 18) {
+      // Caneta colorida: aumenta contraste sem engrossar o traço.
+      value = clampByte(luminance * 0.58 - saturation * 0.55 + 42);
+    } else {
+      // Escrita escura ou partes mais fortes da grade.
+      value = clampByte((luminance - 105) * 1.65 + 105);
+    }
+
+    pixels[i] = value;
+    pixels[i + 1] = value;
+    pixels[i + 2] = value;
+    pixels[i + 3] = 255;
+  }
+
+  ocrCtx.putImageData(imageData, 0, 0);
 
   return {
     crop,
-    canvas:inkCanvas,
+    canvas: ocrCanvas,
     previewCanvas,
-    previewDataUrl:previewCanvas.toDataURL('image/jpeg',0.95),
-    ocrDataUrl:inkCanvas.toDataURL('image/png'),
-    contrastDataUrl:contrastCanvas.toDataURL('image/png'),
-    ocrVariants:[
-      {
-        label:'tinta',
-        dataUrl:inkCanvas.toDataURL('image/png'),
-        width:inkCanvas.width,
-        height:inkCanvas.height
-      },
-      {
-        label:'contraste',
-        dataUrl:contrastCanvas.toDataURL('image/png'),
-        width:contrastCanvas.width,
-        height:contrastCanvas.height
-      }
-    ],
-    rowPreviews:createOeeRowPreviews(previewCanvas)
+    previewDataUrl: previewCanvas.toDataURL('image/jpeg', 0.94),
+    ocrDataUrl: ocrCanvas.toDataURL('image/png'),
+    rowPreviews: createOeeRowPreviews(previewCanvas)
   };
 }
 
 function numericOeeFromWord(text = '') {
-  const original=String(text||'').trim();
-  const cleaned=original
-    .replace(/[Oo]/g,'0')
-    .replace(/\s+/g,'')
-    .replace(/[^0-9.,%]/g,'');
-
-  if(!cleaned)return null;
-
-  const hasPercent=cleaned.includes('%');
-  const withoutPercent=cleaned.replace(/%/g,'');
-
-  // Rejeita formatos típicos de produção/quantidade:
-  // 24.000, 63,000 etc. OEE decimal esperado tem 1 ou 2 casas,
-  // não três casas após separador.
-  if(!hasPercent && /^\d{1,3}[.,]\d{3}$/.test(withoutPercent)){
-    return null;
-  }
-
-  // Rejeita número inteiro com mais de 3 dígitos quando não há %.
-  if(!hasPercent && /^\d{4,}$/.test(withoutPercent)){
-    return null;
-  }
-
-  const normalized=withoutPercent.replace(',','.');
-  const direct=normalized.match(/^(\d{1,3})(?:\.(\d{1,2}))?$/);
-
-  if(!direct)return null;
-
-  const value=Number(
-    direct[2]
-      ? `${Number(direct[1])}.${direct[2]}`
-      : Number(direct[1])
-  );
-
-  if(!Number.isFinite(value) || value<10 || value>100)return null;
-
+  const cleaned = String(text).replace(/[Oo]/g, '0').replace(/[^0-9.,%]/g, '');
+  const match = cleaned.match(/(\d{1,3})(?:[.,](\d))?/);
+  if (!match) return null;
+  const integer = Number(match[1]);
+  const value = Number(match[2] ? `${integer}.${match[2]}` : integer);
+  if (!Number.isFinite(value) || value < 10 || value > 100) return null;
   return {
     value,
-    hasPercent,
-    raw:original
+    hasPercent: cleaned.includes('%')
   };
 }
 
-function oeeWordsWithPercentPairs(words=[],passLabel=''){
-  const normalized=(words||[]).map(word=>({
-    ...word,
-    _oeePass:passLabel||word._oeePass||'base'
-  }));
+function mapOcrWordsToMachineRows(words = [], canvasHeight = 1) {
+  const rowCount = OEE_BOARD_MACHINES.length;
+  const rowHeight = Math.max(1, canvasHeight / rowCount);
+  const rowBuckets = Array.from({ length: rowCount }, () => []);
 
-  const synthetic=[];
+  for (const word of words) {
+    const parsed = numericOeeFromWord(word.text);
+    if (!parsed) continue;
 
-  for(const word of normalized){
-    const raw=String(word.text||'').trim();
-    const parsed=numericOeeFromWord(raw);
+    const bbox = word.bbox || {};
+    const y0 = Number(bbox.y0 ?? bbox.top ?? 0);
+    const y1 = Number(bbox.y1 ?? bbox.bottom ?? y0);
+    const centerY = (y0 + y1) / 2;
 
-    if(!parsed || parsed.hasPercent)continue;
+    // A linha é definida somente pela faixa horizontal onde está o centro
+    // do percentual. Não permite buscar valor em linha vizinha.
+    const rowIndex = Math.floor(centerY / rowHeight);
+    if (rowIndex < 0 || rowIndex >= rowCount) continue;
 
-    const box=word.bbox||{};
-    const x0=Number(box.x0??box.left??0);
-    const x1=Number(box.x1??box.right??x0);
-    const y0=Number(box.y0??box.top??0);
-    const y1=Number(box.y1??box.bottom??y0);
-    const height=Math.max(6,y1-y0);
+    const rowTop = rowIndex * rowHeight;
+    const positionInsideRow = (centerY - rowTop) / rowHeight;
 
-    const percent=normalized.find(other=>{
-      if(other===word)return false;
-      const text=String(other.text||'').trim();
-      if(!/%/.test(text))return false;
-
-      const b=other.bbox||{};
-      const ox0=Number(b.x0??b.left??0);
-      const oy0=Number(b.y0??b.top??0);
-      const oy1=Number(b.y1??b.bottom??oy0);
-
-      const verticalOverlap=
-        Math.min(y1,oy1)-Math.max(y0,oy0);
-
-      const horizontalGap=ox0-x1;
-
-      return (
-        verticalOverlap>-height*0.15 &&
-        horizontalGap>=-height*0.3 &&
-        horizontalGap<=height*1.8
-      );
-    });
-
-    if(percent){
-      const pb=percent.bbox||{};
-      synthetic.push({
-        ...word,
-        text:`${raw}%`,
-        confidence:Math.min(
-          99,
-          (Number(word.confidence||0)+Number(percent.confidence||0))/2+8
-        ),
-        bbox:{
-          x0,
-          y0:Math.min(y0,Number(pb.y0??pb.top??y0)),
-          x1:Math.max(x1,Number(pb.x1??pb.right??x1)),
-          y1:Math.max(y1,Number(pb.y1??pb.bottom??y1))
-        },
-        _oeePass:passLabel||word._oeePass||'base',
-        _syntheticPercent:true
-      });
-    }
-  }
-
-  return [...normalized,...synthetic];
-}
-
-function mapOcrWordsToMachineRows(words = [], canvasHeight = 1, canvasWidth = 1) {
-  const rowCount=OEE_BOARD_MACHINES.length;
-  const rowHeight=Math.max(1,canvasHeight/rowCount);
-  const rowBuckets=Array.from({length:rowCount},()=>[]);
-
-  for(const word of words){
-    const parsed=numericOeeFromWord(word.text);
-    if(!parsed)continue;
-
-    const bbox=word.bbox||{};
-    const y0=Number(bbox.y0??bbox.top??0);
-    const y1=Number(bbox.y1??bbox.bottom??y0);
-    const x0=Number(bbox.x0??bbox.left??0);
-    const x1=Number(bbox.x1??bbox.right??x0);
-
-    const centerY=(y0+y1)/2;
-    const centerX=(x0+x1)/2;
-    const rowIndex=Math.floor(centerY/rowHeight);
-
-    if(rowIndex<0 || rowIndex>=rowCount)continue;
-
-    const rowTop=rowIndex*rowHeight;
-    const positionInsideRow=(centerY-rowTop)/rowHeight;
-
-    if(positionInsideRow<0.05 || positionInsideRow>0.95)continue;
+    // Ignora textos colados nas linhas horizontais da grade, pois podem
+    // pertencer à célula de cima ou de baixo.
+    if (positionInsideRow < 0.10 || positionInsideRow > 0.90) continue;
 
     rowBuckets[rowIndex].push({
-      value:parsed.value,
-      hasPercent:parsed.hasPercent,
-      confidence:Number(word.confidence||0),
-      xRatio:canvasWidth>1?centerX/canvasWidth:0.5,
-      raw:parsed.raw||word.text,
-      pass:String(word._oeePass||'base')
+      value: parsed.value,
+      hasPercent: parsed.hasPercent,
+      confidence: Number(word.confidence || 0),
+      x: Number(bbox.x0 ?? bbox.left ?? 0),
+      y: centerY,
+      raw: word.text
     });
   }
 
-  return OEE_BOARD_MACHINES.map((machine,index)=>{
-    const candidates=rowBuckets[index];
+  return OEE_BOARD_MACHINES.map((machine, index) => {
+    const candidates = rowBuckets[index];
 
-    if(!candidates.length){
+    if (!candidates.length) {
       return {
         machine,
-        oee:'',
-        confidence:0,
-        source:'OEE não reconhecido — revisar pela foto',
-        ran:true,
-        ambiguous:true,
-        needsReview:true,
-        alternatives:[],
-        hasPercentEvidence:false,
-        consensusPasses:0
+        oee: '',
+        confidence: 0,
+        source: 'Não identificado'
       };
     }
 
-    // Agrupa o mesmo valor reconhecido em diferentes tratamentos da foto.
-    const groups=new Map();
+    // Ordem de preferência:
+    // 1. valor com símbolo %
+    // 2. maior confiança do OCR
+    // 3. valor mais à direita dentro da mesma linha
+    candidates.sort((a, b) => {
+      if (a.hasPercent !== b.hasPercent) return a.hasPercent ? -1 : 1;
+      if (a.confidence !== b.confidence) return b.confidence - a.confidence;
+      return b.x - a.x;
+    });
 
-    for(const item of candidates){
-      const key=(Math.round(item.value*10)/10).toFixed(1);
-      if(!groups.has(key)){
-        groups.set(key,{
-          value:item.value,
-          items:[],
-          passes:new Set(),
-          percentPasses:new Set(),
-          maxConfidence:0,
-          xRatios:[]
-        });
-      }
+    const chosen = candidates[0];
 
-      const group=groups.get(key);
-      group.items.push(item);
-      group.passes.add(item.pass);
-      if(item.hasPercent)group.percentPasses.add(item.pass);
-      group.maxConfidence=Math.max(group.maxConfidence,item.confidence);
-      group.xRatios.push(item.xRatio);
-    }
-
-    const ranked=[...groups.values()].map(group=>{
-      const passCount=group.passes.size;
-      const percentCount=group.percentPasses.size;
-      const avgX=group.xRatios.reduce((a,b)=>a+b,0)/group.xRatios.length;
-
-      let score=group.maxConfidence;
-      score+=passCount*95;
-      score+=percentCount*260;
-      score+=avgX*85;
-
-      if(group.value>=30 && group.value<=95)score+=25;
-
-      // Valor extremamente baixo precisa de confirmação forte.
-      if(group.value<20 && passCount<2)score-=180;
-      if(group.value<20 && percentCount===0)score-=110;
-
-      return {
-        ...group,
-        passCount,
-        percentCount,
-        avgX,
-        score
-      };
-    }).sort((a,b)=>b.score-a.score);
-
-    const chosen=ranked[0];
-    const second=ranked[1];
-    const scoreGap=second?chosen.score-second.score:999;
-
-    const ambiguous=Boolean(
-      (
-        second &&
-        Math.abs(chosen.value-second.value)>=4 &&
-        scoreGap<85
-      ) ||
-      (
-        chosen.value<20 &&
-        chosen.passCount<2
-      ) ||
-      (
-        chosen.percentCount===0 &&
-        chosen.passCount<2 &&
-        chosen.maxConfidence<62
-      )
+    const strongPercentCandidates=candidates.filter(item=>
+      item.hasPercent && Number(item.confidence||0)>=OEE_AUTO_CONFIDENCE_MIN
     );
+
+    const ambiguous=
+      strongPercentCandidates.length>=2 &&
+      Math.abs(
+        Number(strongPercentCandidates[0].value)-
+        Number(strongPercentCandidates[1].value)
+      )>5;
+
+    const autoAccepted=
+      chosen.hasPercent &&
+      Number(chosen.confidence||0)>=OEE_AUTO_CONFIDENCE_MIN &&
+      !ambiguous;
 
     return {
       machine,
-      oee:chosen.value,
-      confidence:Math.min(100,Math.round(chosen.maxConfidence+chosen.passCount*8)),
-      source:chosen.items[0]?.raw||String(chosen.value),
-      ran:true,
-      ambiguous,
-      needsReview:ambiguous,
-      alternatives:ranked.slice(0,4).map(item=>item.value),
-      hasPercentEvidence:chosen.percentCount>0,
-      consensusPasses:chosen.passCount
+      oee:autoAccepted?chosen.value:'',
+      candidateOee:chosen.value,
+      confidence:chosen.confidence,
+      source:chosen.raw,
+      needsConfirmation:!autoAccepted,
+      ambiguous
     };
   });
 }
@@ -2732,12 +2323,12 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
 
   state.oeeMachineEditorData = rows.length
     ? rows
-    : OEE_BOARD_MACHINES.map(machine => ({ machine, oee: '', confidence: 0, source: '', ran: false }));
+    : OEE_BOARD_MACHINES.map(machine => ({ machine, oee: '', confidence: 0, source: '' }));
 
   wrap.innerHTML = `
     <div class="oee-editor-head">
       <strong>Confirme os valores antes de analisar</strong>
-      <span class="muted">Marque “Não rodou” quando a máquina não trabalhou nas últimas 12h.</span>
+      <span class="muted">Deixe vazio quando a máquina não trabalhou.</span>
     </div>
     <div class="oee-editor-grid">
       ${state.oeeMachineEditorData.map((row, index) => {
@@ -2749,23 +2340,12 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
               ? 'confidence-warning'
               : 'confidence-low';
 
-        const ran = row.ran !== false;
-        const unresolved = row.oee === '' && row.ran !== false;
         return `
-          <div class="oee-editor-row ${confidenceClass} ${ran?'machine-ran':'machine-did-not-run'}">
+          <label class="oee-editor-row ${confidenceClass}">
             <span class="oee-machine-name">${escapeHtml(row.machine)}</span>
             ${state.oeeRowPreviews[index]
               ? `<img class="oee-row-preview" src="${state.oeeRowPreviews[index]}" alt="Linha de ${escapeHtml(row.machine)} no quadro" />`
               : '<span class="oee-row-placeholder">Sem recorte</span>'}
-            <label class="oee-run-toggle">
-              <input
-                class="oee-ran-checkbox"
-                data-index="${index}"
-                type="checkbox"
-                ${ran?'checked':''}
-              />
-              <span>${ran?'Rodou':'Não rodou'}</span>
-            </label>
             <input
               class="oee-editor-input"
               data-index="${index}"
@@ -2776,76 +2356,20 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
               inputmode="decimal"
               value="${row.oee === '' ? '' : escapeHtml(String(row.oee))}"
               placeholder="-"
-              ${ran?'':'disabled'}
             />
-            <small>${ran
-              ? (
-                  row.oee === ''
-                    ? '⚠️ OEE não reconhecido — confira a foto'
-                    : row.needsReview
-                      ? '⚠️ Leitura duvidosa — toque no valor correto'
-                      : `✅ ${Math.round(row.confidence || 0)}% confiança • ${row.consensusPasses||1} leitura(s)`
-                )
-              : 'Não rodou — fora da prioridade'}
-            </small>
-            ${ran && (row.alternatives||[]).length>1
-              ? `<div class="oee-candidate-picks">${
-                  (row.alternatives||[]).slice(0,4).map(value=>`
-                    <button
-                      type="button"
-                      class="oee-candidate-btn ${Number(value)===Number(row.oee)?'is-current':''}"
-                      data-index="${index}"
-                      data-value="${escapeHtml(String(value))}"
-                    >${escapeHtml(String(value).replace('.',','))}%</button>
-                  `).join('')
-                }</div>`
-              : ''}
-          </div>`;
+            <small>${
+              row.oee === ''
+                ? (
+                    row.candidateOee !== undefined && row.candidateOee !== ''
+                      ? `Leitura provável ${String(row.candidateOee).replace('.', ',')}% — confirme manualmente`
+                      : 'Confira a linha e digite o OEE'
+                  )
+                : `${Math.round(row.confidence || 0)}% confiança — valor aceito`
+            }</small>
+          </label>`;
       }).join('')}
     </div>
   `;
-
-  $$('.oee-ran-checkbox').forEach(check => {
-    check.addEventListener('change', event => {
-      const index = Number(event.target.dataset.index);
-      const row = state.oeeMachineEditorData[index];
-      if (!row) return;
-
-      row.ran = event.target.checked;
-
-      const editorRow = event.target.closest('.oee-editor-row');
-      const valueInput = editorRow?.querySelector('.oee-editor-input');
-      const label = editorRow?.querySelector('.oee-run-toggle span');
-      const small = editorRow?.querySelector('small');
-
-      if (row.ran) {
-        editorRow?.classList.remove('machine-did-not-run');
-        editorRow?.classList.add('machine-ran');
-        if (valueInput) valueInput.disabled = false;
-        if (label) label.textContent = 'Rodou';
-        if (small) {
-          small.textContent = row.oee === ''
-            ? 'Digite/confirme o OEE'
-            : 'Rodou — valor confirmado';
-        }
-      } else {
-        editorRow?.classList.remove('machine-ran');
-        editorRow?.classList.add('machine-did-not-run');
-        if (valueInput) {
-          valueInput.disabled = true;
-          valueInput.value = '';
-        }
-        row.oee = '';
-        row.confidence = 100;
-        if (label) label.textContent = 'Não rodou';
-        if (small) small.textContent = 'Não entra na prioridade';
-      }
-
-      // Atualiza imediatamente o texto corrente do quadro.
-      if ($('oeeOcrText')) $('oeeOcrText').value = editorOeeText();
-      state.oeeOcrText = $('oeeOcrText')?.value || '';
-    });
-  });
 
   $$('.oee-editor-input').forEach(input => {
     input.addEventListener('input', event => {
@@ -2853,38 +2377,13 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
       const raw = event.target.value.trim();
       const value = raw === '' ? '' : Number(raw.replace(',', '.'));
       state.oeeMachineEditorData[index].oee = Number.isFinite(value) ? value : '';
-      state.oeeMachineEditorData[index].ran = raw !== '';
       state.oeeMachineEditorData[index].confidence = 100;
+      state.oeeMachineEditorData[index].needsConfirmation = false;
       state.oeeMachineEditorData[index].ambiguous = false;
-      state.oeeMachineEditorData[index].needsReview = false;
-      state.oeeMachineEditorData[index].consensusPasses = 2;
       event.target.closest('.oee-editor-row')?.classList.remove('confidence-low', 'confidence-warning', 'confidence-empty');
       event.target.closest('.oee-editor-row')?.classList.add('confidence-good');
       const small = event.target.closest('.oee-editor-row')?.querySelector('small');
       if (small) small.textContent = raw === '' ? 'Revisar' : 'Confirmado';
-    });
-  });
-
-  $$('.oee-candidate-btn').forEach(button=>{
-    button.addEventListener('click',()=>{
-      const index=Number(button.dataset.index);
-      const value=Number(String(button.dataset.value||'').replace(',','.'));
-      const row=state.oeeMachineEditorData[index];
-
-      if(!row || !Number.isFinite(value))return;
-
-      row.oee=value;
-      row.ran=true;
-      row.confidence=100;
-      row.ambiguous=false;
-      row.needsReview=false;
-      row.consensusPasses=2;
-      row.source='Confirmado pelo usuário entre alternativas do OCR';
-
-      renderOeeMachineEditor(state.oeeMachineEditorData);
-
-      if($('oeeOcrText'))$('oeeOcrText').value=editorOeeText();
-      state.oeeOcrText=$('oeeOcrText')?.value||'';
     });
   });
 
@@ -2893,19 +2392,13 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
 
 function machineOeeFromEditor() {
   return state.oeeMachineEditorData
+    .filter(row=>row.needsConfirmation!==true)
     .map(row => ({
       machine: row.machine,
       oee: row.oee === '' ? null : Number(row.oee),
-      ran: row.ran !== false && row.oee !== '',
       line: `${row.machine} ${row.oee}%`
     }))
-    .filter(row =>
-      row.ran === true &&
-      row.needsReview !== true &&
-      Number.isFinite(row.oee) &&
-      row.oee > 0 &&
-      row.oee <= 100
-    );
+    .filter(row => Number.isFinite(row.oee) && row.oee >= 0 && row.oee <= 100);
 }
 
 function editorOeeText() {
@@ -2914,152 +2407,69 @@ function editorOeeText() {
     .join('\n');
 }
 
-async function runOeeOcrPass(variant,scope,statusEl,passIndex,totalPasses){
-  const result=await window.Tesseract.recognize(
-    variant.dataUrl,
-    'eng',
-    {
-      logger:info=>{
-        if(
-          info.status==='recognizing text' &&
-          typeof info.progress==='number'
-        ){
-          statusEl.textContent=
-            `Lendo ${scope.label} • passagem ${passIndex}/${totalPasses} `+
-            `${Math.round(info.progress*100)}%`;
-        }
-      }
-    },
-    {
-      tessedit_char_whitelist:'0123456789%.,',
-      tessedit_pageseg_mode:'6',
-      preserve_interword_spaces:'1'
-    }
-  );
-
-  return oeeWordsWithPercentPairs(
-    result?.data?.words||[],
-    variant.label
-  );
-}
-
 async function processOeeColumnPhoto() {
-  const file=$('oeeImageInput')?.files?.[0];
-
-  if(!file){
+  const file = $('oeeImageInput')?.files?.[0];
+  if (!file) {
     showToast('Escolha a foto do quadro primeiro.');
     return [];
   }
 
-  const statusEl=$('oeeStatus');
-  const operationalDate=$('reportDate').value||todayISO();
-  const shift=$('reportShift').value||'1';
-  const scope=boardScopeForReport(operationalDate,shift);
+  const statusEl = $('oeeStatus');
+  const operationalDate = $('reportDate').value || todayISO();
+  const shift = $('reportShift').value || '1';
+  const scope = boardScopeForReport(operationalDate, shift);
 
-  try{
-    statusEl.textContent=
-      `Melhorando a foto e isolando ${scope.label}...`;
+  try {
+    statusEl.textContent = `Recortando somente ${scope.label}...`;
+    const fullDataUrl = state.oeeImageDataUrl || await dataUrlFromFile(file);
+    state.oeeImageDataUrl = fullDataUrl;
 
-    const fullDataUrl=
-      state.oeeImageDataUrl||
-      await dataUrlFromFile(file);
+    const image = await loadImageElement(fullDataUrl);
+    const processed = preprocessOeeColumn(image, operationalDate, shift);
+    state.oeeCropDataUrl = processed.previewDataUrl;
+    state.oeeRowPreviews = processed.rowPreviews || [];
 
-    state.oeeImageDataUrl=fullDataUrl;
-
-    const image=await loadImageElement(fullDataUrl);
-    const processed=preprocessOeeColumn(
-      image,
-      operationalDate,
-      shift
-    );
-
-    state.oeeCropDataUrl=processed.previewDataUrl;
-    state.oeeRowPreviews=processed.rowPreviews||[];
-
-    $('oeeCropPreview').src=processed.previewDataUrl;
-    $('oeeOcrPreview').src=processed.ocrDataUrl;
+    $('oeeCropPreview').src = processed.previewDataUrl;
+    $('oeeOcrPreview').src = processed.ocrDataUrl;
     $('oeeCropPreviewWrap').classList.remove('hidden');
 
-    if(!window.Tesseract)throw new Error('OCR não carregado.');
+    if (!window.Tesseract) throw new Error('OCR não carregado.');
+    statusEl.textContent = `Lendo somente ${scope.label}...`;
 
-    const allWords=[];
-    const variants=processed.ocrVariants||[
+    const result = await window.Tesseract.recognize(
+      processed.ocrDataUrl,
+      'eng',
       {
-        label:'base',
-        dataUrl:processed.ocrDataUrl,
-        width:processed.canvas.width,
-        height:processed.canvas.height
+        logger: info => {
+          if (info.status === 'recognizing text' && typeof info.progress === 'number') {
+            statusEl.textContent = `Lendo ${scope.label}... ${Math.round(info.progress * 100)}%`;
+          }
+        }
+      },
+      {
+        tessedit_char_whitelist: '0123456789%.,',
+        tessedit_pageseg_mode: '6',
+        preserve_interword_spaces: '1'
       }
-    ];
+    );
 
-    for(let index=0;index<variants.length;index++){
-      const passWords=await runOeeOcrPass(
-        variants[index],
-        scope,
-        statusEl,
-        index+1,
-        variants.length
-      );
-      allWords.push(...passWords);
-    }
-
-    const productionBlocks=productionReportMachineMentions();
-
-    const rows=mapOcrWordsToMachineRows(
-      allWords,
-      processed.canvas.height,
-      processed.canvas.width
-    ).map(row=>{
-      const reportRow=productionBlocks.get(row.machine);
-      const explicitlyDidNotRun=Boolean(reportRow?.didNotRun);
-
-      if(explicitlyDidNotRun){
-        return {
-          ...row,
-          ran:false,
-          oee:'',
-          ambiguous:false,
-          needsReview:false,
-          source:'Relatório produção: não rodou'
-        };
-      }
-
-      return {
-        ...row,
-        ran:true
-      };
-    });
-
-    state.oeeMachineEditorData=rows;
+    const words = result?.data?.words || [];
+    const rows = mapOcrWordsToMachineRows(words, processed.canvas.height);
+    state.oeeMachineEditorData = rows;
     renderOeeMachineEditor(rows);
 
-    const accepted=rows.filter(
-      row=>row.oee!=='' && !row.needsReview && row.ran!==false
-    ).length;
-    const review=rows.filter(
-      row=>row.ran!==false && row.needsReview
-    ).length;
-    const missing=rows.filter(
-      row=>row.ran!==false && row.oee===''
-    ).length;
+    const detected = rows.filter(row => row.oee !== '').length;
+    statusEl.textContent = `${detected} valor(es) sugerido(s) em ${scope.label}. Como o quadro é escrito à mão, confirme cada linha antes de analisar.`;
 
-    statusEl.textContent=
-      `Foto melhorada • ${scope.label}: ${accepted} OEE confirmado(s)`+
-      `${review?` • ${review} para revisar`:''}`+
-      `${missing?` • ${missing} não reconhecido(s)`:''}.`;
-
-    $('oeeOcrText').value=editorOeeText();
-    state.oeeOcrText=$('oeeOcrText').value;
-
+    // Mantém compatibilidade com histórico e painel.
+    $('oeeOcrText').value = editorOeeText();
+    state.oeeOcrText = $('oeeOcrText').value;
     return rows;
-  }catch(error){
+  } catch (error) {
     console.error(error);
-    statusEl.textContent=
-      'Não consegui concluir a leitura. Use a foto ampliada e confirme os valores na tabela.';
+    statusEl.textContent = 'Não consegui ler automaticamente. Preencha a tabela manualmente usando a foto recortada.';
     renderOeeMachineEditor([]);
-    showToast(
-      'Leitura automática incompleta. Confirme os valores manualmente.'
-    );
+    showToast('Leitura automática incompleta. Confirme os valores manualmente.');
     return [];
   }
 }
@@ -3810,11 +3220,7 @@ function saveHistory(items) {
 
 function showToast(message) {
   const toast = $('toast');
-  let safeMessage=String(message||'');
-  if(/no credits remaining|insufficient_quota|billing|add credits/i.test(safeMessage)){
-    safeMessage='IA temporariamente sem créditos. OEE, SGMan, custos, escala e gestão continuam funcionando normalmente.';
-  }
-  toast.textContent = safeMessage;
+  toast.textContent = message;
   toast.classList.add('show');
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => toast.classList.remove('show'), 2200);
@@ -3858,8 +3264,6 @@ function initializeViewModule(name) {
       renderDynamicSgmanManagement();
       await loadEmbeddedPowerBiOee();
       renderPowerBiSgmanDashboard();
-      initLeaderPerformanceFilters();
-      renderLeaderPerformance();
     },100);
   }
 
@@ -3871,10 +3275,6 @@ function initializeViewModule(name) {
   }
   if(name==='acoes'){
     setTimeout(renderSupervisorFusionPanel,100);
-  }
-
-  if(name==='treinamentos'){
-    setTimeout(loadAcademy,50);
   }
 
 }
@@ -4228,44 +3628,42 @@ function maintenanceAccountabilityReport() {
 function maintenanceMessage() {
   if (!state.analysis) return '';
 
-  // V87: a lista operacional nasce exclusivamente do quadro OEE atual.
+  // A lista final vem da Inteligência do Supervisor.
+  // Quadro OEE + relatório da produção escolhem as máquinas.
+  // SGMan entra somente para sugerir verificações técnicas.
   let fusionRows=(state.supervisorFusionRows?.length
     ? state.supervisorFusionRows
-    : supervisorFusionRanking(10)
+    : supervisorFusionRanking(5)
   );
+
+  if(!fusionRows.length){
+    fusionRows=fallbackCurrentShiftPriorities(3);
+  }
+
+  let supervisorRows=fusionRows.filter(row=>row.selected).slice(0,3);
+
+  if(!supervisorRows.length){
+    fusionRows=applyAutomaticSupervisorSelection(fusionRows);
+    state.supervisorFusionRows=fusionRows;
+    supervisorRows=fusionRows.filter(row=>row.selected).slice(0,3);
+  }
+
+  if(!supervisorRows.length){
+    supervisorRows=fallbackCurrentShiftPriorities(3);
+    fusionRows=supervisorRows;
+  }
 
   state.supervisorFusionRows=fusionRows;
 
-  if(!fusionRows.length){
-    return [
-      '*PRIORIDADES AINDA NÃO CARREGADAS*',
-      '📷 Leia novamente a foto do quadro OEE deste turno.',
-      'O relatório de manutenção será liberado somente depois que houver OEE por máquina confirmado.'
-    ].join('\n');
-  }
-
-  let supervisorRows=fusionRows
-    .filter(row=>row.selected)
-    .slice(0,5);
-
-  if(!supervisorRows.length){
-    return [
-      '*AÇÕES DA MANUTENÇÃO*',
-      '⚠️ Nenhuma máquina selecionada.',
-      'Marque até 5 máquinas na régua de prioridades antes de compartilhar o relatório.'
-    ].join('\n');
-  }
-
-  // Segunda barreira:
-  // - modo OEE: somente <65%.
-  // - modo técnico provisório: mantém apenas falhas técnicas reais do turno.
-  supervisorRows=supervisorRows.filter(row=>
-    (row.oee!==null && row.oee<65) ||
-    row.provisional===true
-  );
+  // Segunda barreira absoluta:
+  // apenas OEE atual confirmado abaixo de 65%.
+  supervisorRows=supervisorRows
+    .filter(row=>row.oee!==null && row.oee<OEE_PRIORITY_LIMIT)
+    .sort((a,b)=>a.oee-b.oee)
+    .slice(0,3);
 
   const lowOee=supervisorRows
-    .filter(row=>row.oee!==null && row.oee<=65)
+    .filter(row=>row.oee!==null && row.oee<OEE_PRIORITY_LIMIT)
     .map(row=>({machine:row.machine,oee:row.oee}));
 
   const recurrence=deriveRecurrenceMachines(state.analysis)
@@ -4306,41 +3704,30 @@ function maintenanceMessage() {
   lines.push('');
   lines.push('*AÇÕES PARA CORREÇÃO*');
 
-  if(state.maintenancePriorityMode==='technical'){
-    lines.push('⚠️ *Modo provisório:* OEE por máquina não foi recuperado. Prioridades abaixo vêm das falhas técnicas do relatório da produção, ordenadas por tempo/gravidade e cruzadas com SGMan.');
-  }
-
   if(!supervisorRows.length){
-    lines.push(
-      state.maintenancePriorityMode==='technical'
-        ? 'Nenhuma falha técnica válida foi identificada no relatório atual.'
-        : 'Nenhuma máquina abaixo de 65% foi identificada no quadro atual. Confira os valores do OEE.'
-    );
+    lines.push('Nenhuma máquina abaixo de 65% foi identificada no quadro atual. Confira os valores do OEE.');
   }else{
     supervisorRows.forEach((row,index)=>{
-      const oeeText=row.oee!==null
-        ? ` — OEE ${row.oee.toFixed(1).replace('.', ',')}% • ${priorityStoppedHoursLabel(row)}`
-        : row.stoppedHours!==null
-          ? ` — ${Number(row.stoppedHours).toFixed(1).replace('.',',')} h de parada/ajuste informadas`
-          : '';
-      const actions=(row.actions||[]).slice(0,4);
+      const priority=oeePriorityMeta(row.oee);
+      const actions=oeeObjectiveActions(
+        (row.actions||[]).filter(action=>
+          !normalizeKey(action).includes('durante o turno') &&
+          !normalizeKey(action).includes('problema continuar')
+        ),
+        row.oee
+      ).slice(0,5);
 
-      const priorityLabel=row.priorityLevel==='maximum'
-        ? '🚨 *PRIORIDADE MÁXIMA* — '
-        : row.provisional
-          ? '🛠️ *PRIORIDADE TÉCNICA* — '
-          : '';
-
-      lines.push(`${index+1}. ${priorityLabel}*${row.machine}*${oeeText}`);
+      lines.push(
+        `${index+1}. ${priority.icon} *${priority.label} — ${row.machine}* — `+
+        `OEE ${row.oee.toFixed(1).replace('.', ',')}% — `+
+        `perda estimada ${formatOeeLostHours(row.oee)}.`
+      );
       actions.forEach(action=>lines.push(`   • ${action}`));
-      if(row.issue){
-        lines.push(`   Problema do turno: ${compactIssue(row.issue)}.`);
-      }
-      lines.push(`   Histórico técnico: ${row.historyCount||0} OS relacionada(s) no SGMan usadas para definir verificações.`);
+      lines.push(`   Histórico técnico: ${row.historyCount||0} OS semelhante(s) no SGMan.`);
     });
   }
 
-  if(lowOee.length && state.maintenancePriorityMode==='oee'){
+  if(lowOee.length){
     lines.push(`OEE abaixo de 65: ${lowOee.map(row=>`${row.machine} ${row.oee.toFixed(1).replace('.', ',')}%`).join(' | ')}.`);
   }
 
@@ -4348,11 +3735,7 @@ function maintenanceMessage() {
     lines.push(`Reincidência entre as prioridades atuais: ${recurrence.join(', ')}.`);
   }
 
-  lines.push(
-    state.maintenancePriorityMode==='technical'
-      ? '*Foco:* atacar imediatamente as falhas técnicas do turno, recuperar o OEE por máquina assim que possível, testar estabilidade e registrar causa real no SGMan.'
-      : '*Foco:* resolver o mais rápido possível as prioridades selecionadas, testar estabilidade e registrar a causa real no SGMan.'
-  );
+  lines.push('*Foco:* atacar primeiro o menor OEE, resolver durante o turno, não deixar o problema continuar e confirmar estabilidade antes da liberação.');
 
   return lines.join('\n');
 }
@@ -4384,7 +3767,7 @@ function productionMessage() {
   if (analysis.reworkCount > 0) lines.push(`Retrabalho: ${analysis.reworkCount}.`);
 
   let step = 1;
-  if (lowOee.length) lines.push(`${step++}. Priorizar as máquinas com OEE abaixo de 65: ${oeeLowListText(lowOee)}.`);
+  if (lowOee.length) lines.push(`${step++}. Priorizar exclusivamente as máquinas com OEE abaixo de 65: ${oeeLowListText(lowOee)}.`);
   if (labor) lines.push(`${step++}. Redistribuir mão de obra: ${analysis.laborShortageMachines.join(', ')}.`);
   if (paperMachines.length) lines.push(`${step++}. Corrigir passagem de papel e bobinas: ${paperMachines.join(', ')}.`);
   if (qualityMachines.length) lines.push(`${step++}. Fazer autocontrole e conter defeito: ${qualityMachines.join(', ')}.`);
@@ -4523,14 +3906,6 @@ function renderActions() {
   $('actionsContent').classList.toggle('hidden', !has);
   if (!has) return;
 
-  recoverCurrentShiftOeeSnapshot();
-
-  if(!state.supervisorFusionRows?.length){
-    state.supervisorFusionRows=applyAutomaticSupervisorSelection(
-      supervisorFusionRanking(10)
-    );
-  }
-
   const maintenanceResponsible = findMaintenanceResponsible(
     state.analysis.responsibleDate,
     state.analysis.responsibleShift,
@@ -4544,7 +3919,6 @@ function renderActions() {
   $('maintenanceActionsList').innerHTML = messageHtml(maintenanceMessage());
   $('productionActionsList').innerHTML = messageHtml(productionMessage());
   renderSgmanMachineAnalysis();
-  updateMaintenanceShareAvailability();
 }
 
 function fillScaleForm(crew) {
@@ -4625,10 +3999,6 @@ function renderHistory() {
     if (!item) return;
     state.analysis = item.analysis;
     state.actions = item.actions || [];
-    saveCurrentShiftOeeSnapshot(state.analysis);
-    state.supervisorFusionRows=applyAutomaticSupervisorSelection(
-      supervisorFusionRanking(10)
-    );
     renderAnalysis();
     renderActions();
     renderOeeDashboard();
@@ -5127,109 +4497,77 @@ function calculateMachineSgmanMetrics(machine, orders) {
   };
 }
 
-function oeeShiftHistoryKey(analysis={}){
-  const date=String(analysis.date||'');
-  const shift=String(analysis.shift||'1')==='2'?'2':'1';
-  return `${date}-${shift}`;
-}
-
 function calculateEfficiencyTrend() {
-  // V89: o valor que está na análise atual SEMPRE é o "current".
-  // O histórico serve apenas para encontrar o turno anterior.
-  // Isso evita inverter 62 -> 70 para 70 -> 62 quando existem
-  // leituras antigas/duplicadas do mesmo dia e turno.
-  const currentAnalysisValue=Number(state.analysis?.reportedOee);
-  const currentDate=String(state.analysis?.date||'');
-  const currentShift=String(state.analysis?.shift||'1')==='2'?'2':'1';
-  const currentKey=currentDate?`${currentDate}-${currentShift}`:'';
-
-  let current=
-    Number.isFinite(currentAnalysisValue) && currentAnalysisValue>0
-      ? currentAnalysisValue
-      : null;
-
-  const historyAnalyses=getHistory()
-    .map(item=>item.analysis)
-    .filter(Boolean)
-    .map(analysis=>({
-      ...analysis,
-      reportedOee:Number(analysis.reportedOee),
-      _key:oeeShiftHistoryKey(analysis)
+  const dashboard = getRecentOeeDashboard();
+  const values = (dashboard.shifts || [])
+    .map(item => ({
+      label: item.label,
+      value: Number(item.reportedOee)
     }))
-    .filter(analysis=>
-      Number.isFinite(analysis.reportedOee) &&
-      analysis.reportedOee>0 &&
-      analysis.date
+    .filter(item => Number.isFinite(item.value) && item.value > 0);
+
+  const currentAnalysisValue = Number(state.analysis?.reportedOee);
+
+  if (
+    Number.isFinite(currentAnalysisValue) &&
+    currentAnalysisValue > 0 &&
+    !values.some(item =>
+      item.label === `${formatDate(state.analysis?.date)} ${
+        String(state.analysis?.shift) === '2' ? 'B' : 'A'
+      }`
     )
-    .sort((a,b)=>a._key.localeCompare(b._key));
-
-  let previous=null;
-
-  if(current!==null && currentKey){
-    // Procura o turno imediatamente ANTERIOR.
-    // Leituras duplicadas do mesmo date+shift atual são ignoradas.
-    const prior=historyAnalyses
-      .filter(item=>item._key<currentKey)
-      .slice(-1)[0];
-
-    previous=prior?prior.reportedOee:null;
+  ) {
+    values.push({
+      label: 'Turno atual',
+      value: currentAnalysisValue
+    });
   }
 
-  // Se não houver análise corrente válida, usa os dois últimos
-  // turnos distintos do histórico.
-  if(current===null){
-    const byShift=new Map();
-    for(const item of historyAnalyses){
-      byShift.set(item._key,item);
-    }
-    const distinct=[...byShift.values()]
-      .sort((a,b)=>a._key.localeCompare(b._key));
-
-    const latest=distinct.slice(-1)[0];
-    const prior=distinct.slice(-2,-1)[0];
-
-    current=latest?.reportedOee??null;
-    previous=prior?.reportedOee??null;
-  }
-
-  if(current===null){
+  if (!values.length) {
     return {
-      direction:'unknown',
-      arrow:'➜',
-      current:null,
-      previous:null,
-      delta:null,
-      phrase:'Registre o OEE do turno para acompanhar a evolução da eficiência.'
+      direction: 'unknown',
+      arrow: '➜',
+      current: null,
+      previous: null,
+      delta: null,
+      phrase: 'Registre o OEE do turno para acompanhar a evolução da eficiência.'
     };
   }
 
-  const delta=previous===null?null:current-previous;
+  const current = values[values.length - 1].value;
+  const previous = values.length >= 2
+    ? values[values.length - 2].value
+    : null;
 
-  let direction='stable';
-  let arrow='➜';
+  const delta = previous === null
+    ? null
+    : current - previous;
 
-  if(delta!==null && delta>=0.5){
-    direction='up';
-    arrow='⬆';
-  }else if(delta!==null && delta<=-0.5){
-    direction='down';
-    arrow='⬇';
+  let direction = 'stable';
+  let arrow = '➜';
+
+  if (delta !== null && delta >= 0.5) {
+    direction = 'up';
+    arrow = '⬆';
+  } else if (delta !== null && delta <= -0.5) {
+    direction = 'down';
+    arrow = '⬇';
   }
 
   let phrase;
 
-  if(current>=70 && direction==='up'){
-    phrase='Boa evolução. Mantenha o ritmo e ataque as perdas das máquinas prioritárias para sustentar o resultado.';
-  }else if(current>=70){
-    phrase='Resultado positivo. O próximo passo é estabilizar as máquinas críticas e evitar reincidências.';
-  }else if(current>=65 && direction==='up'){
-    phrase='A recuperação começou. Continue atacando as maiores perdas para ultrapassar a meta.';
-  }else if(current>=65){
-    phrase='Estamos perto da meta. Resolva as prioridades do turno e transforme pequenas melhorias em ganho de eficiência.';
-  }else if(direction==='up'){
-    phrase='A eficiência ainda está baixa, mas melhorou em relação ao turno anterior. Mantenha o foco nas maiores perdas.';
-  }else{
-    phrase='O turno precisa reagir. Reduza o MTTR, elimine reincidências e recupere primeiro as máquinas de maior impacto.';
+  if (current >= 70 && direction === 'up') {
+    phrase = 'Boa evolução. Mantenha o ritmo e elimine as pequenas paradas para fechar o turno ainda melhor.';
+  } else if (current >= 70) {
+    phrase = 'Resultado positivo. O próximo passo é estabilizar as máquinas críticas e evitar reincidências.';
+  } else if (current >= 65 && direction === 'up') {
+    phrase = 'A recuperação começou. Continue atacando as maiores perdas para ultrapassar a meta.';
+  } else if (current >= 65) {
+    phrase = 'Estamos perto. Reaja nas três máquinas prioritárias e transforme pequenas melhorias em ganho de eficiência.';
+  } else if (direction === 'up') {
+    phrase = 'A eficiência ainda está baixa, mas a tendência virou. Mantenha o foco nas causas de maior impacto.';
+  } else {
+    phrase = 'O turno ainda pode reagir. Reduza o MTTR, elimine reincidências e recupere uma máquina crítica de cada vez.';
   }
 
   return {
@@ -5241,6 +4579,7 @@ function calculateEfficiencyTrend() {
     phrase
   };
 }
+
 function calculateReliability3Days() {
   const now = new Date();
   const periodMinutes = 72 * 60;
@@ -6095,7 +5434,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=78.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=80.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -6325,7 +5664,7 @@ function renderPowerBiSgmanDashboard(){
         <article class="sgman-ranking-row">
           <span class="priority-number">${index+1}</span>
           <div>
-            <strong>${row.priorityLevel==='maximum'?'🚨 ':''}${escapeHtml(row.machine)} — ${row.oee===null?'—':`${row.oee.toFixed(1)}%`}</strong>
+            <strong>${escapeHtml(row.machine)} — ${row.oee===null?'—':`${row.oee.toFixed(1)}%`}</strong>
             <p>${row.sgmanOrders} OS • ${row.corrective} corretiva(s) • ${row.maintenanceHours.toFixed(1)} h manutenção</p>
             <small>MTTR ${escapeHtml(smartFmtMinutes(row.mttr))} • Custo SGMan ${escapeHtml(sgmanFormatMoney(row.cost))}${
               laborCostState().unlocked
@@ -6741,183 +6080,6 @@ function laborCostForMachineOrders(orders=[]){
   return orders.reduce((sum,order)=>sum+laborCostForOrder(order).cost,0);
 }
 
-
-const MAINTENANCE_TEAMS=[
-  {leader:'Emerson',team:'A',members:['Emerson','Carlos','Roberto','Luiz']},
-  {leader:'Fider',team:'B',members:['Fider','Jean','Aleilson','Rozental','Rosental']},
-  {leader:'Ricardo',team:'C',members:['Ricardo','Roger','Marcelo']},
-  {leader:'Danilo',team:'D',members:['Danilo','Thiago','Marcos','Allan']}
-];
-
-function maintenanceTeamForMechanic(name){
-  const key=laborNormalize(name);
-  if(!key)return null;
-  return MAINTENANCE_TEAMS.find(team=>
-    team.members.some(member=>{
-      const mk=laborNormalize(member);
-      return key===mk||key.startsWith(mk)||mk.startsWith(key);
-    })
-  )||null;
-}
-
-function detectedTeamsByDay(orders=[]){
-  const days=new Map();
-  for(const order of orders){
-    const date=sgmanManagementOrderDate(order);
-    const key=sgmanManagementDateKey(date);
-    const team=maintenanceTeamForMechanic(sgmanManagementMechanic(order));
-    if(!key||!team)continue;
-    if(!days.has(key))days.set(key,new Map());
-    const scores=days.get(key);
-    scores.set(team.leader,(scores.get(team.leader)||0)+1);
-  }
-  const result=new Map();
-  for(const [day,scores] of days){
-    const ranked=[...scores.entries()].sort((a,b)=>b[1]-a[1]);
-    if(ranked[0])result.set(day,ranked[0][0]);
-  }
-  return result;
-}
-
-function leaderPerformanceFilters(){
-  return {
-    month:$('leaderPerformanceMonth')?.value||'',
-    day:$('leaderPerformanceDay')?.value||'',
-    leader:$('leaderPerformanceLeader')?.value||'',
-    machine:normalizeMachineCode($('leaderPerformanceMachine')?.value||''),
-    product:$('leaderPerformanceProduct')?.value||''
-  };
-}
-
-function initLeaderPerformanceFilters(){
-  const rows=powerBiOeeRows();
-  const machineEl=$('leaderPerformanceMachine'), productEl=$('leaderPerformanceProduct');
-  if(machineEl){
-    const current=machineEl.value;
-    const items=uniqueStrings(rows.map(r=>normalizeMachineCode(r.machine)).filter(Boolean)).sort((a,b)=>a.localeCompare(b,'pt-BR',{numeric:true}));
-    machineEl.innerHTML='<option value="">Todas</option>'+items.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join('');
-    if(items.includes(current))machineEl.value=current;
-  }
-  if(productEl){
-    const current=productEl.value;
-    const items=uniqueStrings(rows.map(r=>String(r.productCode||'')).filter(Boolean)).sort();
-    productEl.innerHTML='<option value="">Todos</option>'+items.map(x=>`<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join('');
-    if(items.includes(current))productEl.value=current;
-  }
-  const month=$('leaderPerformanceMonth');
-  if(month&&!month.value){
-    const maxDate=(powerBiOeeState().range?.end||'').slice(0,7);
-    month.value=maxDate||new Date().toISOString().slice(0,7);
-  }
-}
-
-function leaderPerformanceRows(){
-  initLeaderPerformanceFilters();
-  const f=leaderPerformanceFilters();
-  const oeeRows=powerBiOeeRows().filter(row=>{
-    if(f.month&&!String(row.date).startsWith(f.month))return false;
-    if(f.day&&row.date!==f.day)return false;
-    if(f.machine&&normalizeMachineCode(row.machine)!==f.machine)return false;
-    if(f.product&&String(row.productCode||'')!==f.product)return false;
-    return true;
-  });
-  const orders=sgmanManagementOrdersSource().filter(order=>{
-    const d=sgmanManagementDateKey(sgmanManagementOrderDate(order));
-    if(f.month&&!d.startsWith(f.month))return false;
-    if(f.day&&d!==f.day)return false;
-    if(f.machine&&sgmanManagementMachine(order)!==f.machine)return false;
-    return true;
-  });
-  const teamByDay=detectedTeamsByDay(orders);
-  return {f,oeeRows,orders,teamByDay};
-}
-
-function leaderStats(){
-  const {f,oeeRows,orders,teamByDay}=leaderPerformanceRows();
-  const stats=MAINTENANCE_TEAMS.map(team=>({leader:team.leader,team:team.team,members:team.members,rows:[],orders:[]}));
-  const byLeader=new Map(stats.map(s=>[s.leader,s]));
-
-  for(const row of oeeRows){
-    const leader=teamByDay.get(row.date);
-    if(leader&&byLeader.has(leader))byLeader.get(leader).rows.push(row);
-  }
-  for(const order of orders){
-    const d=sgmanManagementDateKey(sgmanManagementOrderDate(order));
-    const leader=teamByDay.get(d);
-    if(leader&&byLeader.has(leader))byLeader.get(leader).orders.push(order);
-  }
-
-  return stats
-    .filter(s=>!f.leader||s.leader===f.leader)
-    .map(s=>{
-      const oee=weightedPowerBiAverage(s.rows,'oee');
-      const days=uniqueStrings(s.rows.map(r=>r.date)).length;
-      const mttr=dynamicMttr(s.orders);
-      const labor=laborCostState().unlocked?laborCostForMachineOrders(s.orders):0;
-      return {...s,oee,days,mttr,labor};
-    });
-}
-
-function renderLeaderPerformance(){
-  if(!powerBiOeeState().loaded)return;
-  const stats=leaderStats();
-  const cards=$('leaderPerformanceCards');
-  if(cards)cards.innerHTML=stats.map(s=>`
-    <article class="leader-kpi-card">
-      <span class="leader-team-badge">Equipe ${escapeHtml(s.team)}</span>
-      <h3>${escapeHtml(s.leader)}</h3>
-      <strong>${s.oee===null?'—':`${s.oee.toFixed(1)}%`}</strong>
-      <p>OEE médio no período</p>
-      <small>${s.days} dia(s) • ${s.orders.length} OS • MTTR ${escapeHtml(smartFmtMinutes(s.mttr))}</small>
-      <div class="leader-members">${s.members.map(m=>`<span>${escapeHtml(m)}</span>`).join('')}</div>
-    </article>
-  `).join('');
-
-  const tbody=$('leaderPerformanceTableBody');
-  if(tbody)tbody.innerHTML=stats.map(s=>`
-    <tr>
-      <td>${escapeHtml(s.leader)}</td>
-      <td>${s.oee===null?'—':`${s.oee.toFixed(1)}%`}</td>
-      <td>${s.days}</td>
-      <td>${s.orders.length}</td>
-      <td>${escapeHtml(smartFmtMinutes(s.mttr))}</td>
-      <td>${laborCostState().unlocked?escapeHtml(sgmanFormatMoney(s.labor)):'🔒'}</td>
-    </tr>
-  `).join('');
-
-  const selected=stats[0];
-  const {f,oeeRows,orders,teamByDay}=leaderPerformanceRows();
-  const leader=f.leader||selected?.leader||'';
-  const daily=new Map();
-  for(const row of oeeRows){
-    if(teamByDay.get(row.date)!==leader)continue;
-    if(!daily.has(row.date))daily.set(row.date,[]);
-    daily.get(row.date).push(row);
-  }
-  const dailyRows=[...daily.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([key,items])=>({key,oee:weightedPowerBiAverage(items,'oee')}));
-  drawDynamicLineChart('leaderDailyOeeChart',dailyRows,'oee',v=>`${v.toFixed(1)}%`);
-
-  const roster=$('leaderDayRoster');
-  if(roster){
-    const day=f.day||[...teamByDay.keys()].sort().pop()||'';
-    const dayLeader=teamByDay.get(day);
-    const team=MAINTENANCE_TEAMS.find(t=>t.leader===dayLeader);
-    const actual=uniqueStrings(orders.filter(o=>sgmanManagementDateKey(sgmanManagementOrderDate(o))===day).map(sgmanManagementMechanic).filter(Boolean));
-    roster.innerHTML=team?`
-      <div class="day-team-head"><strong>${escapeHtml(dayLeader)}</strong><span>${escapeHtml(day||'')}</span></div>
-      <p><b>Equipe prevista:</b> ${team.members.map(escapeHtml).join(', ')}</p>
-      <p><b>Com registro no SGMan:</b> ${actual.length?actual.map(x=>escapeHtml(sgmanUserLabel(x))).join(', '):'Sem OS registrada nesse dia'}</p>
-    `:'<p class="muted">Selecione um dia ou carregue o SGMan do período para identificar a equipe.</p>';
-  }
-}
-
-function clearLeaderPerformance(){
-  if($('leaderPerformanceDay'))$('leaderPerformanceDay').value='';
-  if($('leaderPerformanceLeader'))$('leaderPerformanceLeader').value='';
-  if($('leaderPerformanceMachine'))$('leaderPerformanceMachine').value='';
-  if($('leaderPerformanceProduct'))$('leaderPerformanceProduct').value='';
-  renderLeaderPerformance();
-}
 function sgmanManagementState(){
   state.sgmanManagement ||= { loadedAt:'', queryStart:'', queryEnd:'', orders:[] };
   return state.sgmanManagement;
@@ -7009,7 +6171,7 @@ function sgmanMonthChunks(startDate,endDate){ const chunks=[]; let cursor=new Da
 function dedupeManagementOrders(orders=[]){ const seen=new Set(); return orders.filter(o=>{const key=[o.id,o.tag,o.startDate,o.endDate,o.description].join('|');if(seen.has(key))return false;seen.add(key);return true;}); }
 async function fetchDynamicSgmanRange(startDate,endDate){
   const chunks=sgmanMonthChunks(startDate,endDate),all=[],button=$('refreshDynamicSgmanBtn'),status=$('sgmanManagementStatusText'); if(button){button.disabled=true;button.textContent='Buscando SGMan...';}
-  try{for(let i=0;i<chunks.length;i++){const c=chunks[i];if(status)status.textContent=`Consultando SGMan: mês ${i+1} de ${chunks.length}...`;const response=await fetch('/api/sgman-list',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data_inicio:formatSgmanDateTime(c.start),data_fim:formatSgmanDateTime(c.end),calc_custos:1,limit:500})});const data=await response.json().catch(()=>({}));if(!response.ok||data.ok===false)throw new Error(data.error||`Erro HTTP ${response.status}`);all.push(...(Array.isArray(data.orders)?data.orders:[]));if(i<chunks.length-1)await waitMilliseconds(700);} const m=sgmanManagementState();m.orders=dedupeManagementOrders(all);m.loadedAt=new Date().toISOString();m.queryStart=sgmanDateInputValue(startDate);m.queryEnd=sgmanDateInputValue(endDate);populateDynamicSgmanFilters();renderDynamicSgmanManagement();renderPowerBiSgmanDashboard();renderLeaderPerformance();showToast(`${m.orders.length} OS carregadas para a gestão.`);return m.orders;}finally{if(button){button.disabled=false;button.textContent='Atualizar período no SGMan';}}
+  try{for(let i=0;i<chunks.length;i++){const c=chunks[i];if(status)status.textContent=`Consultando SGMan: mês ${i+1} de ${chunks.length}...`;const response=await fetch('/api/sgman-list',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({data_inicio:formatSgmanDateTime(c.start),data_fim:formatSgmanDateTime(c.end),calc_custos:1,limit:500})});const data=await response.json().catch(()=>({}));if(!response.ok||data.ok===false)throw new Error(data.error||`Erro HTTP ${response.status}`);all.push(...(Array.isArray(data.orders)?data.orders:[]));if(i<chunks.length-1)await waitMilliseconds(700);} const m=sgmanManagementState();m.orders=dedupeManagementOrders(all);m.loadedAt=new Date().toISOString();m.queryStart=sgmanDateInputValue(startDate);m.queryEnd=sgmanDateInputValue(endDate);populateDynamicSgmanFilters();renderDynamicSgmanManagement();renderPowerBiSgmanDashboard();showToast(`${m.orders.length} OS carregadas para a gestão.`);return m.orders;}finally{if(button){button.disabled=false;button.textContent='Atualizar período no SGMan';}}
 }
 async function refreshDynamicSgmanManagement(){ initializeDynamicSgmanDates(); const sv=$('sgmanManagementStart')?.value,ev=$('sgmanManagementEnd')?.value;if(!sv||!ev){showToast('Informe a data inicial e final.');return;}const start=new Date(`${sv}T00:00:00`),end=new Date(`${ev}T23:59:59`);if(Number.isNaN(start.getTime())||Number.isNaN(end.getTime())||end<start){showToast('Período inválido.');return;}try{await fetchDynamicSgmanRange(start,end)}catch(error){showToast(`Falha na gestão SGMan: ${error.message}`)} }
 async function loadAllDynamicSgmanHistory(){ const start=new Date('2025-09-01T00:00:00'),end=new Date();$('sgmanManagementMonth').value='';$('sgmanManagementStart').value=sgmanDateInputValue(start);$('sgmanManagementEnd').value=sgmanDateInputValue(end);$('sgmanManagementDay').value='';try{await fetchDynamicSgmanRange(start,end)}catch(error){showToast(`Não foi possível carregar o histórico completo: ${error.message}`)} }
@@ -7340,156 +6502,49 @@ function smartOrderText(order={}){
   ].filter(Boolean).join(' '));
 }
 
-function uniqueObjectsBy(items=[],keyFn=item=>item){
-  const seen=new Set();
-  const result=[];
-
-  for(const item of items){
-    const key=keyFn(item);
-    if(seen.has(key))continue;
-    seen.add(key);
-    result.push(item);
-  }
-
-  return result;
-}
-
 function smartHistoryFor(machine,issue=''){
   const machineCode=normalizeMachineCode(machine);
-
-  const exactWords=normalizeKey(issue)
+  const words=normalizeKey(issue)
     .split(/\s+/)
     .filter(word=>word.length>=4);
 
-  const familyTerms=issueFamilyTerms(issue);
-
-  const combinedOrders=uniqueObjectsBy(
-    [
-      ...smartSgmanItems(),
-      ...(typeof machineHistoryForMachine==='function'
-        ? machineHistoryForMachine(machineCode)
-        : [])
-    ],
-    order=>String(
-      order.id||
-      order.os||
-      order.externalId||
-      `${order.startDate||order.data_inicio||''}-${smartOrderText(order)}`
-    )
-  );
-
-  const scored=combinedOrders
+  return smartSgmanItems()
     .filter(order=>
       normalizeMachineCode(
-        order.machine||
-        order.tag||
-        order.equipment||
-        order.maquina||
-        ''
-      )===machineCode ||
-      (
-        typeof orderBelongsToMachineTree==='function' &&
-        orderBelongsToMachineTree(order,machineCode,'')
-      )
+        order.machine||order.tag||order.equipment||order.maquina||''
+      )===machineCode
     )
     .map(order=>{
       const text=smartOrderText(order);
-      const exactMatches=exactWords.filter(word=>text.includes(word)).length;
-      const familyMatches=familyTerms.filter(term=>text.includes(term)).length;
-
-      return {
-        order,
-        text,
-        score:exactMatches*14+familyMatches*7
-      };
+      const matches=words.filter(word=>text.includes(word)).length;
+      return {order,text,score:matches*10};
     })
-    .filter(item=>item.score>0)
+    .filter(item=>item.score>0 || !words.length)
     .sort((a,b)=>b.score-a.score)
-    .slice(0,80);
-
-  return scored.map(item=>item.order);
+    .slice(0,250)
+    .map(item=>item.order);
 }
 
 function smartActionsFromHistory(orders,issue=''){
-  const text=normalizeKey(
-    (orders||[])
-      .map(order=>[
-        smartOrderText(order),
-        typeof historicalResolutionText==='function'
-          ? historicalResolutionText(order)
-          : ''
-      ].join(' '))
-      .join(' ')
-  );
+  const text=normalizeKey(orders.map(smartOrderText).join(' '));
+  const catalog=[
+    ['mola','Conferir tensão, deformação e quebra da mola da rotulatriz.'],
+    ['posicao faca','Conferir posição, alinhamento e aperto da faca.'],
+    ['faca','Verificar corte, desgaste, folga e condição da contrafaca.'],
+    ['calco','Conferir calços e nivelamento do conjunto.'],
+    ['sensor','Verificar posição, leitura, fixação e repetibilidade dos sensores.'],
+    ['vacuo','Medir vácuo e verificar mangueiras, ventosas, válvulas e vazamentos.'],
+    ['bobina','Conferir alinhamento, tensão, freio e roletes da bobina.'],
+    ['came','Inspecionar came, leva, sincronismo, folga e fixação.'],
+    ['carrinho','Conferir alinhamento, folga, curso e sincronismo do carrinho.'],
+    ['rolamento','Inspecionar rolamentos, folgas, ruído, temperatura e lubrificação.']
+  ];
 
-  const actions=[];
-
-  if(/mola|rotulatriz/.test(text)){
-    actions.push(
-      'Verificar mola da rotulatriz, posição, tensão e sincronismo.'
-    );
-  }
-
-  if(/tampao/.test(text)){
-    actions.push(
-      'Conferir regulagem, posição, vedação e aperto do tampão de cola.'
-    );
-  }
-
-  if(/cola|disco de cola/.test(text)){
-    actions.push(
-      'Conferir regulagem do tampão/disco de cola, vazão e aplicação.'
-    );
-  }
-
-  if(/posicao.{0,20}faca|faca.{0,20}(posicao|regul|ajust|alinh)/.test(text)){
-    actions.push(
-      'Conferir posição, alinhamento e aperto da faca.'
-    );
-  }else if(/faca|contrafaca/.test(text)){
-    actions.push(
-      'Verificar corte, desgaste, folga e condição da faca/contrafaca.'
-    );
-  }
-
-  if(/calco/.test(text)){
-    actions.push(
-      'Conferir calços e nivelamento do conjunto.'
-    );
-  }
-
-  if(/sensor/.test(text)){
-    actions.push(
-      'Verificar posição, leitura, fixação e repetibilidade dos sensores.'
-    );
-  }
-
-  if(/vacuo/.test(text)){
-    actions.push(
-      'Medir vácuo e verificar mangueiras, ventosas, válvulas e vazamentos.'
-    );
-  }
-
-  if(/bobina|desbobin/.test(text)){
-    actions.push(
-      'Conferir alinhamento, tensão, freio e roletes da bobina.'
-    );
-  }
-
-  if(/came|leva|sincronismo/.test(text)){
-    actions.push(
-      'Inspecionar came, leva, sincronismo, folga e fixação.'
-    );
-  }
-
-  if(/rolamento/.test(text)){
-    actions.push(
-      'Inspecionar rolamentos, folgas, ruído, temperatura e lubrificação.'
-    );
-  }
+  const actions=catalog
+    .filter(([word])=>text.includes(normalizeKey(word)))
+    .map(([,action])=>action);
 
   const issueKey=normalizeKey(issue);
-
   if(issueKey.includes('variacao') && issueKey.includes('altura')){
     actions.push(
       'Conferir mola e sincronismo da rotulatriz.',
@@ -7498,11 +6553,11 @@ function smartActionsFromHistory(orders,issue=''){
     );
   }
 
-  return uniqueStrings(actions).slice(0,5);
+  return uniqueStrings(actions).slice(0,4);
 }
 
 
-function productionReportMachineBlocks(){
+function productionReportMachineMentions(){
   const texts=[
     state.productionReportText,
     state.productionReport,
@@ -7516,85 +6571,35 @@ function productionReportMachineBlocks(){
     $('analysisInput')?.value
   ].filter(Boolean).join('\n');
 
-  const lines=String(texts).split(/\n/);
-  const blocks=new Map();
-  let current=null;
-
-  const machineFromLine=line=>{
-    const clean=String(line||'')
-      .replace(/\*/g,' ')
-      .replace(/\s+/g,' ')
-      .trim();
-
-    const match=clean.match(/\bMK\s*[:#\-]?\s*0*(\d{1,3})\b/i);
-    if(!match)return null;
-    return normalizeMachineCode(`MK-${Number(match[1])}`);
-  };
-
-  for(const rawLine of lines){
-    const line=String(rawLine||'').trim();
-    const machine=machineFromLine(line);
-
-    if(machine){
-      current={
-        machine,
-        header:line,
-        lines:[line]
-      };
-      blocks.set(machine,current);
-      continue;
-    }
-
-    if(current && line){
-      // Para quando começa uma nova seção geral.
-      if(
-        /^(OBS|SEGURANCA|QUALIDADE|TREINAMENTO|DDE|ENTREGA|REALIZADO|PERDAS|RETRABALHO|HORA.EXTRA)/i
-          .test(normalizeKey(line).replace(/[^A-Z0-9.]/gi,''))
-      ){
-        current=null;
-        continue;
-      }
-      current.lines.push(line);
-    }
-  }
-
-  for(const block of blocks.values()){
-    const text=block.lines.join(' ');
-    const normalized=normalizeKey(text);
-
-    block.problem=compactIssue(text);
-
-    // Travas fortes para não colocar máquina que não produziu no turno.
-    block.didNotRun=
-      /\bem manutencao\b/.test(normalized) ||
-      /\bfalta de mao de obra\b/.test(normalized) ||
-      /\bnao rodou\b/.test(normalized) ||
-      /\bsem producao\b/.test(normalized) ||
-      /\bparada todo turno\b/.test(normalized) ||
-      /\bparada ate 2 ordem\b/.test(normalized) ||
-      /\bparada ate segunda ordem\b/.test(normalized);
-
-    block.explicitRan=
-      /\btrabalhou\b/.test(normalized) ||
-      /\brodando\b/.test(normalized) ||
-      /\bproducao\b/.test(normalized);
-  }
-
-  return blocks;
-}
-
-function productionReportMachineMentions(){
-  const blocks=productionReportMachineBlocks();
   const machines=new Map();
 
-  for(const [machine,block] of blocks){
-    machines.set(machine,{
-      machine,
+  for(const machine of OEE_BOARD_MACHINES){
+    const normalized=normalizeMachineCode(machine);
+    const variants=[
+      normalized,
+      normalized.replace('-',''),
+      normalized.replace('MK-','MK '),
+      normalized.replace('MK-','MAQUINA ')
+    ];
+
+    const present=variants.some(variant=>
+      normalizeKey(texts).includes(normalizeKey(variant))
+    );
+
+    if(!present)continue;
+
+    const lines=String(texts).split(/\n+/)
+      .filter(line=>
+        variants.some(variant=>
+          normalizeKey(line).includes(normalizeKey(variant))
+        )
+      );
+
+    machines.set(normalized,{
+      machine:normalized,
       mentioned:true,
-      lines:block.lines,
-      problem:block.problem,
-      didNotRun:Boolean(block.didNotRun),
-      explicitRan:Boolean(block.explicitRan)
+      lines,
+      problem:compactIssue(lines.join(' '))
     });
   }
 
@@ -7608,13 +6613,17 @@ function currentBoardMap(){
     map.set(item.machine,item);
   }
 
+  // Ordem da menor para a maior confiança.
+  // Os dados confirmados no editor/análise ficam por último
+  // e sempre prevalecem sobre histórico ou OCR bruto.
   const boardRows=[
-    ...(state.analysis?.machineOee||[]),
-    ...(state.analysis?.lowOeeMachines||[]),
-    ...(state.oeeMachineEditorData||[]),
-    ...(state.oeeBoardRows||[]),
+    ...(state.boardAnalysis?.machines||[]),
     ...(state.ocrOeeRows||[]),
-    ...(state.boardAnalysis?.machines||[])
+    ...(state.oeeBoardRows||[]),
+    ...(state.oeeMachineEditorData||[])
+      .filter(row=>row.needsConfirmation!==true),
+    ...(state.analysis?.lowOeeMachines||[]),
+    ...(state.analysis?.machineOee||[])
   ];
 
   for(const row of boardRows){
@@ -7643,284 +6652,6 @@ function currentBoardMap(){
 }
 
 
-
-
-function machineOeeRowsFromAnalysisForRecovery(analysis){
-  if(!analysis)return [];
-
-  let rows=Array.isArray(analysis.machineOee)
-    ? analysis.machineOee
-    : [];
-
-  if(!rows.length && analysis.oeeOcrText){
-    rows=extractAllMachineOeeFromText(analysis.oeeOcrText);
-  }
-
-  return rows
-    .map(row=>({
-      machine:normalizeMachineCode(row.machine||row.maquina||row.mk||''),
-      oee:smartNumeric(row.oee??row.value??row.efficiency),
-      ran:row.ran!==false
-    }))
-    .filter(row=>
-      row.machine &&
-      row.ran &&
-      row.oee!==null &&
-      row.oee>0 &&
-      row.oee<=100
-    );
-}
-
-function recoverCurrentShiftOeeSnapshot(){
-  const existing=state.currentShiftOee||loadCurrentShiftOeeSnapshot();
-  if(existing?.machineOee?.length){
-    state.currentShiftOee=existing;
-    return existing;
-  }
-
-  const current=state.analysis;
-  const currentRows=machineOeeRowsFromAnalysisForRecovery(current);
-
-  if(currentRows.length){
-    const recovered={
-      savedAt:new Date().toISOString(),
-      date:current?.date||todayISO(),
-      shift:String(current?.shift||'1'),
-      boardScope:current?.boardScope||null,
-      machineOee:currentRows
-    };
-
-    try{
-      localStorage.setItem(STORAGE.currentShiftOee,JSON.stringify(recovered));
-    }catch{}
-    state.currentShiftOee=recovered;
-    return recovered;
-  }
-
-  const history=getHistory();
-  let candidates=history
-    .map(record=>({
-      record,
-      analysis:record.analysis||{}
-    }))
-    .filter(item=>item.analysis);
-
-  // Se existe uma análise aberta, só recupera o mesmo dia/turno.
-  if(current?.date){
-    const currentShift=String(current.shift||'1');
-    candidates=candidates.filter(item=>
-      String(item.analysis.date||item.record.date||'')===String(current.date) &&
-      String(item.analysis.shift||item.record.shift||'1')===currentShift
-    );
-  }else{
-    // Sem análise aberta, limita a ontem/hoje para não ressuscitar quadro antigo.
-    const nowNoon=parseISODateAtNoon(todayISO());
-    candidates=candidates.filter(item=>{
-      const date=String(item.analysis.date||item.record.date||'');
-      if(!date)return false;
-      const d=parseISODateAtNoon(date);
-      return Math.abs(nowNoon-d)<=36*3600000;
-    });
-  }
-
-  for(const item of candidates){
-    const rows=machineOeeRowsFromAnalysisForRecovery(item.analysis);
-    if(!rows.length)continue;
-
-    const recovered={
-      savedAt:new Date().toISOString(),
-      date:item.analysis.date||item.record.date||todayISO(),
-      shift:String(item.analysis.shift||item.record.shift||'1'),
-      boardScope:item.analysis.boardScope||null,
-      machineOee:rows
-    };
-
-    try{
-      localStorage.setItem(STORAGE.currentShiftOee,JSON.stringify(recovered));
-    }catch{}
-
-    state.currentShiftOee=recovered;
-
-    // Se a análise aberta não possui machineOee, restaura os valores dela também.
-    if(state.analysis && !Array.isArray(state.analysis.machineOee)){
-      state.analysis.machineOee=rows;
-    }else if(state.analysis && !state.analysis.machineOee?.length){
-      state.analysis.machineOee=rows;
-    }
-
-    return recovered;
-  }
-
-  return null;
-}
-
-function hasSelectedMaintenancePriority(){
-  const rows=(state.supervisorFusionRows?.length
-    ? state.supervisorFusionRows
-    : supervisorFusionRanking(10)
-  );
-
-  return rows.some(row=>
-    row.selected &&
-    (
-      (row.oee!==null && row.oee<65) ||
-      row.provisional===true
-    )
-  );
-}
-
-function updateMaintenanceShareAvailability(){
-  const available=hasSelectedMaintenancePriority();
-  const share=$('shareMaintenanceBtn');
-  const copy=$('copyMaintenanceBtn');
-
-  for(const button of [share,copy]){
-    if(!button)continue;
-    button.disabled=!available;
-    button.classList.toggle('is-disabled',!available);
-    button.title=available
-      ? ''
-      : 'Confirme o quadro OEE e selecione pelo menos uma prioridade.';
-  }
-
-  return available;
-}
-
-function openOeePhotoReader(){
-  switchView('novo');
-  setTimeout(()=>{
-    const input=$('oeeImageInput');
-    const target=input?.closest('.card')||input;
-    target?.scrollIntoView({behavior:'smooth',block:'center'});
-    input?.focus?.();
-  },120);
-}
-
-function saveCurrentShiftOeeSnapshot(analysis){
-  if(!analysis || !Array.isArray(analysis.machineOee) || !analysis.machineOee.length)return;
-
-  const snapshot={
-    savedAt:new Date().toISOString(),
-    date:analysis.date||'',
-    shift:String(analysis.shift||''),
-    boardScope:analysis.boardScope||null,
-    machineOee:analysis.machineOee
-      .filter(row=>row && row.machine)
-      .map(row=>({
-        machine:normalizeMachineCode(row.machine),
-        oee:smartNumeric(row.oee),
-        ran:row.ran!==false && smartNumeric(row.oee)!==null && smartNumeric(row.oee)>0
-      }))
-  };
-
-  try{
-    localStorage.setItem(STORAGE.currentShiftOee,JSON.stringify(snapshot));
-    state.currentShiftOee=snapshot;
-  }catch(error){
-    console.warn('Não foi possível salvar o OEE atual:',error);
-  }
-}
-
-function loadCurrentShiftOeeSnapshot(){
-  try{
-    const raw=localStorage.getItem(STORAGE.currentShiftOee);
-    const snapshot=raw?JSON.parse(raw):null;
-    if(!snapshot || !Array.isArray(snapshot.machineOee))return null;
-
-    const savedAt=new Date(snapshot.savedAt||0);
-    if(Number.isNaN(savedAt.getTime()))return null;
-
-    // Guarda o último quadro confirmado por tempo suficiente para sobreviver
-    // a reload/deploy, mas evita carregar um turno muito antigo.
-    const ageHours=(Date.now()-savedAt.getTime())/3600000;
-    if(ageHours>18){
-      localStorage.removeItem(STORAGE.currentShiftOee);
-      return null;
-    }
-
-    return snapshot;
-  }catch{
-    return null;
-  }
-}
-
-function clearCurrentShiftOeeSnapshot(){
-  state.currentShiftOee=null;
-  try{localStorage.removeItem(STORAGE.currentShiftOee);}catch{}
-}
-
-function priorityOperationalWindow(){
-  const snapshot=state.currentShiftOee;
-  const analysis=state.analysis;
-
-  const date=(analysis?.date||snapshot?.date||'');
-  const shift=String(analysis?.shift||snapshot?.shift||'');
-
-  if(!date || !['1','2'].includes(shift))return null;
-
-  const base=parseISODateAtNoon(date);
-
-  let start;
-  let end;
-
-  if(shift==='1'){
-    start=new Date(base.getFullYear(),base.getMonth(),base.getDate(),6,0,0,0);
-    end=new Date(base.getFullYear(),base.getMonth(),base.getDate(),18,0,0,0);
-  }else{
-    start=new Date(base.getFullYear(),base.getMonth(),base.getDate(),18,0,0,0);
-    end=new Date(base.getFullYear(),base.getMonth(),base.getDate()+1,6,0,0,0);
-  }
-
-  return {start,end,date,shift};
-}
-
-function currentShiftStoppedHoursFromSgman(machine){
-  const normalized=normalizeMachineCode(machine);
-  if(!normalized)return null;
-
-  const window=priorityOperationalWindow();
-  if(!window)return null;
-
-  const intervals=[];
-
-  for(const order of (state.sgmanHistory?.orders||[])){
-    if(!isStoppedSgmanOrder(order))continue;
-    if(sgmanManagementMachine(order)!==normalized)continue;
-
-    const start=parseSgmanDateTime(order.startDate);
-    if(!start)continue;
-
-    let end=parseSgmanDateTime(order.endDate);
-    if(!end){
-      const now=new Date();
-      end=new Date(Math.min(now.getTime(),window.end.getTime()));
-    }
-
-    const overlapStart=new Date(Math.max(start.getTime(),window.start.getTime()));
-    const overlapEnd=new Date(Math.min(end.getTime(),window.end.getTime()));
-
-    if(overlapEnd<=overlapStart)continue;
-    intervals.push([overlapStart.getTime(),overlapEnd.getTime()]);
-  }
-
-  if(!intervals.length)return null;
-
-  intervals.sort((a,b)=>a[0]-b[0]);
-  const merged=[];
-
-  for(const interval of intervals){
-    const last=merged[merged.length-1];
-    if(!last || interval[0]>last[1]){
-      merged.push([...interval]);
-    }else{
-      last[1]=Math.max(last[1],interval[1]);
-    }
-  }
-
-  const totalMs=merged.reduce((sum,[a,b])=>sum+(b-a),0);
-  return Math.min(12,totalMs/3600000);
-}
-
 function supervisorPriorityStorageKey(){
   return 'turnosmart_supervisor_priorities_v74';
 }
@@ -7930,7 +6661,7 @@ function loadSavedSupervisorPriorities(){
     const raw=localStorage.getItem(supervisorPriorityStorageKey());
     const parsed=raw?JSON.parse(raw):[];
     return Array.isArray(parsed)
-      ? parsed.map(normalizeMachineCode).filter(Boolean).slice(0,5)
+      ? parsed.map(normalizeMachineCode).filter(Boolean).slice(0,3)
       : [];
   }catch{
     return [];
@@ -7944,7 +6675,7 @@ function saveSupervisorPriorities(machines=[]){
       JSON.stringify(
         uniqueStrings(
           machines.map(normalizeMachineCode).filter(Boolean)
-        ).slice(0,5)
+        ).slice(0,3)
       )
     );
   }catch(error){
@@ -7957,9 +6688,9 @@ function applyAutomaticSupervisorSelection(rows=[]){
   const saved=loadSavedSupervisorPriorities()
     .filter(machine=>available.has(machine));
 
-  const automatic=rows.slice(0,5).map(row=>row.machine);
+  const automatic=rows.slice(0,3).map(row=>row.machine);
   const selected=saved.length
-    ? uniqueStrings([...saved,...automatic]).slice(0,5)
+    ? uniqueStrings([...saved,...automatic]).slice(0,3)
     : automatic;
 
   saveSupervisorPriorities(selected);
@@ -7971,482 +6702,125 @@ function applyAutomaticSupervisorSelection(rows=[]){
 }
 
 
-function fallbackCurrentShiftPriorities(limit=10){
-  return maintenancePriorityRows(limit);
-}
+function fallbackCurrentShiftPriorities(limit=3){
+  const machineOee=[
+    ...(state.analysis?.machineOee||[]),
+    ...(machineOeeFromEditor?.()||[])
+  ];
 
-function current12hMachineStatus(){
-  // Fonte do OEE: somente quadro atual confirmado.
-  const editorRows=machineOeeFromEditor();
-
-  let sourceRows=[];
-  if(editorRows.length){
-    sourceRows=editorRows;
-  }else if(Array.isArray(state.analysis?.machineOee) && state.analysis.machineOee.length){
-    sourceRows=state.analysis.machineOee;
-  }else{
-    const snapshot=state.currentShiftOee||loadCurrentShiftOeeSnapshot();
-    state.currentShiftOee=snapshot;
-    sourceRows=snapshot?.machineOee||[];
-  }
-
-  // O relatório da produção NÃO cria prioridade.
-  // Ele serve apenas como trava quando declara que a MK não rodou.
-  const productionBlocks=productionReportMachineMentions();
   const map=new Map();
 
-  for(const row of sourceRows){
-    const machine=normalizeMachineCode(row.machine||row.maquina||row.mk||'');
-    if(!machine)continue;
-
-    const oee=smartNumeric(row.oee??row.value??row.efficiency);
-    const production=productionBlocks.get(machine);
-
-    const blockedByProduction=Boolean(production?.didNotRun);
-    const ran=
-      !blockedByProduction &&
-      row.ran!==false &&
-      oee!==null &&
-      oee>0;
-
-    if(!ran)continue;
-
-    map.set(machine,{
-      machine,
-      oee,
-      ran:true,
-      source:'current-photo',
-      productionProblem:production?.problem||'',
-      productionLines:production?.lines||[]
-    });
+  for(const item of machineOee){
+    const machine=normalizeMachineCode(item.machine||item.maquina||'');
+    const oee=smartNumeric(item.oee??item.value);
+    if(!machine || oee===null)continue;
+    map.set(machine,{machine,oee});
   }
 
-  return map;
-}
-
-
-function productionLineDurationMinutes(line){
-  const text=normalizeKey(line||'').replace(',', '.');
-  let total=0;
-
-  // 1:29 hora / 2:43 horas
-  const hm=text.match(/\b(\d{1,2})\s*:\s*(\d{1,2})\s*(?:h|hora|horas)?\b/);
-  if(hm){
-    total+=Number(hm[1])*60+Number(hm[2]);
-  }
-
-  // 1 hora / 2 horas
-  const hours=[...text.matchAll(/\b(\d+(?:\.\d+)?)\s*(?:h|hora|horas)\b/g)];
-  for(const match of hours){
-    // Evita somar novamente formato 1:29.
-    if(hm && match.index>=hm.index && match.index<=hm.index+hm[0].length)continue;
-    total+=Number(match[1])*60;
-  }
-
-  // 30 min / 20 minutos
-  const mins=[...text.matchAll(/\b(\d+(?:\.\d+)?)\s*(?:min|minuto|minutos)\b/g)];
-  for(const match of mins){
-    total+=Number(match[1]);
-  }
-
-  return total;
-}
-
-function failureLabelFromProductionLine(line=''){
-  const text=normalizeKey(line);
-
-  if(/falta (?:de )?faixa|faixa falt/.test(text))return 'falta de faixa';
-  if(/falta (?:de )?fundo|fundo falt/.test(text))return 'falta de fundo';
-  if(/fundo.*enrosc|enrosc.*fundo/.test(text))return 'fundo enroscando';
-  if(/faixa.*enrosc|enrosc.*faixa/.test(text))return 'faixa enroscando';
-  if(/peca.*volt|voltando.*molde/.test(text))return 'peças voltando nos moldes';
-  if(/bobina.*romp|romp.*bobina/.test(text))return 'bobina se rompendo';
-  if(/fundo.*descol/.test(text))return 'fundo descolado';
-  if(/lateral.*descol/.test(text))return 'lateral descolada';
-  if(/fundo.*tort|tort.*fundo/.test(text))return 'fundo torto';
-  if(/bobina.*fora de posicao/.test(text))return 'bobina fora de posição';
-
-  return compactIssue(line)
-    .replace(/^\d+\)?\s*/,'')
-    .slice(0,90);
-}
-
-function productionFailureOccurrence(line=''){
-  const text=normalizeKey(line);
-
-  if(
-    /\b(min|minuto|minutos|hora|horas|batidas)\b/.test(text) &&
-    !/\b\d+\s*x\b/.test(text)
-  ){
-    // Uma linha pode ter tempo e falha; nesse caso não usa o tempo como contagem.
-    const x=text.match(/\b(\d{1,3})\s*x\b/);
-    if(x)return Number(x[1]);
-  }
-
-  const x=text.match(/\b(\d{1,3})\s*x\b/);
-  if(x)return Number(x[1]);
-
-  const vezes=text.match(/\b(\d{1,3})\s*(?:vez|vezes)\b/);
-  if(vezes)return Number(vezes[1]);
-
-  const recurrentProblem=
-    /falta (?:de )?faixa|falta (?:de )?fundo|enrosc|voltando|rompendo|descolad|fora de posicao/.test(text);
-
-  if(!recurrentProblem)return 0;
-
-  const numbers=[...text.matchAll(/\b(\d{1,3})\b/g)]
-    .map(match=>({
-      value:Number(match[1]),
-      index:match.index||0,
-      tail:text.slice((match.index||0)+match[0].length,(match.index||0)+match[0].length+12)
-    }))
-    .filter(item=>
-      item.value>=2 &&
-      item.value<=100 &&
-      !/^\s*(?:min|minuto|hora|h|batidas)/.test(item.tail)
-    );
-
-  return numbers.length
-    ? Math.max(...numbers.map(item=>item.value))
-    : 0;
-}
-
-function smartActionsFromProductionLines(lines=[]){
-  const technical=(lines||[])
-    .map(line=>String(line||'').trim())
-    .filter(Boolean)
-    .filter(line=>!isRoutineProductionLine(line));
-
-  const actions=[];
-
-  for(const line of technical){
-    const count=productionFailureOccurrence(line);
-
-    if(count>=3){
-      const label=failureLabelFromProductionLine(line);
-      actions.push(
-        `Investigar e eliminar a causa das ${count} ocorrências de ${label} registradas no turno.`
-      );
-    }
-  }
-
-  const text=normalizeKey(technical.join(' '));
-
-  if(/falta (?:de )?faixa|faixa.*enrosc|faixa.*fora/.test(text)){
-    actions.push(
-      'Verificar alimentação da faixa, bobina, sensor, rolo e sincronismo da rotulatriz.'
-    );
-  }
-
-  if(/fundo.*enrosc|fundo.*romp|fundo.*tort|falta (?:de )?fundo/.test(text)){
-    actions.push(
-      'Verificar alimentação do fundo, posição da faca/contrafaca, alinhamento e sincronismo.'
-    );
-  }
-
-  if(/fundo.*descol|cola|colagem/.test(text)){
-    actions.push(
-      'Conferir aplicação de cola, regulagem do tampão/disco de cola e vazão.'
-    );
-  }
-
-  if(/bobina/.test(text)){
-    actions.push(
-      'Conferir alinhamento, tensão, freio e roletes da bobina.'
-    );
-  }
-
-  return uniqueStrings(actions).slice(0,4);
-}
-
-function issueFamilyTerms(issue=''){
-  const key=normalizeKey(issue);
-  const terms=[];
-
-  if(/faixa/.test(key)){
-    terms.push(
-      'faixa','rotulatriz','mola','tampao','cola','bobina','sensor','rolo'
-    );
-  }
-
-  if(/fundo/.test(key)){
-    terms.push(
-      'fundo','faca','contrafaca','cola','tampao','bobina','sensor'
-    );
-  }
-
-  if(/altura/.test(key)){
-    terms.push(
-      'altura','mola','rotulatriz','faca','calco','sensor'
-    );
-  }
-
-  if(/cola|descol/.test(key)){
-    terms.push(
-      'cola','tampao','disco','vedacao','regulagem'
-    );
-  }
-
-  if(/bobina/.test(key)){
-    terms.push(
-      'bobina','freio','rolo','alinhamento','tensao'
-    );
-  }
-
-  return uniqueStrings(terms.map(normalizeKey));
-}
-
-function productionLineRecurrenceCount(line){
-  return productionFailureOccurrence(line);
-}
-
-function isRoutineProductionLine(line){
-  const text=normalizeKey(line||'').trim();
-  return (
-    !text ||
-    /^\d+\)?\s*limpeza (?:da |de )?maquina/.test(text) ||
-    /\blimpeza dos moldes\b/.test(text) ||
-    /^\d+\)?\s*ok\b/.test(text) ||
-    /\bfalta de mao de obra\b/.test(text) ||
-    /\bem manutencao\b/.test(text) ||
-    /\bparada ate 2 ordem\b/.test(text) ||
-    /\bparada ate segunda ordem\b/.test(text)
-  );
-}
-
-function technicalProductionLines(block){
-  if(!block || block.didNotRun)return [];
-
-  return (block.lines||[])
-    .slice(1)
-    .map(line=>String(line||'').trim())
-    .filter(line=>!isRoutineProductionLine(line))
-    .filter(line=>{
-      const text=normalizeKey(line);
-      return (
-        /\bproblema\b|\btroca\b|\bajuste\b|\bregulagem\b|\benrosc|\bromp|\bdescol|\btort|\btrav|\bqueb|\bqueim|\bsolto\b|\bfora de posicao\b|\bvoltando\b|\bamassad|\bresistencia\b|\bmola\b|\bfaca\b|\bfundo\b|\bbobina\b|\bcola\b|\brolo\b|\btirante\b|\bmotor\b|\bpapel\b|\bfaixa\b|\bslide\b|\bprensa\b|\bcalco\b|\bparafuso\b|\b60 batidas\b/.test(text) ||
-        productionLineDurationMinutes(line)>0 ||
-        productionLineRecurrenceCount(line)>0
-      );
-    });
-}
-
-function provisionalTechnicalPriorityRows(limit=10){
-  const blocks=productionReportMachineBlocks();
-  const rows=[];
-
-  for(const [machine,block] of blocks){
-    if(block.didNotRun)continue;
-
-    const technicalLines=technicalProductionLines(block);
-    if(!technicalLines.length)continue;
-
-    const explicitMinutes=technicalLines.reduce(
-      (sum,line)=>sum+productionLineDurationMinutes(line),
-      0
-    );
-
-    const recurrenceCount=technicalLines.reduce(
-      (sum,line)=>sum+productionLineRecurrenceCount(line),
-      0
-    );
-
-    const issue=compactIssue(technicalLines.join(' '));
-    const history=smartHistoryFor(machine,issue);
-    const productionActions=smartActionsFromProductionLines(
-      block.lines||[]
-    );
-    const historyActions=smartActionsFromHistory(history,issue);
-
-    let severityBonus=0;
-    const normalized=normalizeKey(technicalLines.join(' '));
-
-    if(/\bmotor\b.*\btrav|\bresistencia\b.*\bqueim|\btirante\b|\bqueb/.test(normalized)){
-      severityBonus+=120;
-    }
-    if(/\benrosc|\bromp|\bdescol|\btort|\bfora de posicao|\bvoltando/.test(normalized)){
-      severityBonus+=70;
-    }
-    if(/\bregulagem|\bajuste|\btroca\b/.test(normalized)){
-      severityBonus+=30;
-    }
-
-    const score=
-      explicitMinutes*3 +
-      Math.min(recurrenceCount,100)*2 +
-      technicalLines.length*20 +
-      severityBonus +
-      Math.min(history.length,20)*5;
-
-    const actions=uniqueStrings([
-      ...productionActions,
-      ...historyActions,
-      `Atuar imediatamente nos problemas registrados: ${technicalLines.slice(0,2).join(' / ')}.`,
-      'Testar em produção e acompanhar até confirmar estabilidade.',
-      'Registrar problema, causa, serviço e resultado no SGMan.'
-    ]).slice(0,5);
-
-    rows.push({
-      machine,
-      oee:null,
-      stoppedHours:explicitMinutes>0?explicitMinutes/60:null,
-      produced:null,
-      priorityLevel:'technical',
-      provisional:true,
-      score,
-      reasons:uniqueStrings([
-        'Prioridade técnica provisória — OEE por máquina não recuperado',
-        explicitMinutes>0?`${(explicitMinutes/60).toFixed(1)} h de paradas/ajustes informados pela produção`:'',
-        recurrenceCount>0?`${recurrenceCount} ocorrência(s) repetidas informadas`:'',
-        history.length?`${history.length} OS semelhante(s) no SGMan`:''
-      ].filter(Boolean)),
-      issue,
-      productionLines:technicalLines,
-      actions,
-      historyCount:history.length,
-      sources:uniqueStrings([
-        'production',
-        history.length?'sgman':''
-      ].filter(Boolean)),
-      selected:false
-    });
-  }
-
-  return rows
-    .sort((a,b)=>b.score-a.score)
-    .slice(0,limit)
-    .map((row,index)=>({...row,selected:index<5}));
-}
-
-function maintenancePriorityRows(limit=10){
-  const oeeRows=current12hPriorityRows(limit);
-  if(oeeRows.length){
-    state.maintenancePriorityMode='oee';
-    return oeeRows;
-  }
-
-  const provisional=provisionalTechnicalPriorityRows(limit);
-  state.maintenancePriorityMode=provisional.length?'technical':'empty';
-  return provisional;
-}
-
-function current12hPriorityRows(limit=10){
-  const status=current12hMachineStatus();
   const report=productionReportMachineMentions();
 
+  return [...map.values()]
+    .filter(item=>item.oee<OEE_PRIORITY_LIMIT)
+    .sort((a,b)=>a.oee-b.oee)
+    .slice(0,limit)
+    .map(item=>{
+      const reportRow=report.get(item.machine);
+      const issue=compactIssue(reportRow?.problem||'');
+      const history=smartHistoryFor(item.machine,issue);
+      const specific=smartActionsFromHistory(history,issue);
+      const priority=oeePriorityMeta(item.oee);
+      const lostHours=oeeLostHours(item.oee);
+
+      return {
+        machine:item.machine,
+        oee:item.oee,
+        lostHours,
+        priorityKey:priority.key,
+        priorityLabel:priority.label,
+        trend:null,
+        score:Math.round((100-item.oee)*10 + Math.min(history.length,100)),
+        reasons:uniqueStrings([
+          `OEE ${item.oee.toFixed(1)}%`,
+          `${formatOeeLostHours(item.oee)} de perda estimada pelo OEE`,
+          reportRow?.mentioned?'problema citado no relatório da produção':''
+        ].filter(Boolean)),
+        issue,
+        actions:oeeObjectiveActions(specific,item.oee),
+        historyCount:history.length,
+        sources:uniqueStrings([
+          'board',
+          reportRow?.mentioned?'production':'',
+          history.length?'sgman':''
+        ].filter(Boolean)),
+        selected:true
+      };
+    });
+}
+
+function supervisorFusionRanking(limit=5){
+  const report=productionReportMachineMentions();
+  const board=currentBoardMap();
   const rows=[];
 
-  for(const item of status.values()){
-    if(!item.ran)continue;
-    if(item.oee===null || item.oee>=65)continue;
+  for(const [machine,boardRow] of board.entries()){
+    const oee=smartNumeric(boardRow?.oee);
 
-    const reportRow=report.get(item.machine);
+    // REGRA ABSOLUTA:
+    // sem OEE atual confirmado = não prioriza.
+    // OEE >=65 = não aparece.
+    if(oee===null || oee>=OEE_PRIORITY_LIMIT)continue;
+
+    const reportRow=report.get(machine);
     const issue=compactIssue(
-      item.productionProblem ||
-      reportRow?.problem ||
+      reportRow?.problem||
+      boardRow.raw?.problem||
+      boardRow.raw?.issue||
+      boardRow.raw?.mainLoss||
+      boardRow.raw?.cause||
+      boardRow.raw?.causale_standard||
       ''
     );
-    const history=smartHistoryFor(item.machine,issue);
-    const productionActions=smartActionsFromProductionLines(
-      reportRow?.lines||[]
-    );
-    const historyActions=smartActionsFromHistory(history,issue);
-    const actions=uniqueStrings([
-      ...productionActions,
-      ...historyActions
-    ]).slice(0,5);
 
-    const maximum=item.oee<50;
-    const sgmanStoppedHours=currentShiftStoppedHoursFromSgman(item.machine);
+    const history=smartHistoryFor(machine,issue);
+    const specific=smartActionsFromHistory(history,issue);
+    const priority=oeePriorityMeta(oee);
+    const lostHours=oeeLostHours(oee);
+
+    const sources=['board'];
+    if(reportRow?.mentioned)sources.push('production');
+    if(history.length)sources.push('sgman');
 
     rows.push({
-      machine:item.machine,
-      oee:item.oee,
-      stoppedHours:sgmanStoppedHours,
-      produced:item.produced,
-      priorityLevel:maximum?'maximum':'high',
-      equivalentLossHours:equivalentLossHoursFromOee(item.oee),
-      score:
-        (maximum?1000:500) +
-        (65-item.oee)*10 +
-        equivalentLossHoursFromOee(item.oee)*30 +
-        (sgmanStoppedHours||0)*25,
+      machine,
+      oee,
+      lostHours,
+      priorityKey:priority.key,
+      priorityLabel:priority.label,
+      score:Math.round((100-oee)*10 + Math.min(history.length,100)),
+      trend:boardRow.trend??null,
       reasons:uniqueStrings([
-        maximum?'PRIORIDADE MÁXIMA — OEE abaixo de 50%':'OEE abaixo de 65%',
-        `${equivalentLossHoursFromOee(item.oee).toFixed(1).replace('.',',')} h equivalentes de perda no turno de 12h`,
-        sgmanStoppedHours!==null?`${sgmanStoppedHours.toFixed(1).replace('.',',')} h de parada registrada no SGMan`:'',
-        reportRow?.mentioned?'citada no relatório da produção':''
+        `${priority.icon} ${priority.label}`,
+        `OEE ${oee.toFixed(1)}%`,
+        `${formatOeeLostHours(oee)} de perda estimada pelo OEE`,
+        reportRow?.mentioned?'problema citado no relatório da produção':''
       ].filter(Boolean)),
       issue,
-      actions:actions.length?actions:[
-        'Investigar a principal causa registrada no relatório da produção.',
-        'Eliminar a causa e evitar regulagem temporária.',
-        'Testar em produção e confirmar estabilidade.',
-        'Registrar causa, serviço e resultado no SGMan.'
-      ],
+      actions:oeeObjectiveActions(specific,oee),
       historyCount:history.length,
-      sources:uniqueStrings([
-        'board',
-        reportRow?.mentioned?'production':'',
-        history.length?'sgman':''
-      ].filter(Boolean)),
+      sources:uniqueStrings(sources),
       selected:false
     });
   }
 
-  return rows
-    .sort((a,b)=>{
-      if(a.priorityLevel!==b.priorityLevel){
-        return a.priorityLevel==='maximum'?-1:1;
-      }
-      if(a.oee!==b.oee)return a.oee-b.oee;
-      return (b.stoppedHours||0)-(a.stoppedHours||0);
-    })
-    .slice(0,limit)
-    .map((row,index)=>({...row,selected:index<5}));
-}
+  // A ordem é SEMPRE do pior OEE para o melhor.
+  const ranked=rows
+    .sort((a,b)=>
+      a.oee-b.oee ||
+      b.historyCount-a.historyCount
+    )
+    .slice(0,limit);
 
-
-function equivalentLossHoursFromOee(oee){
-  const value=smartNumeric(oee);
-  if(value===null)return null;
-  return Math.max(0,Math.min(12,12*(1-value/100)));
-}
-
-function equivalentLossHoursLabel(oee){
-  const hours=equivalentLossHoursFromOee(oee);
-  return hours===null
-    ? ''
-    : `${hours.toFixed(1).replace('.',',')} h equivalentes de perda/12h`;
-}
-
-function priorityImpactLabel(row){
-  const parts=[];
-
-  if(row.oee!==null && row.oee!==undefined){
-    parts.push(equivalentLossHoursLabel(row.oee));
-  }
-
-  if(row.stoppedHours!==null && row.stoppedHours!==undefined){
-    parts.push(`parada SGMan ${Number(row.stoppedHours).toFixed(1).replace('.',',')} h`);
-  }
-
-  return parts.filter(Boolean).join(' • ');
-}
-
-function priorityStoppedHoursLabel(row){
-  return priorityImpactLabel(row) ||
-    'impacto equivalente: sem OEE confirmado';
-}
-
-function supervisorFusionRanking(limit=10){
-  // V91:
-  // Preferência absoluta: OEE por máquina confirmado.
-  // Se o OEE por máquina não foi recuperado, usa prioridade TÉCNICA
-  // provisória baseada no relatório atual da produção + SGMan.
-  // O fallback nunca inventa valor de OEE.
-  const rows=maintenancePriorityRows(limit);
-  return applyAutomaticSupervisorSelection(rows);
+  return applyAutomaticSupervisorSelection(ranked);
 }
 
 function sourceBadge(source){
@@ -8466,61 +6840,31 @@ function renderSupervisorFusionPanel(){
   const target=$('supervisorFusionPanel');
   if(!target)return;
 
-  recoverCurrentShiftOeeSnapshot();
-
-  let rows=supervisorFusionRanking(10);
+  let rows=supervisorFusionRanking(5);
   if(!rows.length){
-    rows=fallbackCurrentShiftPriorities(10);
+    rows=fallbackCurrentShiftPriorities(5);
   }
   rows=applyAutomaticSupervisorSelection(rows);
   state.supervisorFusionRows=rows;
-  const selectedCount=rows.filter(row=>row.selected).length;
-  const counter=$('supervisorPriorityCounter');
-  if(counter)counter.textContent=`${selectedCount} de 5 selecionadas`;
-
-  const snapshotStatus=$('currentOeeSnapshotStatus');
-  if(snapshotStatus){
-    const snap=state.currentShiftOee||loadCurrentShiftOeeSnapshot();
-
-    if(state.maintenancePriorityMode==='oee'){
-      snapshotStatus.textContent=snap
-        ? `✅ Prioridade por OEE confirmado: ${snap.boardScope?.label||`${snap.date||''} turno ${snap.shift||''}`} • ${snap.machineOee.filter(r=>r.ran).length} máquina(s) que rodaram`
-        : '✅ Prioridade por OEE confirmado.';
-      snapshotStatus.classList.remove('technical-mode');
-    }else if(state.maintenancePriorityMode==='technical'){
-      snapshotStatus.textContent='⚠️ OEE por máquina não recuperado. Mostrando prioridade técnica provisória pelo relatório da produção + SGMan.';
-      snapshotStatus.classList.add('technical-mode');
-    }else{
-      snapshotStatus.textContent='Nenhum OEE por máquina ou falha técnica válida foi encontrado.';
-      snapshotStatus.classList.add('technical-mode');
-    }
-  }
 
   target.innerHTML=`
     <div class="supervisor-confirm-box">
-      <strong>Validação antes de gerar o relatório</strong>
-      <p>As prioridades vêm somente do OEE confirmado das últimas 12h. O SGMan acrescenta horas paradas e recomenda o que verificar, mas não inclui máquinas.</p>
+      <strong>Prioridade definida pelo OEE da foto</strong>
+      <p>Somente máquinas abaixo de 65% entram. Até 50% = prioridade máxima. Relatório da produção explica o problema e o SGMan orienta o que verificar.</p>
     </div>
 
     <div class="supervisor-fusion-panel">
       ${rows.length?rows.map((row,index)=>`
-        <article class="supervisor-fusion-row ${row.selected?'is-selected':''}">
+        <article class="supervisor-fusion-row ${row.selected?'is-selected':''} priority-${escapeHtml(row.priorityKey||'high')}">
           <span class="supervisor-fusion-rank">${index+1}</span>
           <div>
             <strong>${
-              row.priorityLevel==='maximum'
-                ? '🚨 PRIORIDADE MÁXIMA — '
-                : row.provisional
-                  ? '🛠️ PRIORIDADE TÉCNICA — '
-                  : ''
-            }${escapeHtml(row.machine)}${
-              row.oee!==null
-                ? ` — OEE ${row.oee.toFixed(1).replace('.',',')}% • ${priorityStoppedHoursLabel(row)}`
-                : row.stoppedHours!==null
-                  ? ` — ${Number(row.stoppedHours).toFixed(1).replace('.',',')} h informadas`
-                  : ''
+              row.priorityKey==='max'?'🔴':'🟠'
+            } ${escapeHtml(row.priorityLabel||'PRIORIDADE ALTA')} — ${escapeHtml(row.machine)}${
+              row.oee!==null?` — OEE ${row.oee.toFixed(1)}%`:''
             }</strong>
-            <p>${escapeHtml(row.reasons.join(' | ')||'Revisar prioridade')}</p>
+            <p><b>Perda estimada:</b> ${escapeHtml(formatOeeLostHours(row.oee))} calculada pelo OEE do turno.</p>
+            <p>${escapeHtml(row.reasons.filter(reason=>!reason.includes('perda estimada')).join(' | ')||'Revisar prioridade')}</p>
             <div class="supervisor-fusion-meta">
               ${row.sources.map(sourceBadge).join('')}
             </div>
@@ -8532,13 +6876,7 @@ function renderSupervisorFusionPanel(){
             Prioridade
           </label>
         </article>
-      `).join(''):`
-        <div class="priority-empty-recovery">
-          <strong>Sem prioridades carregadas</strong>
-          <p>Não encontrei OEE por máquina salvo para este turno.</p>
-          <button id="readOeePhotoAgainBtn" class="primary" type="button">📷 Ler novamente a foto do quadro</button>
-        </div>
-      `}
+      `).join(''):'<p class="muted">Nenhuma prioridade atual identificada.</p>'}
     </div>
   `;
 
@@ -8546,9 +6884,9 @@ function renderSupervisorFusionPanel(){
     input.addEventListener('change',()=>{
       const selected=$$('.supervisor-priority-check:checked');
 
-      if(selected.length>5){
+      if(selected.length>3){
         input.checked=false;
-        showToast('Escolha no máximo cinco prioridades.');
+        showToast('Escolha no máximo três prioridades.');
         return;
       }
 
@@ -8562,39 +6900,29 @@ function renderSupervisorFusionPanel(){
       }));
 
       saveSupervisorPriorities(selectedMachines);
-      const counter=$('supervisorPriorityCounter');
-      if(counter)counter.textContent=`${selectedMachines.length} de 5 selecionadas`;
 
       input.closest('.supervisor-fusion-row')
         ?.classList.toggle('is-selected',input.checked);
-
-      if($('maintenanceActionsList')){
-        $('maintenanceActionsList').innerHTML=messageHtml(maintenanceMessage());
-      }
-      updateMaintenanceShareAvailability();
     });
   });
-
-  $('readOeePhotoAgainBtn')?.addEventListener('click',openOeePhotoReader);
-  updateMaintenanceShareAvailability();
 }
 
 function confirmedSupervisorPlan(){
   let rows=(state.supervisorFusionRows?.length
     ? state.supervisorFusionRows
-    : supervisorFusionRanking(10)
+    : supervisorFusionRanking(5)
   );
 
   if(!rows.length){
-    rows=fallbackCurrentShiftPriorities(10);
+    rows=fallbackCurrentShiftPriorities(3);
   }
 
-  let selected=rows.filter(row=>row.selected).slice(0,5);
+  let selected=rows.filter(row=>row.selected).slice(0,3);
 
   if(!selected.length){
     rows=applyAutomaticSupervisorSelection(rows);
     state.supervisorFusionRows=rows;
-    selected=rows.filter(row=>row.selected).slice(0,5);
+    selected=rows.filter(row=>row.selected).slice(0,3);
   }
 
   return selected.map((row,index)=>{
@@ -8608,9 +6936,11 @@ function confirmedSupervisorPlan(){
       sgman:'histórico SGMan'
     })[source]||source).join(' + ');
 
-    return `${index+1}. ${row.priorityLevel==='maximum'?'🚨 *PRIORIDADE MÁXIMA* — ':''}*${row.machine}*${
+    const priority=oeePriorityMeta(row.oee);
+
+    return `${index+1}. ${priority.icon} *${priority.label} — ${row.machine}*${
       row.oee!==null?` — OEE ${row.oee.toFixed(1)}%`:''
-    }.
+    } — perda estimada ${formatOeeLostHours(row.oee)}.
 ${actions}
    Fonte atual: ${sourceText||'confirmação do supervisor'}.
    Histórico técnico: ${row.historyCount} OS semelhante(s).`;
@@ -10492,10 +8822,29 @@ async function analyzeCurrentReport() {
     let editorValues = machineOeeFromEditor();
     const file = $('oeeImageInput')?.files?.[0];
 
+    const pendingOeeConfirmation=()=>(
+      state.oeeMachineEditorData||[]
+    ).filter(row=>
+      row.needsConfirmation===true &&
+      row.candidateOee!==undefined &&
+      row.candidateOee!==''
+    );
+
     if (!editorValues.length && file) {
       setAnalysisRunStatus('Lendo a foto do quadro de OEE...', 'loading');
       await processOeeColumnPhoto();
       editorValues = machineOeeFromEditor();
+    }
+
+    const pendingRows=pendingOeeConfirmation();
+    if(pendingRows.length){
+      setAnalysisRunStatus(
+        `${pendingRows.length} linha(s) do OEE precisam de confirmação manual antes da análise.`,
+        'warning'
+      );
+      showToast('Confirme os valores de OEE com baixa confiança.');
+      switchView('novo');
+      return;
     }
 
     const oeeText = editorValues.length
@@ -10532,9 +8881,7 @@ async function analyzeCurrentReport() {
       ...calculateReliability3Days()
     };
 
-    analysis.oeePhotoGeneration = state.oeePhotoGeneration || null;
     state.analysis = analysis;
-    saveCurrentShiftOeeSnapshot(analysis);
     state.actions = generateActions(analysis);
 
     // Novo turno/análise: recalcula as prioridades com o quadro atual
@@ -10542,9 +8889,9 @@ async function analyzeCurrentReport() {
     try{
       localStorage.removeItem(supervisorPriorityStorageKey());
     }catch{}
-    state.supervisorFusionRows=supervisorFusionRanking(10);
+    state.supervisorFusionRows=supervisorFusionRanking(5);
     if(!state.supervisorFusionRows.length){
-      state.supervisorFusionRows=fallbackCurrentShiftPriorities(10);
+      state.supervisorFusionRows=fallbackCurrentShiftPriorities(3);
     }
     state.supervisorFusionRows=applyAutomaticSupervisorSelection(
       state.supervisorFusionRows
@@ -11173,8 +9520,7 @@ async function analyzeIntelligenceOeePhoto() {
 
     const rows = mapOcrWordsToMachineRows(
       result?.data?.words || [],
-      processed.canvas.height,
-      processed.canvas.width
+      processed.canvas.height
     );
 
     renderIntelligenceOeeEditor(rows);
@@ -13238,7 +11584,6 @@ function init() {
 
   state.sgmanHistory = getCachedSgmanHistory();
   state.sgmanMachineHistory = getCachedSgmanMachineHistory();
-  state.currentShiftOee = loadCurrentShiftOeeSnapshot();
   renderSgmanDailyStatus();
   refreshSgmanHistory(false);
 
@@ -13408,21 +11753,8 @@ function init() {
     if (!file) return;
     const dataUrl = await dataUrlFromFile(file);
     state.oeeImageDataUrl = dataUrl;
-    state.oeePhotoGeneration = Date.now();
-    clearCurrentShiftOeeSnapshot();
     state.oeeMachineEditorData = [];
     state.oeeRowPreviews = [];
-
-    // Nova foto = novo turno/quadro. Apaga qualquer prioridade do quadro anterior.
-    if (state.analysis) {
-      state.analysis.machineOee = [];
-      state.analysis.lowOeeMachines = [];
-    }
-    state.supervisorFusionRows = [];
-    try {
-      localStorage.removeItem(supervisorPriorityStorageKey());
-    } catch {}
-
     $('oeePreview').src = dataUrl;
     $('oeePreviewWrap').classList.remove('hidden');
     $('oeeCropPreviewWrap').classList.add('hidden');
@@ -13452,13 +11784,7 @@ function init() {
     }
   });
 
-  $('copyMaintenanceBtn').addEventListener('click', () => {
-    if(!updateMaintenanceShareAvailability()){
-      showToast('Confirme o quadro OEE e selecione pelo menos uma prioridade.');
-      return;
-    }
-    copyText(maintenanceMessage(), 'Mensagem da manutenção copiada.');
-  });
+  $('copyMaintenanceBtn').addEventListener('click', () => copyText(maintenanceMessage(), 'Mensagem da manutenção copiada.'));
   $('copyProductionBtn').addEventListener('click', () => copyText(productionMessage(), 'Mensagem da produção copiada.'));
   $('shareMaintenanceBtn').addEventListener('click', async () => {
     const text = maintenanceMessage();
@@ -13705,7 +12031,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=93.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=80.0.0');
         registration.update();
       } catch {}
     });
@@ -13775,13 +12101,8 @@ document.addEventListener('click',event=>{
 
 document.addEventListener('click',event=>{
   if(event.target?.id==='refreshSupervisorFusionBtn'){
-    state.currentShiftOee=loadCurrentShiftOeeSnapshot();
-    recoverCurrentShiftOeeSnapshot();
     renderSupervisorFusionPanel();
-    if($('maintenanceActionsList') && state.analysis){
-      $('maintenanceActionsList').innerHTML=messageHtml(maintenanceMessage());
-    }
-    showToast('Prioridades atualizadas com o OEE confirmado e horas paradas do SGMan.');
+    showToast('Prioridades atualizadas com quadro e relatório da produção.');
   }
 });
 
@@ -13821,57 +12142,5 @@ document.addEventListener('change',event=>{
   ].includes(event.target?.id) && laborCostState().unlocked){
     const badge=$('laborCostSecurityBadge');
     if(badge)badge.textContent='🔐 Revalide para recalcular';
-  }
-});
-
-document.addEventListener('click',event=>{
-  const lessonId=event.target?.dataset?.academyLesson;
-  if(lessonId){
-    event.preventDefault();
-    openAcademyLesson(lessonId);
-    return;
-  }
-
-  const answer=event.target?.dataset?.academyAnswer;
-  if(answer!==undefined){
-    event.preventDefault();
-    answerAcademyQuestion(Number(answer));
-    return;
-  }
-
-  if(event.target?.id==='academyNextStepBtn'){
-    event.preventDefault();
-    nextAcademyStep();
-  }else if(event.target?.id==='academyPrevStepBtn'){
-    event.preventDefault();
-    prevAcademyStep();
-  }else if(event.target?.id==='academyCloseLessonBtn'){
-    event.preventDefault();
-    closeAcademyLesson();
-  }else if(event.target?.id==='academyReviewBtn'){
-    event.preventDefault();
-    reviewAcademyWrong();
-  }
-});
-
-document.addEventListener('change',event=>{
-  if(['academyTrackFilter','academyLevelFilter'].includes(event.target?.id)){
-    renderAcademy();
-  }
-});
-
-document.addEventListener('input',event=>{
-  if(event.target?.id==='academySearch'){
-    renderAcademy();
-  }
-});
-
-document.addEventListener('click',event=>{
-  if(event.target?.id==='applyLeaderPerformanceBtn')renderLeaderPerformance();
-  if(event.target?.id==='clearLeaderPerformanceBtn')clearLeaderPerformance();
-});
-document.addEventListener('change',event=>{
-  if(['leaderPerformanceMonth','leaderPerformanceDay','leaderPerformanceLeader','leaderPerformanceMachine','leaderPerformanceProduct'].includes(event.target?.id)){
-    renderLeaderPerformance();
   }
 });
