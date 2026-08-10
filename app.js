@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '82.0.0';
+const APP_VERSION = '83.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v82.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v83.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2506,8 +2506,12 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
               displayedValue === ''
                 ? 'Não identificado — confira a foto e digite o OEE'
                 : row.needsConfirmation
-                  ? `Leitura provável ${String(displayedValue).replace('.', ',')}% — confira`
-                  : `${Math.round(row.confidence || 0)}% confiança — valor aceito`
+                  ? `${
+                      row.visionSource?'🤖 IA visual':'OCR'
+                    } ${String(displayedValue).replace('.', ',')}% — confira`
+                  : `${
+                      row.visionSource?'🤖 IA visual':'OCR'
+                    } ${String(displayedValue).replace('.', ',')}% — aceito`
             }</small>
           </label>
         `;
@@ -2576,74 +2580,219 @@ function editorOeeText() {
     .join('\n');
 }
 
+
+async function analyzeOeeWithVision(imageDataUrl, operationalDate, shift, scope){
+  const response=await fetch('/api/oee-vision',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      imageDataUrl,
+      date:operationalDate,
+      shift,
+      scope
+    })
+  });
+
+  const data=await response.json().catch(()=>({}));
+
+  if(!response.ok || data.ok===false){
+    throw new Error(
+      data.error||
+      `Falha IA visual HTTP ${response.status}`
+    );
+  }
+
+  const rows=Array.isArray(data.rows)?data.rows:[];
+
+  return OEE_BOARD_MACHINES.map(machine=>{
+    const found=rows.find(row=>
+      normalizeMachineCode(row.machine)===machine
+    );
+
+    if(!found || found.oee===null || found.oee===undefined){
+      return {
+        machine,
+        oee:'',
+        candidateOee:'',
+        confidence:Number(found?.confidence||0),
+        source:found?.evidence||'Não identificado pela IA visual',
+        needsConfirmation:false,
+        ambiguous:false,
+        visionSource:true
+      };
+    }
+
+    const oee=Number(found.oee);
+    const confidence=Number(found.confidence||0);
+
+    return {
+      machine,
+      oee:Number.isFinite(oee)?oee:'',
+      candidateOee:Number.isFinite(oee)?oee:'',
+      confidence,
+      source:found.evidence||'IA visual',
+      needsConfirmation:confidence<80,
+      ambiguous:false,
+      visionSource:true
+    };
+  });
+}
+
+function usefulOeeReadCount(rows=[]){
+  return rows.filter(row=>
+    row.oee!=='' &&
+    Number.isFinite(Number(row.oee)) &&
+    Number(row.oee)>=0 &&
+    Number(row.oee)<=100
+  ).length;
+}
+
 async function processOeeColumnPhoto() {
-  const file = $('oeeImageInput')?.files?.[0];
-  if (!file) {
+  const file=$('oeeImageInput')?.files?.[0];
+
+  if(!file){
     showToast('Escolha a foto do quadro primeiro.');
     return [];
   }
 
-  const statusEl = $('oeeStatus');
-  const operationalDate = $('reportDate').value || todayISO();
-  const shift = $('reportShift').value || '1';
-  const scope = boardScopeForReport(operationalDate, shift);
+  const statusEl=$('oeeStatus');
+  const operationalDate=$('reportDate').value||todayISO();
+  const shift=$('reportShift').value||'1';
+  const scope=boardScopeForReport(operationalDate,shift);
 
-  try {
-    statusEl.textContent = 'Analisando a foto inteira e identificando as colunas do quadro...';
-    const fullDataUrl = state.oeeImageDataUrl || await dataUrlFromFile(file);
-    state.oeeImageDataUrl = fullDataUrl;
+  try{
+    statusEl.textContent='Preparando a foto inteira para leitura inteligente...';
 
-    const image = await loadImageElement(fullDataUrl);
-    const processed = preprocessOeeColumn(image, operationalDate, shift);
-    state.oeeCropDataUrl = processed.previewDataUrl;
-    state.oeeRowPreviews = processed.rowPreviews || [];
+    const fullDataUrl=
+      state.oeeImageDataUrl||
+      await dataUrlFromFile(file);
 
-    $('oeeCropPreview').src = processed.previewDataUrl;
-    $('oeeOcrPreview').src = processed.ocrDataUrl;
+    state.oeeImageDataUrl=fullDataUrl;
+
+    const image=await loadImageElement(fullDataUrl);
+    const processed=preprocessOeeColumn(
+      image,
+      operationalDate,
+      shift
+    );
+
+    // Prévia continua sendo a FOTO INTEIRA.
+    state.oeeCropDataUrl=processed.previewDataUrl;
+    state.oeeRowPreviews=[];
+
+    $('oeeCropPreview').src=processed.previewDataUrl;
+    $('oeeOcrPreview').src=processed.ocrDataUrl;
     $('oeeCropPreviewWrap').classList.remove('hidden');
 
-    if (!window.Tesseract) throw new Error('OCR não carregado.');
-    statusEl.textContent = `Lendo os OEE na foto inteira — ${scope.label}...`;
+    // ========================================================
+    // 1ª OPÇÃO: IA VISUAL
+    // ========================================================
+    try{
+      statusEl.textContent=
+        `🤖 IA visual lendo a foto inteira — ${scope.label}...`;
 
-    const result = await window.Tesseract.recognize(
+      const visionRows=await analyzeOeeWithVision(
+        fullDataUrl,
+        operationalDate,
+        shift,
+        scope
+      );
+
+      const visionDetected=usefulOeeReadCount(visionRows);
+
+      // Se a IA leu pelo menos 4 máquinas, ela passa a ser a fonte principal.
+      if(visionDetected>=4){
+        state.oeeMachineEditorData=visionRows;
+        renderOeeMachineEditor(visionRows);
+
+        statusEl.textContent=
+          `🤖 IA visual identificou ${visionDetected} OEE. `+
+          `Confira apenas os campos amarelos antes de analisar.`;
+
+        $('oeeOcrText').value=editorOeeText();
+        state.oeeOcrText=$('oeeOcrText').value;
+
+        return visionRows;
+      }
+
+      console.warn(
+        'IA visual retornou poucos valores; usando OCR reserva.',
+        visionDetected
+      );
+    }catch(visionError){
+      console.warn(
+        'IA visual indisponível; usando OCR reserva.',
+        visionError
+      );
+    }
+
+    // ========================================================
+    // 2ª OPÇÃO: OCR LOCAL COMO RESERVA
+    // ========================================================
+    if(!window.Tesseract){
+      throw new Error(
+        'IA visual não conseguiu ler e OCR reserva não carregou.'
+      );
+    }
+
+    statusEl.textContent=
+      `Leitura reserva do quadro — ${scope.label}...`;
+
+    const result=await window.Tesseract.recognize(
       processed.ocrDataUrl,
       'eng',
       {
-        logger: info => {
-          if (info.status === 'recognizing text' && typeof info.progress === 'number') {
-            statusEl.textContent = `Analisando foto inteira... ${Math.round(info.progress * 100)}%`;
+        logger:info=>{
+          if(
+            info.status==='recognizing text' &&
+            typeof info.progress==='number'
+          ){
+            statusEl.textContent=
+              `OCR reserva... ${Math.round(info.progress*100)}%`;
           }
         }
       },
       {
-        tessedit_char_whitelist: '0123456789%.,',
-        tessedit_pageseg_mode: '11',
-        preserve_interword_spaces: '1'
+        tessedit_char_whitelist:'0123456789%.,',
+        tessedit_pageseg_mode:'11',
+        preserve_interword_spaces:'1'
       }
     );
 
-    const words = result?.data?.words || [];
-    const rows = mapOcrWordsToMachineRows(
+    const words=result?.data?.words||[];
+
+    const rows=mapOcrWordsToMachineRows(
       words,
       processed.canvas.height,
       processed.canvas.width,
       processed.geometry
     );
-    state.oeeMachineEditorData = rows;
+
+    state.oeeMachineEditorData=rows;
     renderOeeMachineEditor(rows);
 
-    const detected = rows.filter(row => row.oee !== '').length;
-    statusEl.textContent = `${detected} OEE provável(is) preenchido(s) automaticamente para ${scope.label}. Confira somente os valores marcados em amarelo.`;
+    const detected=usefulOeeReadCount(rows);
 
-    // Mantém compatibilidade com histórico e painel.
-    $('oeeOcrText').value = editorOeeText();
-    state.oeeOcrText = $('oeeOcrText').value;
+    statusEl.textContent=
+      `${detected} OEE provável(is) pelo OCR reserva. `+
+      `Confira os números antes de analisar.`;
+
+    $('oeeOcrText').value=editorOeeText();
+    state.oeeOcrText=$('oeeOcrText').value;
+
     return rows;
-  } catch (error) {
+  }catch(error){
     console.error(error);
-    statusEl.textContent = 'Não consegui ler automaticamente. Confira a foto inteira e preencha os valores manualmente.';
+
+    statusEl.textContent=
+      'Não consegui ler automaticamente. Confira a foto inteira e preencha somente os valores faltantes.';
+
     renderOeeMachineEditor([]);
-    showToast('Leitura automática incompleta. Confirme os valores manualmente.');
+
+    showToast(
+      'Leitura automática incompleta. Os valores podem ser preenchidos manualmente.'
+    );
+
     return [];
   }
 }
@@ -5608,7 +5757,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=82.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=83.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -12205,7 +12354,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=82.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=83.0.0');
         registration.update();
       } catch {}
     });

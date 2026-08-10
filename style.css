@@ -2162,3 +2162,17 @@ button.secondary,
   border-color:#d92d20 !important;
   background:#fff6f5 !important;
 }
+
+
+/* V83 — leitura visual do quadro */
+.oee-editor-row small{
+  font-weight:700;
+}
+
+.oee-editor-row.confidence-good small{
+  color:#067647;
+}
+
+.oee-editor-row.confidence-warning small{
+  color:#b54708;
+}
