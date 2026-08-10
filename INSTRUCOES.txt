@@ -1,14 +1,12 @@
-PATCH V87
+PATCH V88
 
 Substitua:
 - app.js
 - index.html
-- style.css
 - sw.js
 - api/health.js
 
-Depois faça novo deploy e confirme V87.0.0.
+Depois faça novo deploy e confirme V88.0.0.
 
-Mudança principal:
-O OCR não bloqueia mais o relatório.
-Mesmo se não ler todos os OEE, Analisar relatório continua funcionando.
+A foto continua inteira na tela.
+O recorte existe apenas internamente para melhorar o OCR.

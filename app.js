@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '87.0.0';
+const APP_VERSION = '88.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v87.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v88.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -3224,6 +3224,381 @@ function buildFastOeeRows(anchors=[],candidateMap=new Map()){
   });
 }
 
+
+function cropCanvasRegion(sourceCanvas,left,top,right,bottom,scale=2.5){
+  const sw=Math.max(1,Math.round(right-left));
+  const sh=Math.max(1,Math.round(bottom-top));
+
+  const canvas=document.createElement('canvas');
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+
+  canvas.width=Math.max(1,Math.round(sw*scale));
+  canvas.height=Math.max(1,Math.round(sh*scale));
+
+  ctx.fillStyle='#fff';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.imageSmoothingEnabled=true;
+  ctx.imageSmoothingQuality='high';
+
+  ctx.drawImage(
+    sourceCanvas,
+    left,top,sw,sh,
+    0,0,canvas.width,canvas.height
+  );
+
+  return canvas;
+}
+
+function enhanceOeeCropCanvas(canvas){
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  const img=ctx.getImageData(0,0,canvas.width,canvas.height);
+  const p=img.data;
+
+  for(let i=0;i<p.length;i+=4){
+    const r=p[i];
+    const g=p[i+1];
+    const b=p[i+2];
+
+    const max=Math.max(r,g,b);
+    const min=Math.min(r,g,b);
+    const saturation=max-min;
+    const lum=0.299*r+0.587*g+0.114*b;
+
+    let value;
+
+    // Escrita colorida (vermelho, verde, azul) fica bem escura.
+    if(saturation>20){
+      value=lum*0.48-saturation*0.62+48;
+    }else{
+      // Grade e fundo claro ficam mais claros.
+      value=(lum-125)*1.55+130;
+    }
+
+    value=Math.max(0,Math.min(255,value));
+
+    p[i]=value;
+    p[i+1]=value;
+    p[i+2]=value;
+    p[i+3]=255;
+  }
+
+  ctx.putImageData(img,0,0);
+  return canvas;
+}
+
+function boardInternalRegions(canvas,operationalDate,shift){
+  const width=canvas.width;
+  const height=canvas.height;
+
+  // Detecta linhas verticais reais do quadro.
+  const verticalLines=detectBoardVerticalLines(canvas);
+
+  // Na foto típica:
+  // 0.. primeira divisória = cabeçalho/coluna de máquina.
+  // A primeira área de dados começa depois da coluna MK.
+  const likelyMachineDivider=
+    verticalLines.find(x=>x>width*0.17 && x<width*0.42) ||
+    width*0.285;
+
+  const machineLeft=Math.max(0,width*0.035);
+  const machineRight=Math.min(width,likelyMachineDivider+width*0.018);
+
+  const afterMachine=verticalLines
+    .filter(x=>x>likelyMachineDivider+width*0.025)
+    .sort((a,b)=>a-b);
+
+  const expectedIndex=boardColumnIndex(operationalDate,shift);
+
+  let dataLeft;
+  let dataRight;
+
+  if(afterMachine.length>=expectedIndex+1){
+    dataLeft=
+      expectedIndex===0
+        ? likelyMachineDivider
+        : afterMachine[expectedIndex-1];
+
+    dataRight=afterMachine[expectedIndex]||width*0.99;
+  }else{
+    // Fallback baseado na largura útil do quadro.
+    const start=likelyMachineDivider;
+    const end=width*0.99;
+    const cols=10;
+    const colWidth=(end-start)/cols;
+
+    dataLeft=start+expectedIndex*colWidth;
+    dataRight=start+(expectedIndex+1)*colWidth;
+  }
+
+  // O quadro da foto pode mostrar só a primeira coluna com conteúdo.
+  // Se a coluna calculada estiver praticamente vazia ou muito estreita,
+  // para segunda A usamos a primeira coluna após MK.
+  if(expectedIndex===0){
+    dataLeft=likelyMachineDivider;
+    if(afterMachine.length){
+      dataRight=afterMachine[0];
+    }else{
+      dataRight=Math.min(width,width*0.60);
+    }
+  }
+
+  // Faixa vertical das máquinas; mantém folga.
+  const top=height*0.22;
+  const bottom=height*0.965;
+
+  return {
+    machine:{
+      left:machineLeft,
+      right:machineRight,
+      top,
+      bottom
+    },
+    oee:{
+      left:Math.max(0,dataLeft-width*0.012),
+      right:Math.min(width,dataRight+width*0.012),
+      top,
+      bottom
+    }
+  };
+}
+
+function machineAnchorsFromCroppedOcr(words=[],cropInfo,scale,fullHeight){
+  const allowed=new Map(
+    OEE_BOARD_MACHINES.map(machine=>[
+      oeeMachineNumber(machine),
+      machine
+    ])
+  );
+
+  const found=new Map();
+
+  for(const word of words){
+    const raw=String(word.text||'').trim();
+    const groups=raw.match(/\d{2,3}/g)||[];
+
+    for(const group of groups){
+      const number=Number(group);
+      const machine=allowed.get(number);
+      if(!machine)continue;
+
+      const center=bboxCenter(word);
+
+      // converte coordenada do recorte para a foto cheia
+      const fullY=cropInfo.top+(center.y/scale);
+      const confidence=Number(word.confidence||0);
+
+      const current=found.get(machine);
+      if(!current || confidence>current.confidence){
+        found.set(machine,{
+          machine,
+          y:fullY,
+          confidence,
+          raw
+        });
+      }
+    }
+  }
+
+  const ordered=OEE_BOARD_MACHINES.map((machine,index)=>({
+    machine,
+    index,
+    anchor:found.get(machine)||null
+  }));
+
+  const known=ordered.filter(item=>item.anchor);
+
+  // Interpola somente posição vertical das máquinas faltantes.
+  if(known.length>=2){
+    for(const item of ordered){
+      if(item.anchor)continue;
+
+      const before=[...known]
+        .filter(k=>k.index<item.index)
+        .sort((a,b)=>b.index-a.index)[0];
+
+      const after=[...known]
+        .filter(k=>k.index>item.index)
+        .sort((a,b)=>a.index-b.index)[0];
+
+      if(before&&after){
+        const ratio=
+          (item.index-before.index)/
+          (after.index-before.index);
+
+        item.anchor={
+          machine:item.machine,
+          y:
+            before.anchor.y+
+            (after.anchor.y-before.anchor.y)*ratio,
+          confidence:35,
+          raw:'linha estimada',
+          interpolated:true
+        };
+      }
+    }
+  }
+
+  // Se poucas máquinas foram lidas, usa distribuição vertical baseada
+  // nas âncoras conhecidas para completar o mapa sem trocar a ordem.
+  const completed=ordered.map(item=>item.anchor).filter(Boolean);
+
+  if(completed.length>=2){
+    const firstKnown=ordered.find(item=>item.anchor);
+    const lastKnown=[...ordered].reverse().find(item=>item.anchor);
+
+    const step=
+      (lastKnown.anchor.y-firstKnown.anchor.y)/
+      Math.max(1,lastKnown.index-firstKnown.index);
+
+    for(const item of ordered){
+      if(item.anchor)continue;
+
+      item.anchor={
+        machine:item.machine,
+        y:firstKnown.anchor.y+(item.index-firstKnown.index)*step,
+        confidence:25,
+        raw:'linha estimada',
+        interpolated:true
+      };
+    }
+  }
+
+  return ordered.map(item=>(
+    item.anchor || {
+      machine:item.machine,
+      y:null,
+      confidence:0,
+      raw:'não localizado',
+      interpolated:true
+    }
+  ));
+}
+
+function percentWordsFromColumnOcr(words=[],oeeRegion,scale){
+  const out=[];
+
+  for(const word of words){
+    const center=bboxCenter(word);
+    const text=String(word.text||'').trim();
+
+    const matches=text.match(/\d{1,3}(?:[.,]\d+)?\s*%?/g)||[];
+
+    for(const raw of matches){
+      const value=Number(
+        raw.replace('%','').replace(',','.').trim()
+      );
+
+      if(!Number.isFinite(value) || value<20 || value>100)continue;
+
+      out.push({
+        value,
+        hasPercent:raw.includes('%'),
+        confidence:Number(word.confidence||0),
+        raw:text,
+        fullY:oeeRegion.top+(center.y/scale),
+        x:center.x
+      });
+    }
+  }
+
+  return out;
+}
+
+function associatePercentToMachineRows(anchors=[],percentWords=[],fullHeight=1){
+  const validAnchors=anchors.filter(a=>Number.isFinite(a.y));
+
+  const gaps=[];
+  const ys=validAnchors.map(a=>a.y).sort((a,b)=>a-b);
+
+  for(let i=1;i<ys.length;i++){
+    const gap=ys[i]-ys[i-1];
+    if(gap>4)gaps.push(gap);
+  }
+
+  gaps.sort((a,b)=>a-b);
+
+  const typicalGap=
+    gaps.length
+      ? gaps[Math.floor(gaps.length/2)]
+      : fullHeight*0.034;
+
+  const tolerance=Math.max(10,typicalGap*0.48);
+
+  return OEE_BOARD_MACHINES.map(machine=>{
+    const anchor=anchors.find(a=>a.machine===machine);
+
+    if(!anchor || !Number.isFinite(anchor.y)){
+      return {
+        machine,
+        oee:'',
+        candidateOee:'',
+        confidence:0,
+        source:'Linha da máquina não localizada',
+        needsConfirmation:false,
+        ambiguous:false,
+        ocrSource:true
+      };
+    }
+
+    const candidates=percentWords
+      .map(word=>({
+        ...word,
+        distance:Math.abs(word.fullY-anchor.y)
+      }))
+      .filter(word=>word.distance<=tolerance)
+      .sort((a,b)=>{
+        if(a.hasPercent!==b.hasPercent)return a.hasPercent?-1:1;
+        if(a.distance!==b.distance)return a.distance-b.distance;
+        return b.confidence-a.confidence;
+      });
+
+    const chosen=candidates[0];
+
+    if(!chosen){
+      return {
+        machine,
+        oee:'',
+        candidateOee:'',
+        confidence:0,
+        source:'Sem percentual na mesma linha',
+        needsConfirmation:false,
+        ambiguous:false,
+        ocrSource:true,
+        anchorConfidence:anchor.confidence
+      };
+    }
+
+    const conflicts=candidates.filter(item=>
+      Math.abs(item.value-chosen.value)>5 &&
+      item.distance<=chosen.distance+6
+    );
+
+    const ambiguous=conflicts.some(item=>
+      item.hasPercent || item.confidence>=55
+    );
+
+    const needsConfirmation=
+      ambiguous ||
+      !chosen.hasPercent ||
+      chosen.confidence<55 ||
+      Boolean(anchor.interpolated);
+
+    return {
+      machine,
+      oee:chosen.value,
+      candidateOee:chosen.value,
+      confidence:chosen.confidence,
+      source:
+        `${chosen.raw} | ${anchor.raw}`+
+        `${anchor.interpolated?' (linha estimada)':''}`,
+      needsConfirmation,
+      ambiguous,
+      ocrSource:true,
+      anchorConfidence:anchor.confidence
+    };
+  });
+}
+
 async function processOeeColumnPhoto() {
   const file=$('oeeImageInput')?.files?.[0];
 
@@ -3240,9 +3615,10 @@ async function processOeeColumnPhoto() {
   const statusEl=$('oeeStatus');
   const operationalDate=$('reportDate').value||todayISO();
   const shift=$('reportShift').value||'1';
+  const scope=boardScopeForReport(operationalDate,shift);
 
   try{
-    statusEl.textContent='OCR rápido: preparando a foto inteira...';
+    statusEl.textContent='Preparando a foto inteira...';
 
     const fullDataUrl=
       state.oeeImageDataUrl||
@@ -3251,6 +3627,8 @@ async function processOeeColumnPhoto() {
     state.oeeImageDataUrl=fullDataUrl;
 
     const image=await loadImageElement(fullDataUrl);
+
+    // Mantém prévia INTEIRA para o usuário.
     const processed=preprocessOeeColumn(
       image,
       operationalDate,
@@ -3264,13 +3642,34 @@ async function processOeeColumnPhoto() {
     $('oeeOcrPreview').src=processed.ocrDataUrl;
     $('oeeCropPreviewWrap').classList.remove('hidden');
 
-    // --------------------------------------------------------
-    // PASSO 1: máquinas impressas
-    // --------------------------------------------------------
-    statusEl.textContent='OCR 1/2: localizando as máquinas...';
+    const fullCanvas=processed.previewCanvas;
+    const regions=boardInternalRegions(
+      fullCanvas,
+      operationalDate,
+      shift
+    );
+
+    // ========================================================
+    // OCR 1: RECORTE INTERNO DA COLUNA DE MÁQUINAS
+    // ========================================================
+    const machineScale=3.0;
+
+    let machineCanvas=cropCanvasRegion(
+      fullCanvas,
+      regions.machine.left,
+      regions.machine.top,
+      regions.machine.right,
+      regions.machine.bottom,
+      machineScale
+    );
+
+    machineCanvas=enhanceOeeCropCanvas(machineCanvas);
+
+    statusEl.textContent=
+      'OCR 1/2: lendo a coluna das máquinas...';
 
     const machinePass=await window.Tesseract.recognize(
-      processed.previewDataUrl,
+      machineCanvas.toDataURL('image/png'),
       'eng',
       {
         logger:info=>{
@@ -3290,48 +3689,34 @@ async function processOeeColumnPhoto() {
       }
     );
 
-    const canvas=processed.previewCanvas;
-
-    const anchors=findMachineAnchorsFromPrintedOcr(
+    const anchors=machineAnchorsFromCroppedOcr(
       machinePass?.data?.words||[],
-      canvas.width,
-      canvas.height
+      regions.machine,
+      machineScale,
+      fullCanvas.height
     );
 
-    const known=anchors.filter(a=>
-      Number.isFinite(a.y) &&
-      !a.interpolated
+    // ========================================================
+    // OCR 2: RECORTE INTERNO SOMENTE DA COLUNA DO TURNO
+    // ========================================================
+    const oeeScale=3.0;
+
+    let oeeCanvas=cropCanvasRegion(
+      fullCanvas,
+      regions.oee.left,
+      regions.oee.top,
+      regions.oee.right,
+      regions.oee.bottom,
+      oeeScale
     );
 
-    const ys=known.map(a=>a.y).sort((a,b)=>a-b);
-    const gaps=[];
+    oeeCanvas=enhanceOeeCropCanvas(oeeCanvas);
 
-    for(let i=1;i<ys.length;i++){
-      const gap=ys[i]-ys[i-1];
-      if(gap>5)gaps.push(gap);
-    }
+    statusEl.textContent=
+      `OCR 2/2: lendo somente ${scope.label}...`;
 
-    gaps.sort((a,b)=>a-b);
-
-    const rowHeight=
-      gaps.length
-        ? gaps[Math.floor(gaps.length/2)]
-        : canvas.height*0.034;
-
-    const bounds=chooseOeeColumnBounds(
-      canvas,
-      anchors,
-      operationalDate,
-      shift
-    );
-
-    // --------------------------------------------------------
-    // PASSO 2: percentuais na foto inteira (UMA chamada)
-    // --------------------------------------------------------
-    statusEl.textContent='OCR 2/2: lendo os percentuais...';
-
-    const percentPass=await window.Tesseract.recognize(
-      processed.previewDataUrl,
+    const oeePass=await window.Tesseract.recognize(
+      oeeCanvas.toDataURL('image/png'),
       'eng',
       {
         logger:info=>{
@@ -3351,30 +3736,34 @@ async function processOeeColumnPhoto() {
       }
     );
 
-    const candidateMap=percentCandidatesFromFullOcr(
-      percentPass?.data?.words||[],
-      bounds,
-      anchors,
-      rowHeight
+    const percentWords=percentWordsFromColumnOcr(
+      oeePass?.data?.words||[],
+      regions.oee,
+      oeeScale
     );
 
-    const rows=buildFastOeeRows(
+    const rows=associatePercentToMachineRows(
       anchors,
-      candidateMap
+      percentWords,
+      fullCanvas.height
     );
 
     state.oeeMachineEditorData=rows;
     renderOeeMachineEditor(rows);
 
     const detected=usefulOeeReadCount(rows);
+    const confirmed=rows.filter(row=>
+      row.oee!=='' &&
+      !row.needsConfirmation
+    ).length;
     const uncertain=rows.filter(row=>row.needsConfirmation).length;
 
     statusEl.textContent=
-      `OCR concluído: ${detected} OEE encontrado(s)`+
-      `${uncertain?` • ${uncertain} para conferência`:''}. `+
-      `Você já pode analisar o relatório.`;
+      `Foto lida: ${detected} OEE encontrado(s), `+
+      `${confirmed} confiável(is)`+
+      `${uncertain?` e ${uncertain} para conferir`:''}. `+
+      `O relatório já pode ser analisado.`;
 
-    // Usa somente os OEE confiáveis automaticamente.
     $('oeeOcrText').value=editorOeeText();
     state.oeeOcrText=$('oeeOcrText').value;
 
@@ -3383,10 +3772,10 @@ async function processOeeColumnPhoto() {
     console.error(error);
 
     statusEl.textContent=
-      `OCR não conseguiu concluir (${error.message}). `+
-      `O relatório pode ser analisado normalmente sem os OEE não confirmados.`;
+      `Leitura da foto incompleta: ${error.message}. `+
+      `O relatório continua disponível.`;
 
-    showToast('OCR incompleto. O relatório continuará sem bloquear.');
+    showToast('Não consegui ler todos os OEE; o relatório não será bloqueado.');
 
     return [];
   }
@@ -6352,7 +6741,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=87.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=88.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -12956,7 +13345,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=87.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=88.0.0');
         registration.update();
       } catch {}
     });
