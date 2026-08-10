@@ -1,7 +1,7 @@
 module.exports=(req,res)=>res.status(200).json({
   ok:true,
   app:'TurnoSmart',
-  version:'85.0.0',
+  version:'86.0.0',
   openai_api_key_configured:Boolean(process.env.OPENAI_API_KEY),
   openai_model_configuration_valid:(
     !process.env.OPENAI_MODEL ||
@@ -49,7 +49,11 @@ module.exports=(req,res)=>res.status(200).json({
   oee_wrong_row_protection_enabled:true,
   oee_vision_payload_optimized_enabled:true,
   invalid_openai_model_auto_recovery_enabled:true,
-  oee_vision_error_visible_enabled:true,
+  oee_vision_error_visible_enabled:false,
+  oee_local_ocr_primary_enabled:true,
+  oee_printed_machine_anchor_enabled:true,
+  oee_row_by_row_ocr_enabled:true,
+  openai_oee_vision_disabled:true,
   legacy_maintenance_action_list_disabled:true,
   max_three_confirmed_priorities:true,
   monthly_management_evolution_enabled:true,
