@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '80.0.0';
+const APP_VERSION = '81.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v80.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v81.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2059,27 +2059,39 @@ function boardColumnIndex(operationalDate, shift) {
   return mondayIndex * 2 + shiftOffset;
 }
 
-function getOeeCropSettings(image, operationalDate, shift) {
-  // O quadro tem uma coluna fixa das máquinas à esquerda e 14 colunas de turno.
+function getOeeBoardGeometry(image, operationalDate, shift) {
+  // V81: A FOTO NUNCA É RECORTADA.
+  // Estes valores servem somente para localizar, dentro da foto inteira,
+  // a coluna do turno e a faixa vertical das máquinas.
   const boardStart = 0.085;
   const boardEnd = 0.995;
   const totalColumns = 14;
   const columnWidth = (boardEnd - boardStart) / totalColumns;
   const index = boardColumnIndex(operationalDate, shift);
 
-  // Leve folga lateral para compensar perspectiva da foto.
-  const xRatio = Math.max(0, boardStart + index * columnWidth - columnWidth * 0.13);
-  const widthRatio = Math.min(1 - xRatio, columnWidth * 1.26);
+  const columnLeftRatio = Math.max(
+    0,
+    boardStart + index * columnWidth - columnWidth * 0.16
+  );
+  const columnRightRatio = Math.min(
+    1,
+    boardStart + (index + 1) * columnWidth + columnWidth * 0.16
+  );
 
-  // Começa onde iniciam as linhas das máquinas, removendo cabeçalho/produção total.
-  const yRatio = 0.175;
-  const heightRatio = 0.79;
+  // Faixa vertical onde ficam as linhas MK138 ... MK149.
+  // Não corta a imagem; apenas filtra as coordenadas OCR.
+  const rowsTopRatio = 0.175;
+  const rowsBottomRatio = 0.965;
 
   return {
-    sx: Math.round(image.naturalWidth * xRatio),
-    sy: Math.round(image.naturalHeight * yRatio),
-    sw: Math.round(image.naturalWidth * widthRatio),
-    sh: Math.round(image.naturalHeight * heightRatio)
+    imageWidth: image.naturalWidth || image.width,
+    imageHeight: image.naturalHeight || image.height,
+    columnLeftRatio,
+    columnRightRatio,
+    rowsTopRatio,
+    rowsBottomRatio,
+    columnIndex: index,
+    scope: boardScopeForReport(operationalDate, shift)
   };
 }
 
@@ -2130,13 +2142,18 @@ function createOeeRowPreviews(previewCanvas) {
 }
 
 function preprocessOeeColumn(image, operationalDate, shift) {
-  const crop = getOeeCropSettings(image, operationalDate, shift);
+  const geometry = getOeeBoardGeometry(image, operationalDate, shift);
 
-  // Prévia colorida e legível para o usuário.
+  // PRÉVIA: foto inteira, sem nenhum corte.
   const previewCanvas = document.createElement('canvas');
   const previewCtx = previewCanvas.getContext('2d');
-  const previewWidth = Math.max(520, Math.min(900, crop.sw * 3.5));
-  const previewHeight = Math.round(previewWidth * (crop.sh / crop.sw));
+
+  const naturalWidth = image.naturalWidth || image.width;
+  const naturalHeight = image.naturalHeight || image.height;
+  const previewScale = Math.min(1, 1400 / Math.max(1, naturalWidth));
+
+  const previewWidth = Math.max(1, Math.round(naturalWidth * previewScale));
+  const previewHeight = Math.max(1, Math.round(naturalHeight * previewScale));
 
   previewCanvas.width = previewWidth;
   previewCanvas.height = previewHeight;
@@ -2146,35 +2163,40 @@ function preprocessOeeColumn(image, operationalDate, shift) {
   previewCtx.imageSmoothingQuality = 'high';
   previewCtx.drawImage(
     image,
-    crop.sx, crop.sy, crop.sw, crop.sh,
+    0, 0, naturalWidth, naturalHeight,
     0, 0, previewWidth, previewHeight
   );
 
-  // Imagem separada para o OCR. Ela não é mais usada como prévia principal.
+  // OCR: também usa a foto inteira.
+  // Apenas aumenta/reduz a resolução para melhorar desempenho.
+  const desiredWidth = Math.max(
+    1800,
+    Math.min(2800, naturalWidth * 1.35)
+  );
+  const ocrScale = desiredWidth / Math.max(1, naturalWidth);
+  const ocrWidth = Math.max(1, Math.round(naturalWidth * ocrScale));
+  const ocrHeight = Math.max(1, Math.round(naturalHeight * ocrScale));
+
   const ocrCanvas = document.createElement('canvas');
   const ocrCtx = ocrCanvas.getContext('2d', { willReadFrequently: true });
-  const ocrWidth = Math.max(1200, Math.min(1800, crop.sw * 6));
-  const ocrHeight = Math.round(ocrWidth * (crop.sh / crop.sw));
-
   ocrCanvas.width = ocrWidth;
   ocrCanvas.height = ocrHeight;
+
   ocrCtx.fillStyle = '#ffffff';
   ocrCtx.fillRect(0, 0, ocrWidth, ocrHeight);
   ocrCtx.imageSmoothingEnabled = true;
   ocrCtx.imageSmoothingQuality = 'high';
   ocrCtx.drawImage(
     image,
-    crop.sx, crop.sy, crop.sw, crop.sh,
+    0, 0, naturalWidth, naturalHeight,
     0, 0, ocrWidth, ocrHeight
   );
 
   const imageData = ocrCtx.getImageData(0, 0, ocrWidth, ocrHeight);
   const pixels = imageData.data;
 
-  // Tratamento suave:
-  // - mantém os traços da caneta;
-  // - clareia grade e fundo;
-  // - não dilata nem transforma a escrita em blocos pretos.
+  // Tratamento leve em TODA a foto.
+  // Não remove cabeçalho, bordas ou colunas.
   for (let i = 0; i < pixels.length; i += 4) {
     const r = pixels[i];
     const g = pixels[i + 1];
@@ -2187,15 +2209,12 @@ function preprocessOeeColumn(image, operationalDate, shift) {
 
     let value;
 
-    if (saturation < 15 && luminance > 118) {
-      // Fundo branco e linhas claras da grade.
+    if (saturation < 15 && luminance > 155) {
       value = 255;
     } else if (saturation >= 18) {
-      // Caneta colorida: aumenta contraste sem engrossar o traço.
-      value = clampByte(luminance * 0.58 - saturation * 0.55 + 42);
+      value = clampByte(luminance * 0.62 - saturation * 0.48 + 38);
     } else {
-      // Escrita escura ou partes mais fortes da grade.
-      value = clampByte((luminance - 105) * 1.65 + 105);
+      value = clampByte((luminance - 105) * 1.5 + 105);
     }
 
     pixels[i] = value;
@@ -2207,12 +2226,13 @@ function preprocessOeeColumn(image, operationalDate, shift) {
   ocrCtx.putImageData(imageData, 0, 0);
 
   return {
-    crop,
+    geometry,
     canvas: ocrCanvas,
     previewCanvas,
     previewDataUrl: previewCanvas.toDataURL('image/jpeg', 0.94),
     ocrDataUrl: ocrCanvas.toDataURL('image/png'),
-    rowPreviews: createOeeRowPreviews(previewCanvas)
+    // V81: não cria mais recortes por linha.
+    rowPreviews: []
   };
 }
 
@@ -2229,9 +2249,28 @@ function numericOeeFromWord(text = '') {
   };
 }
 
-function mapOcrWordsToMachineRows(words = [], canvasHeight = 1) {
+function mapOcrWordsToMachineRows(
+  words = [],
+  canvasHeight = 1,
+  canvasWidth = 1,
+  geometry = null
+) {
   const rowCount = OEE_BOARD_MACHINES.length;
-  const rowHeight = Math.max(1, canvasHeight / rowCount);
+  const safeGeometry = geometry || {
+    columnLeftRatio: 0,
+    columnRightRatio: 1,
+    rowsTopRatio: 0,
+    rowsBottomRatio: 1
+  };
+
+  const rowsTop = canvasHeight * safeGeometry.rowsTopRatio;
+  const rowsBottom = canvasHeight * safeGeometry.rowsBottomRatio;
+  const rowsHeight = Math.max(1, rowsBottom - rowsTop);
+  const rowHeight = rowsHeight / rowCount;
+
+  const columnLeft = canvasWidth * safeGeometry.columnLeftRatio;
+  const columnRight = canvasWidth * safeGeometry.columnRightRatio;
+
   const rowBuckets = Array.from({ length: rowCount }, () => []);
 
   for (const word of words) {
@@ -2239,27 +2278,35 @@ function mapOcrWordsToMachineRows(words = [], canvasHeight = 1) {
     if (!parsed) continue;
 
     const bbox = word.bbox || {};
+    const x0 = Number(bbox.x0 ?? bbox.left ?? 0);
+    const x1 = Number(bbox.x1 ?? bbox.right ?? x0);
     const y0 = Number(bbox.y0 ?? bbox.top ?? 0);
     const y1 = Number(bbox.y1 ?? bbox.bottom ?? y0);
+
+    const centerX = (x0 + x1) / 2;
     const centerY = (y0 + y1) / 2;
 
-    // A linha é definida somente pela faixa horizontal onde está o centro
-    // do percentual. Não permite buscar valor em linha vizinha.
-    const rowIndex = Math.floor(centerY / rowHeight);
+    // Não recorta a imagem.
+    // Apenas ignora OCR fora da coluna do dia/turno selecionado.
+    if (centerX < columnLeft || centerX > columnRight) continue;
+    if (centerY < rowsTop || centerY > rowsBottom) continue;
+
+    const relativeY = centerY - rowsTop;
+    const rowIndex = Math.floor(relativeY / rowHeight);
+
     if (rowIndex < 0 || rowIndex >= rowCount) continue;
 
-    const rowTop = rowIndex * rowHeight;
+    const rowTop = rowsTop + rowIndex * rowHeight;
     const positionInsideRow = (centerY - rowTop) / rowHeight;
 
-    // Ignora textos colados nas linhas horizontais da grade, pois podem
-    // pertencer à célula de cima ou de baixo.
-    if (positionInsideRow < 0.10 || positionInsideRow > 0.90) continue;
+    // Evita usar números exatamente sobre as divisórias.
+    if (positionInsideRow < 0.08 || positionInsideRow > 0.92) continue;
 
     rowBuckets[rowIndex].push({
       value: parsed.value,
       hasPercent: parsed.hasPercent,
       confidence: Number(word.confidence || 0),
-      x: Number(bbox.x0 ?? bbox.left ?? 0),
+      x: centerX,
       y: centerY,
       raw: word.text
     });
@@ -2273,14 +2320,11 @@ function mapOcrWordsToMachineRows(words = [], canvasHeight = 1) {
         machine,
         oee: '',
         confidence: 0,
-        source: 'Não identificado'
+        source: 'Não identificado',
+        needsConfirmation: false
       };
     }
 
-    // Ordem de preferência:
-    // 1. valor com símbolo %
-    // 2. maior confiança do OCR
-    // 3. valor mais à direita dentro da mesma linha
     candidates.sort((a, b) => {
       if (a.hasPercent !== b.hasPercent) return a.hasPercent ? -1 : 1;
       if (a.confidence !== b.confidence) return b.confidence - a.confidence;
@@ -2289,29 +2333,30 @@ function mapOcrWordsToMachineRows(words = [], canvasHeight = 1) {
 
     const chosen = candidates[0];
 
-    const strongPercentCandidates=candidates.filter(item=>
-      item.hasPercent && Number(item.confidence||0)>=OEE_AUTO_CONFIDENCE_MIN
+    const strongPercentCandidates = candidates.filter(item =>
+      item.hasPercent &&
+      Number(item.confidence || 0) >= OEE_AUTO_CONFIDENCE_MIN
     );
 
-    const ambiguous=
-      strongPercentCandidates.length>=2 &&
+    const ambiguous =
+      strongPercentCandidates.length >= 2 &&
       Math.abs(
-        Number(strongPercentCandidates[0].value)-
+        Number(strongPercentCandidates[0].value) -
         Number(strongPercentCandidates[1].value)
-      )>5;
+      ) > 5;
 
-    const autoAccepted=
+    const autoAccepted =
       chosen.hasPercent &&
-      Number(chosen.confidence||0)>=OEE_AUTO_CONFIDENCE_MIN &&
+      Number(chosen.confidence || 0) >= OEE_AUTO_CONFIDENCE_MIN &&
       !ambiguous;
 
     return {
       machine,
-      oee:autoAccepted?chosen.value:'',
-      candidateOee:chosen.value,
-      confidence:chosen.confidence,
-      source:chosen.raw,
-      needsConfirmation:!autoAccepted,
+      oee: autoAccepted ? chosen.value : '',
+      candidateOee: chosen.value,
+      confidence: chosen.confidence,
+      source: chosen.raw,
+      needsConfirmation: !autoAccepted,
       ambiguous
     };
   });
@@ -2420,7 +2465,7 @@ async function processOeeColumnPhoto() {
   const scope = boardScopeForReport(operationalDate, shift);
 
   try {
-    statusEl.textContent = `Recortando somente ${scope.label}...`;
+    statusEl.textContent = `Analisando a foto inteira — procurando ${scope.label}...`;
     const fullDataUrl = state.oeeImageDataUrl || await dataUrlFromFile(file);
     state.oeeImageDataUrl = fullDataUrl;
 
@@ -2434,7 +2479,7 @@ async function processOeeColumnPhoto() {
     $('oeeCropPreviewWrap').classList.remove('hidden');
 
     if (!window.Tesseract) throw new Error('OCR não carregado.');
-    statusEl.textContent = `Lendo somente ${scope.label}...`;
+    statusEl.textContent = `Lendo a foto inteira — coluna ${scope.label}...`;
 
     const result = await window.Tesseract.recognize(
       processed.ocrDataUrl,
@@ -2442,24 +2487,29 @@ async function processOeeColumnPhoto() {
       {
         logger: info => {
           if (info.status === 'recognizing text' && typeof info.progress === 'number') {
-            statusEl.textContent = `Lendo ${scope.label}... ${Math.round(info.progress * 100)}%`;
+            statusEl.textContent = `Analisando foto inteira... ${Math.round(info.progress * 100)}%`;
           }
         }
       },
       {
         tessedit_char_whitelist: '0123456789%.,',
-        tessedit_pageseg_mode: '6',
+        tessedit_pageseg_mode: '11',
         preserve_interword_spaces: '1'
       }
     );
 
     const words = result?.data?.words || [];
-    const rows = mapOcrWordsToMachineRows(words, processed.canvas.height);
+    const rows = mapOcrWordsToMachineRows(
+      words,
+      processed.canvas.height,
+      processed.canvas.width,
+      processed.geometry
+    );
     state.oeeMachineEditorData = rows;
     renderOeeMachineEditor(rows);
 
     const detected = rows.filter(row => row.oee !== '').length;
-    statusEl.textContent = `${detected} valor(es) sugerido(s) em ${scope.label}. Como o quadro é escrito à mão, confirme cada linha antes de analisar.`;
+    statusEl.textContent = `${detected} valor(es) sugerido(s) na foto inteira para ${scope.label}. A imagem não foi recortada; confirme os valores antes de analisar.`;
 
     // Mantém compatibilidade com histórico e painel.
     $('oeeOcrText').value = editorOeeText();
@@ -2467,7 +2517,7 @@ async function processOeeColumnPhoto() {
     return rows;
   } catch (error) {
     console.error(error);
-    statusEl.textContent = 'Não consegui ler automaticamente. Preencha a tabela manualmente usando a foto recortada.';
+    statusEl.textContent = 'Não consegui ler automaticamente. Confira a foto inteira e preencha os valores manualmente.';
     renderOeeMachineEditor([]);
     showToast('Leitura automática incompleta. Confirme os valores manualmente.');
     return [];
@@ -5434,7 +5484,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=80.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=81.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -12031,7 +12081,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=80.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=81.0.0');
         registration.update();
       } catch {}
     });

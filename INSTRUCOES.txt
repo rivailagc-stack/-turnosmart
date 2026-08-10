@@ -1,14 +1,12 @@
-PATCH V80
+PATCH V81
 
 Substitua:
 - app.js
 - index.html
-- style.css
 - sw.js
 - api/health.js
 
-Depois faça novo deploy e confirme V80.0.0.
+Depois faça novo deploy e confirme V81.0.0.
 
-IMPORTANTE:
-Após atualizar, carregue novamente a foto do quadro.
-Valores de OEE com baixa confiança precisarão ser confirmados manualmente.
+A foto não será mais recortada.
+O OCR analisa a imagem inteira e usa apenas coordenadas para localizar o dia/turno.
