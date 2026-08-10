@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '88.0.0';
+const APP_VERSION = '89.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v88.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v89.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2438,140 +2438,166 @@ function mapOcrWordsToMachineRows(
 }
 
 function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
-  const wrap = $('oeeMachineEditor');
-  if (!wrap) return;
+  const wrap=$('oeeMachineEditor');
+  if(!wrap)return;
 
-  state.oeeMachineEditorData = rows.length
-    ? rows
-    : OEE_BOARD_MACHINES.map(machine => ({
+  state.oeeMachineEditorData=rows.length
+    ?rows
+    :OEE_BOARD_MACHINES.map(machine=>({
         machine,
-        oee: '',
-        candidateOee: '',
-        confidence: 0,
-        source: '',
-        needsConfirmation: false,
-        ambiguous: false
+        oee:'',
+        candidateOee:'',
+        confidence:0,
+        source:'',
+        needsConfirmation:false
       }));
 
-  wrap.innerHTML = `
+  wrap.innerHTML=`
     <div class="oee-editor-head">
-      <strong>Confira os OEE antes de analisar</strong>
+      <strong>OEE lido da foto</strong>
       <span class="muted">
-        O número provável já aparece. Corrija somente se a leitura não bater com a foto.
+        O pequeno recorte mostra exatamente a linha usada pelo OCR.
       </span>
     </div>
 
     <div class="oee-editor-grid">
-      ${state.oeeMachineEditorData.map((row, index) => {
-        const hasValue =
-          row.oee !== '' &&
-          Number.isFinite(Number(row.oee));
-
-        const confidenceClass = !hasValue
-          ? 'confidence-empty'
-          : row.needsConfirmation
-            ? 'confidence-warning'
-            : 'confidence-good';
-
-        const displayedValue = hasValue
-          ? row.oee
-          : (
-              row.candidateOee !== undefined &&
-              row.candidateOee !== ''
-                ? row.candidateOee
-                : ''
+      ${state.oeeMachineEditorData.map(
+        (row,index)=>{
+          const displayed=
+            row.oee!==''?row.oee:
+            (
+              row.candidateOee!==undefined &&
+              row.candidateOee!==''
+                ?row.candidateOee
+                :''
             );
 
-        return `
-          <label class="oee-editor-row ${confidenceClass}">
-            <span class="oee-machine-name">${escapeHtml(row.machine)}</span>
+          const css=
+            displayed===''
+              ?'confidence-empty'
+              :row.needsConfirmation
+                ?'confidence-warning'
+                :'confidence-good';
 
-            <input
-              class="oee-editor-input"
-              data-index="${index}"
-              type="number"
-              min="0"
-              max="100"
-              step="0.1"
-              inputmode="decimal"
-              value="${
-                displayedValue === ''
-                  ? ''
-                  : escapeHtml(String(displayedValue))
-              }"
-              placeholder="-"
-            />
+          const preview=
+            state.oeeRowPreviews?.[index]||'';
 
-            <small>${
-              displayedValue === ''
-                ? 'Não identificado — confira a foto e digite o OEE'
-                : row.needsConfirmation
-                  ? `${
-                      row.visionSource?'OCR':'OCR'
-                    } ${String(displayedValue).replace('.', ',')}% — confira`
-                  : `${
-                      row.visionSource?'OCR':'OCR'
-                    } ${String(displayedValue).replace('.', ',')}% — aceito`
-            }</small>
-          </label>
-        `;
-      }).join('')}
+          return `
+            <label class="oee-editor-row ${css}">
+              <span class="oee-machine-name">
+                ${escapeHtml(row.machine)}
+              </span>
+
+              ${
+                preview
+                  ?`<img
+                      class="oee-row-preview"
+                      src="${preview}"
+                      alt="Linha ${escapeHtml(row.machine)}"
+                    />`
+                  :''
+              }
+
+              <input
+                class="oee-editor-input"
+                data-index="${index}"
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                inputmode="decimal"
+                value="${
+                  displayed===''?'':escapeHtml(String(displayed))
+                }"
+                placeholder="-"
+              />
+
+              <small>${
+                displayed===''
+                  ?'Não identificado'
+                  :row.needsConfirmation
+                    ?`Leitura provável ${String(displayed).replace('.',',')}% — confira a imagem`
+                    :`${String(displayed).replace('.',',')}% — aceito`
+              }</small>
+            </label>
+          `;
+        }
+      ).join('')}
     </div>
   `;
 
-  $$('.oee-editor-input').forEach(input => {
-    const confirmValue = event => {
-      const index = Number(event.target.dataset.index);
-      if (
+  $$('.oee-editor-input').forEach(input=>{
+    const confirm=event=>{
+      const index=Number(
+        event.target.dataset.index
+      );
+
+      if(
         !Number.isInteger(index) ||
         !state.oeeMachineEditorData[index]
-      ) return;
+      )return;
 
-      const raw = String(event.target.value || '')
-        .trim()
-        .replace(',', '.');
+      const raw=String(
+        event.target.value||''
+      ).replace(',','.');
 
-      const value = raw === '' ? '' : Number(raw);
+      const value=
+        raw===''?'':Number(raw);
 
-      state.oeeMachineEditorData[index].oee =
-        Number.isFinite(value) ? value : '';
+      state.oeeMachineEditorData[index].oee=
+        Number.isFinite(value)?value:'';
 
-      if (Number.isFinite(value)) {
-        state.oeeMachineEditorData[index].candidateOee = value;
-        state.oeeMachineEditorData[index].confidence = 100;
-        state.oeeMachineEditorData[index].needsConfirmation = false;
-        state.oeeMachineEditorData[index].ambiguous = false;
+      if(Number.isFinite(value)){
+        state.oeeMachineEditorData[index].candidateOee=value;
+        state.oeeMachineEditorData[index].confidence=100;
+        state.oeeMachineEditorData[index].needsConfirmation=false;
+        state.oeeMachineEditorData[index].ambiguous=false;
 
-        const row = event.target.closest('.oee-editor-row');
-        row?.classList.remove(
-          'confidence-low',
-          'confidence-warning',
-          'confidence-empty'
+        const card=event.target.closest(
+          '.oee-editor-row'
         );
-        row?.classList.add('confidence-good');
 
-        const small = row?.querySelector('small');
-        if (small) small.textContent = 'Confirmado';
+        card?.classList.remove(
+          'confidence-empty',
+          'confidence-warning',
+          'confidence-low'
+        );
+
+        card?.classList.add(
+          'confidence-good'
+        );
+
+        const small=card?.querySelector('small');
+        if(small){
+          small.textContent=
+            `${String(value).replace('.',',')}% — confirmado`;
+        }
       }
     };
 
-    input.addEventListener('input', confirmValue);
-    input.addEventListener('change', confirmValue);
-    input.addEventListener('blur', confirmValue);
+    input.addEventListener('input',confirm);
+    input.addEventListener('change',confirm);
+    input.addEventListener('blur',confirm);
   });
 
   wrap.classList.remove('hidden');
 }
 
 function machineOeeFromEditor() {
-  return state.oeeMachineEditorData
-    .filter(row=>row.needsConfirmation!==true)
-    .map(row => ({
-      machine: row.machine,
-      oee: row.oee === '' ? null : Number(row.oee),
-      line: `${row.machine} ${row.oee}%`
+  return (state.oeeMachineEditorData||[])
+    .filter(row=>
+      row.needsConfirmation!==true
+    )
+    .map(row=>({
+      machine:row.machine,
+      oee:row.oee===''?null:Number(row.oee),
+      line:`${row.machine} ${row.oee}%`
     }))
-    .filter(row => Number.isFinite(row.oee) && row.oee >= 0 && row.oee <= 100);
+    .filter(row=>
+      Number.isFinite(row.oee) &&
+      row.oee>=0 &&
+      row.oee<=100
+    );
 }
 
 function editorOeeText() {
@@ -3599,6 +3625,309 @@ function associatePercentToMachineRows(anchors=[],percentWords=[],fullHeight=1){
   });
 }
 
+
+function getLegacyOeeCropSettings(image, operationalDate, shift) {
+  // Método legado que apresentava melhor leitura.
+  // Coluna fixa de máquinas + 14 colunas de turno no quadro.
+  const boardStart = 0.085;
+  const boardEnd = 0.995;
+  const totalColumns = 14;
+  const columnWidth = (boardEnd - boardStart) / totalColumns;
+  const index = boardColumnIndex(operationalDate, shift);
+
+  const xRatio = Math.max(
+    0,
+    boardStart + index * columnWidth - columnWidth * 0.13
+  );
+
+  const widthRatio = Math.min(
+    1 - xRatio,
+    columnWidth * 1.26
+  );
+
+  const yRatio = 0.175;
+  const heightRatio = 0.79;
+
+  return {
+    sx: Math.round((image.naturalWidth || image.width) * xRatio),
+    sy: Math.round((image.naturalHeight || image.height) * yRatio),
+    sw: Math.round((image.naturalWidth || image.width) * widthRatio),
+    sh: Math.round((image.naturalHeight || image.height) * heightRatio)
+  };
+}
+
+function createLegacyOeeRowPreviews(previewCanvas) {
+  const rowCount = OEE_BOARD_MACHINES.length;
+  const rowHeight = previewCanvas.height / rowCount;
+  const previews = [];
+
+  for (let index = 0; index < rowCount; index++) {
+    const sourceY = Math.max(
+      0,
+      index * rowHeight - rowHeight * 0.08
+    );
+
+    const sourceHeight = Math.min(
+      previewCanvas.height - sourceY,
+      rowHeight * 1.16
+    );
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 520;
+    canvas.height = 96;
+
+    const ctx = canvas.getContext('2d');
+
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+
+    ctx.drawImage(
+      previewCanvas,
+      0,
+      sourceY,
+      previewCanvas.width,
+      sourceHeight,
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+
+    previews.push(
+      canvas.toDataURL('image/jpeg',0.92)
+    );
+  }
+
+  return previews;
+}
+
+function preprocessLegacyOeeColumn(image, operationalDate, shift) {
+  const crop = getLegacyOeeCropSettings(
+    image,
+    operationalDate,
+    shift
+  );
+
+  // Recorte colorido para conferência.
+  const previewCanvas = document.createElement('canvas');
+  const previewCtx = previewCanvas.getContext('2d');
+
+  const previewWidth = Math.max(
+    520,
+    Math.min(900,crop.sw*3.5)
+  );
+
+  const previewHeight = Math.round(
+    previewWidth*(crop.sh/crop.sw)
+  );
+
+  previewCanvas.width = previewWidth;
+  previewCanvas.height = previewHeight;
+
+  previewCtx.fillStyle = '#fff';
+  previewCtx.fillRect(0,0,previewWidth,previewHeight);
+  previewCtx.imageSmoothingEnabled = true;
+  previewCtx.imageSmoothingQuality = 'high';
+
+  previewCtx.drawImage(
+    image,
+    crop.sx,crop.sy,crop.sw,crop.sh,
+    0,0,previewWidth,previewHeight
+  );
+
+  // Imagem ampliada para o OCR.
+  const ocrCanvas = document.createElement('canvas');
+  const ocrCtx = ocrCanvas.getContext(
+    '2d',
+    {willReadFrequently:true}
+  );
+
+  const ocrWidth = Math.max(
+    1200,
+    Math.min(1800,crop.sw*6)
+  );
+
+  const ocrHeight = Math.round(
+    ocrWidth*(crop.sh/crop.sw)
+  );
+
+  ocrCanvas.width = ocrWidth;
+  ocrCanvas.height = ocrHeight;
+
+  ocrCtx.fillStyle = '#fff';
+  ocrCtx.fillRect(0,0,ocrWidth,ocrHeight);
+  ocrCtx.imageSmoothingEnabled = true;
+  ocrCtx.imageSmoothingQuality = 'high';
+
+  ocrCtx.drawImage(
+    image,
+    crop.sx,crop.sy,crop.sw,crop.sh,
+    0,0,ocrWidth,ocrHeight
+  );
+
+  const imageData = ocrCtx.getImageData(
+    0,0,ocrWidth,ocrHeight
+  );
+
+  const pixels = imageData.data;
+
+  for(let i=0;i<pixels.length;i+=4){
+    const r=pixels[i];
+    const g=pixels[i+1];
+    const b=pixels[i+2];
+
+    const max=Math.max(r,g,b);
+    const min=Math.min(r,g,b);
+    const saturation=max-min;
+    const luminance=
+      0.299*r+
+      0.587*g+
+      0.114*b;
+
+    let value;
+
+    if(saturation<15 && luminance>118){
+      value=255;
+    }else if(saturation>=18){
+      value=clampByte(
+        luminance*0.58 -
+        saturation*0.55 +
+        42
+      );
+    }else{
+      value=clampByte(
+        (luminance-105)*1.65+105
+      );
+    }
+
+    pixels[i]=value;
+    pixels[i+1]=value;
+    pixels[i+2]=value;
+    pixels[i+3]=255;
+  }
+
+  ocrCtx.putImageData(imageData,0,0);
+
+  return {
+    crop,
+    canvas:ocrCanvas,
+    previewCanvas,
+    previewDataUrl:previewCanvas.toDataURL(
+      'image/jpeg',0.94
+    ),
+    ocrDataUrl:ocrCanvas.toDataURL('image/png'),
+    rowPreviews:createLegacyOeeRowPreviews(
+      previewCanvas
+    )
+  };
+}
+
+function mapLegacyOcrWordsToMachineRows(words=[],canvasHeight=1){
+  const rowCount=OEE_BOARD_MACHINES.length;
+  const rowHeight=Math.max(
+    1,
+    canvasHeight/rowCount
+  );
+
+  const buckets=Array.from(
+    {length:rowCount},
+    ()=>[]
+  );
+
+  for(const word of words){
+    const parsed=numericOeeFromWord(word.text);
+    if(!parsed)continue;
+
+    const bbox=word.bbox||{};
+    const y0=Number(bbox.y0??bbox.top??0);
+    const y1=Number(bbox.y1??bbox.bottom??y0);
+    const centerY=(y0+y1)/2;
+
+    const rowIndex=Math.floor(
+      centerY/rowHeight
+    );
+
+    if(rowIndex<0 || rowIndex>=rowCount)continue;
+
+    const rowTop=rowIndex*rowHeight;
+    const inside=(centerY-rowTop)/rowHeight;
+
+    if(inside<0.07 || inside>0.93)continue;
+
+    buckets[rowIndex].push({
+      value:parsed.value,
+      hasPercent:parsed.hasPercent,
+      confidence:Number(word.confidence||0),
+      x:Number(bbox.x0??bbox.left??0),
+      raw:String(word.text||'')
+    });
+  }
+
+  return OEE_BOARD_MACHINES.map(
+    (machine,index)=>{
+      const candidates=buckets[index];
+
+      if(!candidates.length){
+        return {
+          machine,
+          oee:'',
+          candidateOee:'',
+          confidence:0,
+          source:'Não identificado',
+          needsConfirmation:false,
+          ambiguous:false,
+          legacyCrop:true
+        };
+      }
+
+      candidates.sort((a,b)=>{
+        if(a.hasPercent!==b.hasPercent){
+          return a.hasPercent?-1:1;
+        }
+
+        if(a.confidence!==b.confidence){
+          return b.confidence-a.confidence;
+        }
+
+        return b.x-a.x;
+      });
+
+      const chosen=candidates[0];
+
+      const conflicts=candidates.filter(item=>
+        Math.abs(
+          Number(item.value)-Number(chosen.value)
+        )>5
+      );
+
+      const ambiguous=conflicts.some(item=>
+        item.hasPercent &&
+        Number(item.confidence||0)>=35
+      );
+
+      // Como a imagem já está isolada na coluna correta e na linha,
+      // aceitamos percentual explícito com confiança menor.
+      const autoAccepted=
+        chosen.hasPercent &&
+        Number(chosen.confidence||0)>=35 &&
+        !ambiguous;
+
+      return {
+        machine,
+        oee:autoAccepted?chosen.value:chosen.value,
+        candidateOee:chosen.value,
+        confidence:chosen.confidence,
+        source:chosen.raw,
+        needsConfirmation:!autoAccepted,
+        ambiguous,
+        legacyCrop:true
+      };
+    }
+  );
+}
+
 async function processOeeColumnPhoto() {
   const file=$('oeeImageInput')?.files?.[0];
 
@@ -3615,10 +3944,14 @@ async function processOeeColumnPhoto() {
   const statusEl=$('oeeStatus');
   const operationalDate=$('reportDate').value||todayISO();
   const shift=$('reportShift').value||'1';
-  const scope=boardScopeForReport(operationalDate,shift);
+  const scope=boardScopeForReport(
+    operationalDate,
+    shift
+  );
 
   try{
-    statusEl.textContent='Preparando a foto inteira...';
+    statusEl.textContent=
+      `Recortando internamente somente ${scope.label}...`;
 
     const fullDataUrl=
       state.oeeImageDataUrl||
@@ -3626,50 +3959,34 @@ async function processOeeColumnPhoto() {
 
     state.oeeImageDataUrl=fullDataUrl;
 
-    const image=await loadImageElement(fullDataUrl);
+    const image=await loadImageElement(
+      fullDataUrl
+    );
 
-    // Mantém prévia INTEIRA para o usuário.
-    const processed=preprocessOeeColumn(
+    const processed=preprocessLegacyOeeColumn(
       image,
       operationalDate,
       shift
     );
 
+    // V89 volta a mostrar o recorte que realmente foi usado.
     state.oeeCropDataUrl=processed.previewDataUrl;
-    state.oeeRowPreviews=[];
+    state.oeeRowPreviews=processed.rowPreviews||[];
 
-    $('oeeCropPreview').src=processed.previewDataUrl;
-    $('oeeOcrPreview').src=processed.ocrDataUrl;
-    $('oeeCropPreviewWrap').classList.remove('hidden');
+    $('oeeCropPreview').src=
+      processed.previewDataUrl;
 
-    const fullCanvas=processed.previewCanvas;
-    const regions=boardInternalRegions(
-      fullCanvas,
-      operationalDate,
-      shift
-    );
+    $('oeeOcrPreview').src=
+      processed.ocrDataUrl;
 
-    // ========================================================
-    // OCR 1: RECORTE INTERNO DA COLUNA DE MÁQUINAS
-    // ========================================================
-    const machineScale=3.0;
-
-    let machineCanvas=cropCanvasRegion(
-      fullCanvas,
-      regions.machine.left,
-      regions.machine.top,
-      regions.machine.right,
-      regions.machine.bottom,
-      machineScale
-    );
-
-    machineCanvas=enhanceOeeCropCanvas(machineCanvas);
+    $('oeeCropPreviewWrap')
+      .classList.remove('hidden');
 
     statusEl.textContent=
-      'OCR 1/2: lendo a coluna das máquinas...';
+      `Lendo ${scope.label}...`;
 
-    const machinePass=await window.Tesseract.recognize(
-      machineCanvas.toDataURL('image/png'),
+    const result=await window.Tesseract.recognize(
+      processed.ocrDataUrl,
       'eng',
       {
         logger:info=>{
@@ -3678,91 +3995,43 @@ async function processOeeColumnPhoto() {
             typeof info.progress==='number'
           ){
             statusEl.textContent=
-              `OCR 1/2: máquinas ${Math.round(info.progress*100)}%`;
+              `Lendo ${scope.label}... `+
+              `${Math.round(info.progress*100)}%`;
           }
         }
       },
       {
-        tessedit_char_whitelist:'0123456789',
-        tessedit_pageseg_mode:'11',
+        tessedit_char_whitelist:
+          '0123456789%.,',
+        tessedit_pageseg_mode:'6',
         preserve_interword_spaces:'1'
       }
     );
 
-    const anchors=machineAnchorsFromCroppedOcr(
-      machinePass?.data?.words||[],
-      regions.machine,
-      machineScale,
-      fullCanvas.height
-    );
+    const words=result?.data?.words||[];
 
-    // ========================================================
-    // OCR 2: RECORTE INTERNO SOMENTE DA COLUNA DO TURNO
-    // ========================================================
-    const oeeScale=3.0;
-
-    let oeeCanvas=cropCanvasRegion(
-      fullCanvas,
-      regions.oee.left,
-      regions.oee.top,
-      regions.oee.right,
-      regions.oee.bottom,
-      oeeScale
-    );
-
-    oeeCanvas=enhanceOeeCropCanvas(oeeCanvas);
-
-    statusEl.textContent=
-      `OCR 2/2: lendo somente ${scope.label}...`;
-
-    const oeePass=await window.Tesseract.recognize(
-      oeeCanvas.toDataURL('image/png'),
-      'eng',
-      {
-        logger:info=>{
-          if(
-            info.status==='recognizing text' &&
-            typeof info.progress==='number'
-          ){
-            statusEl.textContent=
-              `OCR 2/2: OEE ${Math.round(info.progress*100)}%`;
-          }
-        }
-      },
-      {
-        tessedit_char_whitelist:'0123456789%.,',
-        tessedit_pageseg_mode:'11',
-        preserve_interword_spaces:'1'
-      }
-    );
-
-    const percentWords=percentWordsFromColumnOcr(
-      oeePass?.data?.words||[],
-      regions.oee,
-      oeeScale
-    );
-
-    const rows=associatePercentToMachineRows(
-      anchors,
-      percentWords,
-      fullCanvas.height
+    const rows=mapLegacyOcrWordsToMachineRows(
+      words,
+      processed.canvas.height
     );
 
     state.oeeMachineEditorData=rows;
     renderOeeMachineEditor(rows);
 
-    const detected=usefulOeeReadCount(rows);
-    const confirmed=rows.filter(row=>
-      row.oee!=='' &&
-      !row.needsConfirmation
+    const detected=rows.filter(
+      row=>row.oee!==''
     ).length;
-    const uncertain=rows.filter(row=>row.needsConfirmation).length;
+
+    const accepted=rows.filter(
+      row=>
+        row.oee!=='' &&
+        row.needsConfirmation!==true
+    ).length;
 
     statusEl.textContent=
-      `Foto lida: ${detected} OEE encontrado(s), `+
-      `${confirmed} confiável(is)`+
-      `${uncertain?` e ${uncertain} para conferir`:''}. `+
-      `O relatório já pode ser analisado.`;
+      `${detected} OEE encontrado(s) em ${scope.label}; `+
+      `${accepted} aceito(s) automaticamente. `+
+      `Confira as linhas amarelas.`;
 
     $('oeeOcrText').value=editorOeeText();
     state.oeeOcrText=$('oeeOcrText').value;
@@ -3772,10 +4041,13 @@ async function processOeeColumnPhoto() {
     console.error(error);
 
     statusEl.textContent=
-      `Leitura da foto incompleta: ${error.message}. `+
-      `O relatório continua disponível.`;
+      `Não consegui ler automaticamente: ${error.message}.`;
 
-    showToast('Não consegui ler todos os OEE; o relatório não será bloqueado.');
+    renderOeeMachineEditor([]);
+
+    showToast(
+      'Leitura automática falhou; confira o recorte.'
+    );
 
     return [];
   }
@@ -6741,7 +7013,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=88.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=89.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -13345,7 +13617,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=88.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=89.0.0');
         registration.update();
       } catch {}
     });

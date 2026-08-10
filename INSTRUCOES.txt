@@ -1,12 +1,12 @@
-PATCH V88
+PATCH V89
 
 Substitua:
 - app.js
 - index.html
+- style.css
 - sw.js
 - api/health.js
 
-Depois faça novo deploy e confirme V88.0.0.
+Depois faça novo deploy e confirme V89.0.0.
 
-A foto continua inteira na tela.
-O recorte existe apenas internamente para melhorar o OCR.
+Essa versão restaura o recorte OCR das versões antigas.

@@ -2182,3 +2182,15 @@ button.secondary,
 .oee-editor-head .muted{
   color:#667085;
 }
+
+
+/* V89: volta a exibir o recorte real de cada linha */
+.oee-row-preview{
+  display:block !important;
+  width:100%;
+  max-height:92px;
+  object-fit:cover;
+  border-radius:10px;
+  border:1px solid #d0d5dd;
+  background:#fff;
+}
