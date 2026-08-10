@@ -1,4 +1,4 @@
-PATCH V84
+PATCH V85
 
 Substitua:
 - app.js
@@ -7,7 +7,11 @@ Substitua:
 - api/health.js
 - api/oee-vision.js
 
-Depois faça novo deploy e confirme V84.0.0.
+Depois faça novo deploy e confirme V85.0.0.
 
-A leitura agora é feita máquina por máquina, usando o código impresso
-como âncora da linha.
+IMPORTANTE:
+- OPENAI_API_KEY = sua chave sk-proj-...
+- OPENAI_MODEL não deve ser uma chave.
+- Mesmo que OPENAI_MODEL esteja errado, a V85 ignora valor sk- e usa gpt-4.1-mini.
+
+Se ainda falhar, a própria tela mostrará o erro real.

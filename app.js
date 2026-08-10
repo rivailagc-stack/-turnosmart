@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '84.0.0';
+const APP_VERSION = '85.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v84.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v85.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2581,6 +2581,63 @@ function editorOeeText() {
 }
 
 
+
+async function visionReadyFullImageDataUrl(image){
+  const naturalWidth=image.naturalWidth||image.width;
+  const naturalHeight=image.naturalHeight||image.height;
+
+  // Mantém a imagem inteira. Só reduz dimensões para transporte.
+  let targetWidth=Math.min(2400,naturalWidth);
+  let quality=0.9;
+
+  for(let attempt=0;attempt<5;attempt++){
+    const scale=targetWidth/Math.max(1,naturalWidth);
+    const width=Math.max(1,Math.round(naturalWidth*scale));
+    const height=Math.max(1,Math.round(naturalHeight*scale));
+
+    const canvas=document.createElement('canvas');
+    const ctx=canvas.getContext('2d');
+
+    canvas.width=width;
+    canvas.height=height;
+
+    ctx.fillStyle='#ffffff';
+    ctx.fillRect(0,0,width,height);
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality='high';
+
+    ctx.drawImage(
+      image,
+      0,0,naturalWidth,naturalHeight,
+      0,0,width,height
+    );
+
+    const dataUrl=canvas.toDataURL('image/jpeg',quality);
+
+    // Mantemos ampla folga abaixo do limite de payload da função.
+    if(dataUrl.length<3_400_000){
+      return dataUrl;
+    }
+
+    targetWidth=Math.max(1400,Math.round(targetWidth*0.82));
+    quality=Math.max(0.72,quality-0.06);
+  }
+
+  const scale=Math.min(1,1400/Math.max(1,naturalWidth));
+  const width=Math.max(1,Math.round(naturalWidth*scale));
+  const height=Math.max(1,Math.round(naturalHeight*scale));
+  const canvas=document.createElement('canvas');
+  const ctx=canvas.getContext('2d');
+
+  canvas.width=width;
+  canvas.height=height;
+  ctx.fillStyle='#fff';
+  ctx.fillRect(0,0,width,height);
+  ctx.drawImage(image,0,0,naturalWidth,naturalHeight,0,0,width,height);
+
+  return canvas.toDataURL('image/jpeg',0.75);
+}
+
 async function analyzeOeeWithVision(imageDataUrl, operationalDate, shift, scope){
   const response=await fetch('/api/oee-vision',{
     method:'POST',
@@ -2596,10 +2653,12 @@ async function analyzeOeeWithVision(imageDataUrl, operationalDate, shift, scope)
   const data=await response.json().catch(()=>({}));
 
   if(!response.ok || data.ok===false){
-    throw new Error(
-      data.error||
-      `Falha IA visual HTTP ${response.status}`
-    );
+    const details=[
+      data.error||`Falha IA visual HTTP ${response.status}`,
+      data.hint||''
+    ].filter(Boolean).join(' — ');
+
+    throw new Error(details);
   }
 
   const rows=Array.isArray(data.rows)?data.rows:[];
@@ -2680,6 +2739,11 @@ async function processOeeColumnPhoto() {
     state.oeeImageDataUrl=fullDataUrl;
 
     const image=await loadImageElement(fullDataUrl);
+
+    // Foto inteira otimizada somente para transporte até a IA.
+    // Nenhuma parte da imagem é cortada.
+    const visionDataUrl=await visionReadyFullImageDataUrl(image);
+
     const processed=preprocessOeeColumn(
       image,
       operationalDate,
@@ -2702,7 +2766,7 @@ async function processOeeColumnPhoto() {
         `🤖 Linha validada lendo máquina por máquina — ${scope.label}...`;
 
       const visionRows=await analyzeOeeWithVision(
-        fullDataUrl,
+        visionDataUrl,
         operationalDate,
         shift,
         scope
@@ -2727,10 +2791,17 @@ async function processOeeColumnPhoto() {
         return visionRows;
       }
     }catch(visionError){
-      console.warn(
-        'IA visual indisponível; usando OCR reserva.',
-        visionError
+      console.error('Falha IA visual:',visionError);
+
+      statusEl.textContent=
+        `⚠️ IA visual falhou: ${visionError.message}. `+
+        `Tentando leitura reserva...`;
+
+      showToast(
+        `IA visual: ${visionError.message}`
       );
+
+      await waitMilliseconds(1200);
     }
 
     // ========================================================
@@ -5764,7 +5835,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=84.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=85.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -12361,7 +12432,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=84.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=85.0.0');
         registration.update();
       } catch {}
     });
