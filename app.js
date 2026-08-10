@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '90.0.0';
+const APP_VERSION = '91.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v90.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v91.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -3743,32 +3743,163 @@ function getLegacyOeeCropSettings(image, operationalDate, shift) {
   };
 }
 
+
+function detectHorizontalGridLines(canvas){
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  const width=canvas.width;
+  const height=canvas.height;
+  const image=ctx.getImageData(0,0,width,height).data;
+
+  const scores=[];
+  const xStart=Math.floor(width*0.04);
+  const xEnd=Math.floor(width*0.96);
+  const stepX=Math.max(2,Math.floor(width/450));
+
+  for(let y=1;y<height-1;y+=2){
+    let dark=0;
+    let samples=0;
+
+    for(let x=xStart;x<xEnd;x+=stepX){
+      const i=(y*width+x)*4;
+      const lum=
+        0.299*image[i]+
+        0.587*image[i+1]+
+        0.114*image[i+2];
+
+      if(lum<145)dark++;
+      samples++;
+    }
+
+    scores.push({
+      y,
+      score:samples?dark/samples:0
+    });
+  }
+
+  const raw=scores.filter(item=>item.score>=0.28);
+  const groups=[];
+
+  for(const item of raw){
+    const last=groups[groups.length-1];
+
+    if(last && item.y-last.endY<=8){
+      last.items.push(item);
+      last.endY=item.y;
+      if(item.score>last.best.score)last.best=item;
+    }else{
+      groups.push({
+        items:[item],
+        endY:item.y,
+        best:item
+      });
+    }
+  }
+
+  return groups
+    .map(group=>group.best.y)
+    .filter(y=>y>height*0.01 && y<height*0.99)
+    .sort((a,b)=>a-b);
+}
+
+function normalizeMachineRowBoundaries(canvas){
+  const height=canvas.height;
+  let lines=detectHorizontalGridLines(canvas);
+
+  const cleaned=[];
+  for(const y of lines){
+    if(
+      !cleaned.length ||
+      y-cleaned[cleaned.length-1]>height*0.010
+    ){
+      cleaned.push(y);
+    }
+  }
+
+  lines=cleaned;
+
+  // Procuramos 21 limites para 20 máquinas.
+  if(lines.length>=21){
+    let best=null;
+
+    for(let start=0;start<=lines.length-21;start++){
+      const seq=lines.slice(start,start+21);
+      const gaps=[];
+
+      for(let i=1;i<seq.length;i++){
+        gaps.push(seq[i]-seq[i-1]);
+      }
+
+      const avg=gaps.reduce((a,b)=>a+b,0)/gaps.length;
+      const variance=
+        gaps.reduce((sum,g)=>sum+(g-avg)**2,0)/gaps.length;
+
+      const score=variance/((avg*avg)||1);
+
+      if(!best || score<best.score){
+        best={seq,score};
+      }
+    }
+
+    if(best){
+      return best.seq;
+    }
+  }
+
+  // Se detectou muitas linhas mas não exatamente 21,
+  // usa a primeira e a última como referência e interpola.
+  if(lines.length>=8){
+    const first=lines[0];
+    const last=lines[lines.length-1];
+    const step=(last-first)/20;
+
+    return Array.from({length:21},(_,i)=>first+i*step);
+  }
+
+  // Fallback seguro.
+  return Array.from(
+    {length:21},
+    (_,i)=>i*(height/20)
+  );
+}
+
+function machineRowRangesFromCanvas(canvas){
+  const boundaries=normalizeMachineRowBoundaries(canvas);
+
+  return OEE_BOARD_MACHINES.map((machine,index)=>{
+    const rawTop=boundaries[index];
+    const rawBottom=boundaries[index+1];
+
+    const height=Math.max(1,rawBottom-rawTop);
+    const pad=Math.max(2,height*0.09);
+
+    return {
+      machine,
+      index,
+      rawTop,
+      rawBottom,
+      top:Math.max(0,rawTop+pad),
+      bottom:Math.min(canvas.height,rawBottom-pad)
+    };
+  });
+}
+
 function createLegacyOeeRowPreviews(previewCanvas) {
-  const rowCount = OEE_BOARD_MACHINES.length;
-  const rowHeight = previewCanvas.height / rowCount;
-  const previews = [];
+  const ranges=machineRowRangesFromCanvas(previewCanvas);
 
-  for (let index = 0; index < rowCount; index++) {
-    const sourceY = Math.max(
-      0,
-      index * rowHeight - rowHeight * 0.08
-    );
+  return ranges.map(range=>{
+    const sourceY=range.top;
+    const sourceHeight=Math.max(1,range.bottom-range.top);
 
-    const sourceHeight = Math.min(
-      previewCanvas.height - sourceY,
-      rowHeight * 1.16
-    );
+    const canvas=document.createElement('canvas');
+    canvas.width=520;
+    canvas.height=96;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = 520;
-    canvas.height = 96;
+    const ctx=canvas.getContext('2d');
 
-    const ctx = canvas.getContext('2d');
-
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle='#fff';
     ctx.fillRect(0,0,canvas.width,canvas.height);
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality='high';
 
     ctx.drawImage(
       previewCanvas,
@@ -3782,12 +3913,8 @@ function createLegacyOeeRowPreviews(previewCanvas) {
       canvas.height
     );
 
-    previews.push(
-      canvas.toDataURL('image/jpeg',0.92)
-    );
-  }
-
-  return previews;
+    return canvas.toDataURL('image/jpeg',0.94);
+  });
 }
 
 function preprocessLegacyOeeColumn(image, operationalDate, shift) {
@@ -3911,15 +4038,18 @@ function preprocessLegacyOeeColumn(image, operationalDate, shift) {
   };
 }
 
-function mapLegacyOcrWordsToMachineRows(words=[],canvasHeight=1){
-  const rowCount=OEE_BOARD_MACHINES.length;
-  const rowHeight=Math.max(
-    1,
-    canvasHeight/rowCount
-  );
+function mapLegacyOcrWordsToMachineRows(words=[],canvasHeight=1,canvas=null){
+  const ranges=canvas
+    ?machineRowRangesFromCanvas(canvas)
+    :OEE_BOARD_MACHINES.map((machine,index)=>({
+        machine,
+        index,
+        top:index*(canvasHeight/20),
+        bottom:(index+1)*(canvasHeight/20)
+      }));
 
   const buckets=Array.from(
-    {length:rowCount},
+    {length:OEE_BOARD_MACHINES.length},
     ()=>[]
   );
 
@@ -3930,89 +4060,81 @@ function mapLegacyOcrWordsToMachineRows(words=[],canvasHeight=1){
     const bbox=word.bbox||{};
     const y0=Number(bbox.y0??bbox.top??0);
     const y1=Number(bbox.y1??bbox.bottom??y0);
+    const x0=Number(bbox.x0??bbox.left??0);
     const centerY=(y0+y1)/2;
 
-    const rowIndex=Math.floor(
-      centerY/rowHeight
+    const rowIndex=ranges.findIndex(range=>
+      centerY>=range.top &&
+      centerY<=range.bottom
     );
 
-    if(rowIndex<0 || rowIndex>=rowCount)continue;
-
-    const rowTop=rowIndex*rowHeight;
-    const inside=(centerY-rowTop)/rowHeight;
-
-    if(inside<0.07 || inside>0.93)continue;
+    if(rowIndex<0)continue;
 
     buckets[rowIndex].push({
       value:parsed.value,
       hasPercent:parsed.hasPercent,
       confidence:Number(word.confidence||0),
-      x:Number(bbox.x0??bbox.left??0),
+      x:x0,
+      y:centerY,
       raw:String(word.text||'')
     });
   }
 
-  return OEE_BOARD_MACHINES.map(
-    (machine,index)=>{
-      const candidates=buckets[index];
+  return OEE_BOARD_MACHINES.map((machine,index)=>{
+    const candidates=buckets[index];
 
-      if(!candidates.length){
-        return {
-          machine,
-          oee:'',
-          candidateOee:'',
-          confidence:0,
-          source:'Não identificado',
-          needsConfirmation:false,
-          ambiguous:false,
-          legacyCrop:true
-        };
-      }
-
-      candidates.sort((a,b)=>{
-        if(a.hasPercent!==b.hasPercent){
-          return a.hasPercent?-1:1;
-        }
-
-        if(a.confidence!==b.confidence){
-          return b.confidence-a.confidence;
-        }
-
-        return b.x-a.x;
-      });
-
-      const chosen=candidates[0];
-
-      const conflicts=candidates.filter(item=>
-        Math.abs(
-          Number(item.value)-Number(chosen.value)
-        )>5
-      );
-
-      const ambiguous=conflicts.some(item=>
-        item.hasPercent &&
-        Number(item.confidence||0)>=35
-      );
-
-      // Como a imagem já está isolada na coluna correta e na linha,
-      // aceitamos percentual explícito com confiança menor.
-      const autoAccepted=
-        chosen.hasPercent &&
-        Number(chosen.confidence||0)>=35 &&
-        !ambiguous;
-
+    if(!candidates.length){
       return {
         machine,
-        oee:autoAccepted?chosen.value:chosen.value,
-        candidateOee:chosen.value,
-        confidence:chosen.confidence,
-        source:chosen.raw,
-        needsConfirmation:!autoAccepted,
-        ambiguous,
+        oee:'',
+        candidateOee:'',
+        confidence:0,
+        source:'Não identificado',
+        needsConfirmation:false,
+        ambiguous:false,
         legacyCrop:true
       };
     }
-  );
+
+    candidates.sort((a,b)=>{
+      if(a.hasPercent!==b.hasPercent){
+        return a.hasPercent?-1:1;
+      }
+
+      if(a.confidence!==b.confidence){
+        return b.confidence-a.confidence;
+      }
+
+      return b.x-a.x;
+    });
+
+    const chosen=candidates[0];
+
+    const conflicts=candidates.filter(item=>
+      Math.abs(Number(item.value)-Number(chosen.value))>5
+    );
+
+    const ambiguous=conflicts.some(item=>
+      item.hasPercent &&
+      Number(item.confidence||0)>=35
+    );
+
+    const autoAccepted=
+      chosen.hasPercent &&
+      Number(chosen.confidence||0)>=35 &&
+      !ambiguous;
+
+    return {
+      machine,
+      oee:chosen.value,
+      candidateOee:chosen.value,
+      confidence:chosen.confidence,
+      source:chosen.raw,
+      needsConfirmation:!autoAccepted,
+      ambiguous,
+      legacyCrop:true
+    };
+  });
 }
 
 async function processOeeColumnPhoto() {
@@ -4104,7 +4226,8 @@ async function processOeeColumnPhoto() {
 
     const rows=mapLegacyOcrWordsToMachineRows(
       words,
-      processed.canvas.height
+      processed.canvas.height,
+      processed.canvas
     );
 
     state.oeeMachineEditorData=rows;
@@ -5370,6 +5493,48 @@ function maintenanceMessage() {
   const dashboard=getRecentOeeDashboard();
   if(dashboard.companyAverage!=null){
     lines.push(`OEE geral 3 dias: ${formatOee(dashboard.companyAverage)}.`);
+  }
+
+  const photoOeeRows=(state.oeeMachineEditorData||[])
+    .map(row=>({
+      machine:row.machine,
+      oee:row.oee===''?null:Number(row.oee),
+      uncertain:row.needsConfirmation===true
+    }))
+    .filter(row=>
+      Number.isFinite(row.oee) &&
+      row.oee>=0 &&
+      row.oee<=100
+    )
+    .sort((a,b)=>a.oee-b.oee);
+
+  if(photoOeeRows.length){
+    lines.push('');
+    lines.push('*OEE LIDO DA FOTO*');
+
+    photoOeeRows.forEach(row=>{
+      const lost=
+        row.oee<OEE_PRIORITY_LIMIT
+          ?` — perda estimada ${formatOeeLostHours(row.oee)}`
+          :'';
+
+      lines.push(
+        `• ${row.machine}: ${row.oee.toFixed(1).replace('.', ',')}%`+
+        `${row.uncertain?' *(a confirmar)*':''}`+
+        lost
+      );
+    });
+
+    const confirmed=
+      photoOeeRows.filter(row=>!row.uncertain).length;
+
+    const uncertain=
+      photoOeeRows.filter(row=>row.uncertain).length;
+
+    lines.push(
+      `Leitura da foto: ${confirmed} confirmado(s)`+
+      `${uncertain?` | ${uncertain} a confirmar`:''}.`
+    );
   }
 
   lines.push('');
@@ -7105,7 +7270,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=90.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=91.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -13709,7 +13874,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=90.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=91.0.0');
         registration.update();
       } catch {}
     });

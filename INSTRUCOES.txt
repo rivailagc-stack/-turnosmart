@@ -1,4 +1,4 @@
-PATCH V90
+PATCH V91
 
 Substitua:
 - app.js
@@ -7,8 +7,10 @@ Substitua:
 - sw.js
 - api/health.js
 
-Depois faça deploy e confirme V90.0.0.
+Depois faça deploy e confirme V91.0.0.
 
-A correção principal é o zoom:
-agora começa em MK138 e termina em MK149,
-sem pegar o cabeçalho.
+Mudanças:
+- alinhamento pelas linhas horizontais reais;
+- OEE lido aparece no relatório;
+- duvidoso fica "a confirmar";
+- prioridade usa somente confirmado.

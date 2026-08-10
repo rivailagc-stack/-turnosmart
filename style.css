@@ -2202,3 +2202,14 @@ button.secondary,
   max-height:760px;
   background:#f8fafc;
 }
+
+
+/* V91 - recortes alinhados entre duas linhas horizontais reais */
+.oee-row-preview{
+  display:block !important;
+  width:100%;
+  height:96px !important;
+  object-fit:fill !important;
+  border-radius:10px;
+  border:1px solid #d0d5dd;
+}
