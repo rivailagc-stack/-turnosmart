@@ -268,7 +268,17 @@ Inclua TODAS as ${MACHINES.length} máquinas na resposta e mantenha exatamente a
 `;
 
     const response=await requestOpenAI({
-      model:process.env.OPENAI_MODEL||'gpt-4.1-mini',
+      model:(()=>{
+        const configured=String(process.env.OPENAI_MODEL||'').trim();
+
+        // Segurança: se OPENAI_MODEL recebeu uma chave sk-... por engano,
+        // ignora e usa um modelo visual válido.
+        if(!configured || /^sk-/i.test(configured)){
+          return 'gpt-4.1-mini';
+        }
+
+        return configured;
+      })(),
       input:[{
         role:'user',
         content:[
@@ -320,8 +330,14 @@ Inclua TODAS as ${MACHINES.length} máquinas na resposta e mantenha exatamente a
 
     const detected=rows.filter(row=>row.oee!==null).length;
 
+    const configuredModel=String(process.env.OPENAI_MODEL||'').trim();
+    const usedModel=(!configuredModel || /^sk-/i.test(configuredModel))
+      ? 'gpt-4.1-mini'
+      : configuredModel;
+
     return send(res,200,{
       ok:true,
+      model:usedModel,
       source:'openai-vision-line-anchor',
       mode:'machine-row-anchor',
       scope:parsed?.scope||scope.label||'',
@@ -331,7 +347,8 @@ Inclua TODAS as ${MACHINES.length} máquinas na resposta e mantenha exatamente a
   }catch(error){
     return send(res,500,{
       ok:false,
-      error:error.message
+      error:error.message,
+      hint:'Confira OPENAI_API_KEY. OPENAI_MODEL não deve conter sk-proj-; se estiver errado, a V85 ignora e usa gpt-4.1-mini.'
     });
   }
 };
