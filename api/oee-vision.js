@@ -1,4 +1,4 @@
-const MODEL=process.env.GEMINI_MODEL||'gemini-2.5-flash';
+const MODEL=process.env.GEMINI_MODEL||'gemini-3.6-flash';
 
 const MACHINES=[
   'MK-138','MK-105','MK-108','MK-223','MK-192',
@@ -20,6 +20,43 @@ function parseDataUrl(dataUrl){
   return m
     ?{mimeType:m[1],data:m[2]}
     :null;
+}
+
+function extractInteractionText(body){
+  // Schema atual da Interactions API: steps[]
+  const texts=[];
+
+  for(const step of body?.steps||[]){
+    if(step?.type==='model_output'){
+      for(const content of step?.content||[]){
+        if(content?.type==='text' && content?.text){
+          texts.push(content.text);
+        }
+      }
+    }
+
+    // fallback tolerante
+    if(step?.text){
+      texts.push(step.text);
+    }
+  }
+
+  if(texts.length){
+    return texts.join('').trim();
+  }
+
+  // Compatibilidade defensiva com possíveis convenience/raw outputs.
+  if(typeof body?.output_text==='string'){
+    return body.output_text.trim();
+  }
+
+  for(const output of body?.outputs||[]){
+    if(output?.type==='text' && output?.text){
+      texts.push(output.text);
+    }
+  }
+
+  return texts.join('').trim();
 }
 
 function extractJson(text){
@@ -76,35 +113,29 @@ module.exports=async(req,res)=>{
 
     const scopeLabel=scope?.label||'';
 
-    const parts=[];
+    const input=[
+      {
+        type:'text',
+        text:
+`Você receberá 20 imagens individuais de linhas de um quadro industrial.
 
-    parts.push({
-      text:
-`Você receberá imagens individuais de linhas de um quadro industrial.
 Cada imagem é precedida pelo nome EXATO da máquina correspondente.
-
-Para cada imagem:
-- leia SOMENTE o percentual OEE manuscrito de 0 a 100;
-- ignore produção em peças, nomes, OP, meta e outros números;
-- nunca use número sem contexto de percentual como OEE;
-- se não houver percentual legível, use null;
-- nunca atribua um valor a outra máquina;
-- description deve explicar brevemente o que foi lido.
 
 Escopo: ${scopeLabel}.
 
-Retorne TODAS as máquinas em JSON:
-{
-  "rows":[
-    {
-      "machine":"MK-138",
-      "oee":64,
-      "confidence":90,
-      "description":"64% lido; 583.740 é produção."
-    }
-  ]
-}`
-    });
+Para CADA imagem:
+1. Leia SOMENTE o percentual OEE manuscrito de 0 a 100.
+2. Ignore produção em peças, nomes, OP, meta, semana e outros números.
+3. Exemplo: "49.000 55%" => OEE é 55; 49.000 é produção.
+4. Nunca use número da máquina como OEE.
+5. Nunca atribua valor a outra máquina.
+6. Se não houver percentual legível, use null.
+7. Não invente.
+8. confidence deve ser inteiro de 0 a 100.
+9. description deve explicar de forma curta o que foi lido.
+10. Retorne exatamente as 20 máquinas.`
+      }
+    ];
 
     for(const item of rowImages){
       const machine=normalizeMachine(item.machine);
@@ -114,36 +145,78 @@ Retorne TODAS as máquinas em JSON:
         continue;
       }
 
-      parts.push({
-        text:`MÁQUINA: ${machine}. Leia somente esta imagem.`
+      input.push({
+        type:'text',
+        text:`MÁQUINA ${machine} — leia somente a próxima imagem para esta máquina.`
       });
 
-      parts.push({
-        inlineData:{
-          mimeType:image.mimeType,
-          data:image.data
-        }
+      input.push({
+        type:'image',
+        data:image.data,
+        mime_type:image.mimeType
       });
     }
 
+    const schema={
+      type:'object',
+      properties:{
+        rows:{
+          type:'array',
+          items:{
+            type:'object',
+            properties:{
+              machine:{
+                type:'string',
+                description:'Código da máquina, ex: MK-138.'
+              },
+              oee:{
+                type:['number','null'],
+                description:'Percentual OEE de 0 a 100, ou null se ilegível.'
+              },
+              confidence:{
+                type:'integer',
+                description:'Confiança da leitura de 0 a 100.'
+              },
+              description:{
+                type:'string',
+                description:'Descrição curta da leitura e do número ignorado, se houver.'
+              }
+            },
+            required:[
+              'machine',
+              'oee',
+              'confidence',
+              'description'
+            ],
+            additionalProperties:false
+          }
+        }
+      },
+      required:['rows'],
+      additionalProperties:false
+    };
+
     const url=
-      `https://generativelanguage.googleapis.com/v1beta/models/`+
-      `${encodeURIComponent(MODEL)}:generateContent`;
+      'https://generativelanguage.googleapis.com/v1beta/interactions';
 
     const gr=await fetch(url,{
       method:'POST',
       headers:{
         'Content-Type':'application/json',
-        'x-goog-api-key':key
+        'x-goog-api-key':key,
+        'Api-Revision':'2026-05-20'
       },
       body:JSON.stringify({
-        contents:[{
-          role:'user',
-          parts
-        }],
-        generationConfig:{
-          temperature:0,
-          responseMimeType:'application/json'
+        model:MODEL,
+        input,
+        store:false,
+        generation_config:{
+          thinking_level:'low'
+        },
+        response_format:{
+          type:'text',
+          mime_type:'application/json',
+          schema
         }
       })
     });
@@ -154,20 +227,23 @@ Retorne TODAS as máquinas em JSON:
       return res.status(gr.status).json({
         ok:false,
         error:body?.error?.message||`Gemini HTTP ${gr.status}`,
-        model:MODEL
+        model:MODEL,
+        api:'interactions'
       });
     }
 
-    const text=(body?.candidates?.[0]?.content?.parts||[])
-      .map(part=>part.text||'')
-      .join('')
-      .trim();
+    const text=extractInteractionText(body);
 
     if(!text){
       return res.status(502).json({
         ok:false,
-        error:'Gemini respondeu sem conteúdo.',
-        model:MODEL
+        error:'Gemini respondeu sem texto estruturado.',
+        model:MODEL,
+        api:'interactions',
+        diagnostic:{
+          status:body?.status||'',
+          stepTypes:(body?.steps||[]).map(s=>s?.type).filter(Boolean)
+        }
       });
     }
 
@@ -221,6 +297,7 @@ Retorne TODAS as máquinas em JSON:
     return res.status(200).json({
       ok:true,
       provider:'gemini',
+      api:'interactions',
       model:MODEL,
       returned:rows.length,
       nonNull,
@@ -231,7 +308,8 @@ Retorne TODAS as máquinas em JSON:
     return res.status(500).json({
       ok:false,
       error:String(error?.message||error),
-      model:MODEL
+      model:MODEL,
+      api:'interactions'
     });
   }
 };
