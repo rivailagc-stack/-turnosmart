@@ -6,70 +6,101 @@ module.exports=async(req,res)=>{
   }
 
   const key=process.env.GEMINI_API_KEY;
+
   if(!key){
     return res.status(500).json({
       ok:false,
-      error:'GEMINI_API_KEY não configurada.',
-      hint:'Vercel > Settings > Environment Variables > GEMINI_API_KEY'
+      error:'GEMINI_API_KEY não configurada.'
     });
   }
 
   try{
-    const {imageDataUrl,date,shift,scope}=req.body||{};
-    const match=String(imageDataUrl||'').match(
-      /^data:(image\/[^;]+);base64,(.+)$/s
-    );
+    const {
+      imageDataUrl,
+      compositeDataUrl,
+      date,
+      shift,
+      scope
+    }=req.body||{};
 
-    if(!match){
-      return res.status(400).json({ok:false,error:'Imagem inválida.'});
+    const parseImage=dataUrl=>{
+      const match=String(dataUrl||'').match(
+        /^data:(image\/[^;]+);base64,(.+)$/s
+      );
+      return match
+        ?{mimeType:match[1],data:match[2]}
+        :null;
+    };
+
+    const full=parseImage(imageDataUrl);
+    const composite=parseImage(compositeDataUrl);
+
+    if(!full){
+      return res.status(400).json({
+        ok:false,
+        error:'Foto principal inválida.'
+      });
     }
 
     const machines=[
-      'MK-138','MK-105','MK-108','MK-223','MK-192','MK-69','MK-172',
-      'MK-173','MK-178','MK-179','MK-212','MK-214','MK-217','MK-220',
-      'MK-159','MK-222','MK-170','MK-176','MK-188','MK-149'
+      'MK-138','MK-105','MK-108','MK-223','MK-192',
+      'MK-69','MK-172','MK-173','MK-178','MK-179',
+      'MK-212','MK-214','MK-217','MK-220','MK-159',
+      'MK-222','MK-170','MK-176','MK-188','MK-149'
     ];
 
-    const prompt=`Analise visualmente esta FOTO INTEIRA de um quadro de produção da Ecopack.
+    const scopeLabel=scope?.label||String(shift||'');
 
-Data do relatório: ${date||''}
-Turno/coluna esperada: ${scope?.label||shift||''}
+    const prompt=`
+Leia o OEE manuscrito da coluna ${scopeLabel}.
 
-MAPA REAL DO CABEÇALHO:
-SEGUNDA A, SEGUNDA B, TERÇA A, TERÇA B, QUARTA A, QUARTA B,
-QUINTA A, QUINTA B, SEXTA A, SEXTA B, SÁBADO A, SÁBADO B.
+A IMAGEM 1 foi preparada especialmente:
+- esquerda = códigos impressos das máquinas;
+- direita = somente a coluna ${scopeLabel};
+- as duas partes estão exatamente alinhadas na vertical.
 
-Se o escopo for SEGUNDA B, leia somente a segunda coluna de produção,
-imediatamente à direita de SEGUNDA A.
+A IMAGEM 2 é a foto completa do quadro, apenas para contexto.
 
-Máquinas na ordem vertical:
-${machines.join(', ')}
+ORDEM OFICIAL:
+${machines.map((m,i)=>`${i+1}. ${m}`).join('\n')}
 
-OBJETIVO:
-Para CADA máquina, localize o número impresso da máquina na coluna esquerda.
-Depois siga EXATAMENTE A MESMA LINHA HORIZONTAL para a direita e leia o OEE
-percentual manuscrito correspondente.
+REGRAS:
+1. Associe pelo mesmo nível horizontal da IMAGEM 1.
+2. Nunca desloque valor para a máquina acima ou abaixo.
+3. Use o código impresso da esquerda para identificar a máquina.
+4. Leia somente percentual de 0 a 100.
+5. Não use produção em peças, OP, meta, semana ou outro número.
+6. Se não estiver legível, oee=null.
+7. Nunca invente.
+8. Retorne todas as máquinas.
+9. description deve explicar rapidamente o que foi lido.
+10. confidence deve ser 0 a 100.
+11. anchorFound e rowChecked devem ser verdadeiros somente se houve confirmação visual na mesma faixa.
 
-REGRAS OBRIGATÓRIAS:
-1. Não divida a imagem em partes iguais.
-2. Use as linhas físicas da grade para associar máquina e percentual.
-3. Não use produção em peças como OEE.
-4. Não use meta, semana, OP, quantidade ou percentual da linha vizinha.
-5. O OEE deve estar entre 0 e 100.
-6. A escrita pode ser verde, vermelha, azul ou preta.
-7. Se houver mais de um número na linha, escolha SOMENTE o que representa percentual/OEE.
-8. Se não conseguir ler com segurança, use null. NÃO INVENTE.
-9. MK-138 é MK-138; nunca converta para MK-130.
-10. Retorne todas as 20 máquinas.
-11. anchorFound=true somente se você realmente localizou a máquina impressa.
-12. rowChecked=true somente se seguiu a linha correta.
-13. confidence é 0 a 100.
+Exemplo:
+MK-217: "49.000 55%" => oee 55.
+description: "55% lido no fim da linha; 49.000 é produção."
+`;
 
-Retorne SOMENTE JSON válido:
-{"rows":[
- {"machine":"MK-138","oee":62,"confidence":95,"anchorFound":true,"rowChecked":true,"evidence":"62% manuscrito na mesma linha"},
- {"machine":"MK-105","oee":null,"confidence":0,"anchorFound":true,"rowChecked":true,"evidence":"percentual não legível"}
-]}`;
+    const parts=[];
+
+    if(composite){
+      parts.push({
+        inlineData:{
+          mimeType:composite.mimeType,
+          data:composite.data
+        }
+      });
+    }
+
+    parts.push({
+      inlineData:{
+        mimeType:full.mimeType,
+        data:full.data
+      }
+    });
+
+    parts.push({text:prompt});
 
     const url=
       `https://generativelanguage.googleapis.com/v1beta/models/`+
@@ -84,10 +115,7 @@ Retorne SOMENTE JSON válido:
       body:JSON.stringify({
         contents:[{
           role:'user',
-          parts:[
-            {inlineData:{mimeType:match[1],data:match[2]}},
-            {text:prompt}
-          ]
+          parts
         }],
         generationConfig:{
           temperature:0,
@@ -115,9 +143,15 @@ Retorne SOMENTE JSON válido:
       .trim();
 
     const parsed=JSON.parse(text);
+
+    const normalizeMachine=value=>{
+      const digits=String(value||'').match(/\d{2,3}/)?.[0];
+      return digits?`MK-${Number(digits)}`:'';
+    };
+
     const incoming=new Map(
       (parsed.rows||[]).map(row=>[
-        String(row.machine||'').replace(/\s+/g,'').replace(/^MK(?=\d)/,'MK-').toUpperCase(),
+        normalizeMachine(row.machine),
         row
       ])
     );
@@ -125,19 +159,32 @@ Retorne SOMENTE JSON válido:
     const rows=machines.map(machine=>{
       const row=incoming.get(machine)||{};
       const n=Number(row.oee);
+
       const valid=
         row.oee!==null &&
         row.oee!=='' &&
         Number.isFinite(n) &&
-        n>=0 && n<=100;
+        n>=0 &&
+        n<=100;
 
       return {
         machine,
         oee:valid?n:null,
-        confidence:Math.max(0,Math.min(100,Number(row.confidence||0))),
+        confidence:Math.max(
+          0,
+          Math.min(100,Number(row.confidence||0))
+        ),
         anchorFound:Boolean(row.anchorFound),
         rowChecked:Boolean(row.rowChecked),
-        evidence:String(row.evidence||'')
+        evidence:String(row.evidence||''),
+        description:String(
+          row.description||
+          (
+            valid
+              ?`${n}% identificado na mesma linha.`
+              :'Linha sem percentual legível.'
+          )
+        )
       };
     });
 
@@ -145,13 +192,15 @@ Retorne SOMENTE JSON válido:
       ok:true,
       provider:'gemini',
       model:MODEL,
+      scope:scopeLabel,
       rows
     });
 
   }catch(error){
     return res.status(500).json({
       ok:false,
-      error:String(error?.message||error)
+      error:String(error?.message||error),
+      model:MODEL
     });
   }
 };
