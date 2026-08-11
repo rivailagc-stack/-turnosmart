@@ -1,14 +1,15 @@
-PATCH V98.1
+PATCH V98.2
 
 Substitua:
 - app.js
 - index.html
+- style.css
 - sw.js
 - api/health.js (se presente)
 
-Depois faça Redeploy.
-Confirme V98.1.0.
+Faça Redeploy.
+Confirme V98.2.0.
 
-Correção:
-getOcrWorker removido.
-OCR usa o Tesseract já carregado no TurnoSmart.
+Correção principal:
+cada máquina usa a CÉLULA INTEIRA da coluna,
+não uma faixa fina.

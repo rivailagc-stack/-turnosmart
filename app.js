@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '98.1.0';
+const APP_VERSION = '98.2.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.1.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.2.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -4355,53 +4355,92 @@ function makeOcrVariant(sourceCanvas, mode='normal'){
   const canvas=document.createElement('canvas');
   const ctx=canvas.getContext('2d',{willReadFrequently:true});
 
-  // Mantém resolução útil sem exagerar interpolação.
   const scale=Math.max(
     1,
     Math.min(
-      2.2,
-      1400/Math.max(1,sourceCanvas.width)
+      2,
+      1500/Math.max(1,sourceCanvas.width)
     )
   );
 
-  canvas.width=Math.max(1,Math.round(sourceCanvas.width*scale));
-  canvas.height=Math.max(1,Math.round(sourceCanvas.height*scale));
+  canvas.width=Math.max(
+    1,
+    Math.round(sourceCanvas.width*scale)
+  );
+
+  canvas.height=Math.max(
+    1,
+    Math.round(sourceCanvas.height*scale)
+  );
 
   ctx.fillStyle='#fff';
   ctx.fillRect(0,0,canvas.width,canvas.height);
+
   ctx.imageSmoothingEnabled=true;
   ctx.imageSmoothingQuality='high';
-  ctx.drawImage(sourceCanvas,0,0,canvas.width,canvas.height);
 
-  const img=ctx.getImageData(0,0,canvas.width,canvas.height);
+  ctx.drawImage(
+    sourceCanvas,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
+  const img=ctx.getImageData(
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+
   const d=img.data;
 
   for(let i=0;i<d.length;i+=4){
-    const r=d[i], g=d[i+1], b=d[i+2];
-    const gray=Math.round(0.299*r+0.587*g+0.114*b);
+    const r=d[i];
+    const g=d[i+1];
+    const b=d[i+2];
+
+    const gray=
+      0.299*r+
+      0.587*g+
+      0.114*b;
 
     let v=gray;
 
     if(mode==='contrast'){
-      v=Math.max(0,Math.min(255,(gray-128)*1.55+128));
+      // Contraste moderado para não apagar traços finos.
+      v=(gray-128)*1.30+128;
+
     }else if(mode==='threshold'){
-      v=gray<168?35:245;
+      v=gray<180?45:250;
+
     }else if(mode==='color'){
-      // Realça escrita colorida e reduz fundo branco/cinza do quadro.
+      // Mantém escrita vermelha/verde/azul mais escura
+      // sem destruir caracteres finos.
       const max=Math.max(r,g,b);
       const min=Math.min(r,g,b);
       const saturation=max-min;
-      if(saturation>22 && gray<225){
-        v=Math.max(0,gray-40);
+
+      if(saturation>18 && gray<235){
+        v=gray-28;
       }else{
-        v=Math.min(255,gray+35);
+        v=gray+24;
       }
     }
 
-    d[i]=d[i+1]=d[i+2]=v;
+    v=Math.max(
+      0,
+      Math.min(255,v)
+    );
+
+    d[i]=v;
+    d[i+1]=v;
+    d[i+2]=v;
   }
 
   ctx.putImageData(img,0,0);
+
   return canvas;
 }
 
@@ -4431,14 +4470,25 @@ function extractLikelyOeeCandidates(text=''){
 function chooseConsensusOee(readings){
   const candidates=[];
 
-  for(const reading of readings){
+  readings.forEach((reading,readingIndex)=>{
     for(const value of reading.withPercent||[]){
-      candidates.push({value,weight:3,source:'percent'});
+      candidates.push({
+        value,
+        weight:4,
+        source:'percent',
+        readingIndex
+      });
     }
+
     for(const value of reading.plain||[]){
-      candidates.push({value,weight:1,source:'plain'});
+      candidates.push({
+        value,
+        weight:1,
+        source:'plain',
+        readingIndex
+      });
     }
-  }
+  });
 
   if(!candidates.length){
     return {
@@ -4448,59 +4498,93 @@ function chooseConsensusOee(readings){
     };
   }
 
-  // Agrupa valores com tolerância de ±1 ponto.
   const groups=[];
 
   for(const cand of candidates){
-    let group=groups.find(g=>Math.abs(g.center-cand.value)<=1);
+    let group=groups.find(
+      g=>Math.abs(g.center-cand.value)<=1
+    );
+
     if(!group){
-      group={center:cand.value,items:[],score:0};
+      group={
+        center:cand.value,
+        items:[],
+        score:0
+      };
       groups.push(group);
     }
+
     group.items.push(cand);
     group.score+=cand.weight;
+
     group.center=
-      group.items.reduce((s,x)=>s+x.value,0)/
+      group.items.reduce(
+        (sum,item)=>sum+item.value,
+        0
+      )/
       group.items.length;
   }
 
-  groups.sort((a,b)=>b.score-a.score);
+  groups.sort(
+    (a,b)=>b.score-a.score
+  );
 
   const best=groups[0];
   const second=groups[1];
 
-  // Exige consenso de pelo menos 2 passagens OU uma leitura com % muito forte.
-  const distinctSources=
-    new Set(best.items.map(x=>x.source));
+  const percentHits=
+    best.items.filter(
+      x=>x.source==='percent'
+    );
 
-  const enoughEvidence=
-    best.items.length>=2 ||
-    best.score>=6;
+  const distinctReadings=
+    new Set(
+      best.items.map(
+        x=>x.readingIndex
+      )
+    ).size;
+
+  // Regras conservadoras:
+  // A) pelo menos 1 leitura com símbolo % + confirmação em outra passagem,
+  // OU
+  // B) pelo menos 2 leituras independentes contendo %.
+  const accepted=
+    (
+      percentHits.length>=1 &&
+      distinctReadings>=2
+    ) ||
+    percentHits.length>=2;
 
   const clearlyBetter=
     !second ||
-    best.score>=second.score+2;
+    best.score>=second.score+3;
 
-  if(!enoughEvidence || !clearlyBetter){
+  if(
+    !accepted ||
+    !clearlyBetter
+  ){
     return {
       value:null,
       confidence:0,
-      reason:'Leituras locais divergentes.'
+      reason:'Leituras locais sem consenso suficiente.'
     };
   }
 
-  const rounded=Math.round(best.center*10)/10;
+  const rounded=
+    Math.round(
+      best.center*10
+    )/10;
 
   return {
     value:rounded,
     confidence:Math.min(
       99,
-      55+best.score*6
+      70+
+      percentHits.length*8+
+      distinctReadings*4
     ),
     reason:
-      best.items.some(x=>x.source==='percent')
-        ?'Consenso local com símbolo %.'
-        :'Consenso local em múltiplas leituras.'
+      'Percentual confirmado em múltiplas leituras locais.'
   };
 }
 
@@ -4536,7 +4620,8 @@ async function readSingleOeeRowLocally(rowCanvas){
   const variants=[
     makeOcrVariant(rowCanvas,'normal'),
     makeOcrVariant(rowCanvas,'contrast'),
-    makeOcrVariant(rowCanvas,'color')
+    makeOcrVariant(rowCanvas,'color'),
+    makeOcrVariant(rowCanvas,'threshold')
   ];
 
   const texts=[];
@@ -4600,30 +4685,67 @@ function buildReliableRowCanvases(image, operationalDate, shift){
       bottom:(index+1)*(columnCanvas.height/20)
     };
 
-    const rawHeight=Math.max(1,range.bottom-range.top);
+    const rawTop=Math.max(0,range.rawTop??range.top);
+    const rawBottom=Math.min(
+      columnCanvas.height,
+      range.rawBottom??range.bottom
+    );
 
-    // Usa margem maior da linha real, mas sem pegar metade da vizinha.
-    const pad=Math.max(1,rawHeight*0.03);
-    const y=Math.max(0,range.top+pad);
+    const rawHeight=Math.max(1,rawBottom-rawTop);
+
+    // V98.2:
+    // usa a CÉLULA INTEIRA entre duas linhas horizontais.
+    // Não corta o miolo da escrita.
+    const extra=Math.min(
+      rawHeight*0.12,
+      10
+    );
+
+    const y=Math.max(
+      0,
+      rawTop-extra
+    );
+
+    const bottom=Math.min(
+      columnCanvas.height,
+      rawBottom+extra
+    );
+
     const h=Math.max(
       1,
-      Math.min(
-        columnCanvas.height-y,
-        rawHeight-pad*2
-      )
+      bottom-y
     );
 
     const canvas=document.createElement('canvas');
     const ctx=canvas.getContext('2d');
 
-    canvas.width=900;
-    canvas.height=150;
+    // Mantém proporção e evita "esticar" uma faixa muito fina.
+    const targetWidth=1200;
+    const aspect=h/Math.max(1,columnCanvas.width);
+
+    canvas.width=targetWidth;
+    canvas.height=Math.max(
+      190,
+      Math.min(
+        320,
+        Math.round(targetWidth*aspect*1.7)
+      )
+    );
 
     ctx.fillStyle='#fff';
-    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillRect(
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
 
     ctx.imageSmoothingEnabled=true;
     ctx.imageSmoothingQuality='high';
+
+    // Pequena margem branca para não encostar a escrita na borda.
+    const marginX=18;
+    const marginY=14;
 
     ctx.drawImage(
       columnCanvas,
@@ -4631,16 +4753,22 @@ function buildReliableRowCanvases(image, operationalDate, shift){
       y,
       columnCanvas.width,
       h,
-      0,
-      0,
-      canvas.width,
-      canvas.height
+      marginX,
+      marginY,
+      canvas.width-marginX*2,
+      canvas.height-marginY*2
     );
 
     return {
       machine,
       canvas,
-      dataUrl:canvas.toDataURL('image/jpeg',0.95)
+      dataUrl:canvas.toDataURL('image/jpeg',0.97),
+      debug:{
+        rawTop,
+        rawBottom,
+        y,
+        h
+      }
     };
   });
 }
@@ -7759,7 +7887,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=98.1.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=98.2.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -14363,7 +14491,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=98.1.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=98.2.0');
         registration.update();
       } catch {}
     });
