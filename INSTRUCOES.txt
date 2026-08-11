@@ -1,16 +1,10 @@
-PATCH V91
-
+V92 GEMINI PATCH
 Substitua:
 - app.js
 - index.html
-- style.css
 - sw.js
-- api/health.js
+- api/oee-vision.js
 
-Depois faça deploy e confirme V91.0.0.
-
-Mudanças:
-- alinhamento pelas linhas horizontais reais;
-- OEE lido aparece no relatório;
-- duvidoso fica "a confirmar";
-- prioridade usa somente confirmado.
+Na Vercel:
+GEMINI_API_KEY = sua chave
+Depois Redeploy e confirme V92.0.0.

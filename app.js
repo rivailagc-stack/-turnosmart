@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '91.0.0';
+const APP_VERSION = '92.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v91.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v92.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -4137,7 +4137,7 @@ function mapLegacyOcrWordsToMachineRows(words=[],canvasHeight=1,canvas=null){
   });
 }
 
-async function processOeeColumnPhoto() {
+async function processOeeColumnPhotoLocalOcr() {
   const file=$('oeeImageInput')?.files?.[0];
 
   if(!file){
@@ -4179,7 +4179,7 @@ async function processOeeColumnPhoto() {
     );
 
     console.log(
-      'V90 recorte OEE',
+      'V92 Gemini/OCR OEE',
       processed.crop?.debug||processed.crop
     );
 
@@ -4265,6 +4265,82 @@ async function processOeeColumnPhoto() {
     );
 
     return [];
+  }
+}
+
+
+async function processOeeColumnPhoto() {
+  const file=$('oeeImageInput')?.files?.[0];
+
+  if(!file){
+    showToast('Escolha a foto do quadro primeiro.');
+    return [];
+  }
+
+  const statusEl=$('oeeStatus');
+  const operationalDate=$('reportDate').value||todayISO();
+  const shift=$('reportShift').value||'1';
+  const scope=boardScopeForReport(operationalDate,shift);
+
+  try{
+    statusEl.textContent=`Gemini Vision lendo a foto inteira — ${scope.label}...`;
+
+    const fullDataUrl=
+      state.oeeImageDataUrl||
+      await dataUrlFromFile(file);
+
+    state.oeeImageDataUrl=fullDataUrl;
+
+    const image=await loadImageElement(fullDataUrl);
+    const visionDataUrl=await visionReadyFullImageDataUrl(image);
+
+    const rows=await analyzeOeeWithVision(
+      visionDataUrl,
+      operationalDate,
+      shift,
+      scope
+    );
+
+    const found=usefulOeeReadCount(rows);
+
+    if(found<3){
+      throw new Error(
+        `Gemini identificou somente ${found} OEE.`
+      );
+    }
+
+    state.oeeMachineEditorData=rows;
+    state.oeeRowPreviews=[];
+    renderOeeMachineEditor(rows);
+
+    $('oeeOcrText').value=editorOeeText();
+    state.oeeOcrText=$('oeeOcrText').value;
+
+    const confirmed=rows.filter(row=>
+      row.oee!=='' &&
+      row.needsConfirmation!==true
+    ).length;
+
+    statusEl.textContent=
+      `Gemini Vision: ${found} OEE encontrado(s), `+
+      `${confirmed} confirmado(s) automaticamente.`;
+
+    return rows;
+
+  }catch(error){
+    console.warn('Gemini Vision falhou. Usando OCR local:',error);
+
+    statusEl.textContent=
+      `Gemini indisponível (${error.message}). Usando OCR local...`;
+
+    const rows=await processOeeColumnPhotoLocalOcr();
+
+    if(rows.length){
+      statusEl.textContent+=
+        ' • OCR local usado como reserva.';
+    }
+
+    return rows;
   }
 }
 
@@ -7270,7 +7346,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=91.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=92.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -13874,7 +13950,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=91.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=92.0.0');
         registration.update();
       } catch {}
     });
