@@ -1,4 +1,4 @@
-PATCH V98.2
+PATCH V98.3
 
 Substitua:
 - app.js
@@ -7,9 +7,8 @@ Substitua:
 - sw.js
 - api/health.js (se presente)
 
-Faça Redeploy.
-Confirme V98.2.0.
+Depois faça Redeploy.
+Confirme V98.3.0.
 
-Correção principal:
-cada máquina usa a CÉLULA INTEIRA da coluna,
-não uma faixa fina.
+Mudança:
+o recorte de cada MK vem direto da FOTO ORIGINAL em alta resolução.

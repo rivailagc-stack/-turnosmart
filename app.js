@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '98.2.0';
+const APP_VERSION = '98.3.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.2.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.3.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -4355,11 +4355,12 @@ function makeOcrVariant(sourceCanvas, mode='normal'){
   const canvas=document.createElement('canvas');
   const ctx=canvas.getContext('2d',{willReadFrequently:true});
 
+  // A V98.3 já recebe imagem grande; não precisa exagerar escala.
   const scale=Math.max(
     1,
     Math.min(
-      2,
-      1500/Math.max(1,sourceCanvas.width)
+      1.35,
+      1800/Math.max(1,sourceCanvas.width)
     )
   );
 
@@ -4376,8 +4377,7 @@ function makeOcrVariant(sourceCanvas, mode='normal'){
   ctx.fillStyle='#fff';
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  ctx.imageSmoothingEnabled=true;
-  ctx.imageSmoothingQuality='high';
+  ctx.imageSmoothingEnabled=false;
 
   ctx.drawImage(
     sourceCanvas,
@@ -4409,23 +4409,23 @@ function makeOcrVariant(sourceCanvas, mode='normal'){
     let v=gray;
 
     if(mode==='contrast'){
-      // Contraste moderado para não apagar traços finos.
-      v=(gray-128)*1.30+128;
+      v=(gray-128)*1.22+128;
 
     }else if(mode==='threshold'){
-      v=gray<180?45:250;
+      v=gray<186?48:248;
 
     }else if(mode==='color'){
-      // Mantém escrita vermelha/verde/azul mais escura
-      // sem destruir caracteres finos.
       const max=Math.max(r,g,b);
       const min=Math.min(r,g,b);
       const saturation=max-min;
 
-      if(saturation>18 && gray<235){
-        v=gray-28;
+      if(
+        saturation>16 &&
+        gray<240
+      ){
+        v=gray-32;
       }else{
-        v=gray+24;
+        v=gray+18;
       }
     }
 
@@ -4440,7 +4440,6 @@ function makeOcrVariant(sourceCanvas, mode='normal'){
   }
 
   ctx.putImageData(img,0,0);
-
   return canvas;
 }
 
@@ -4632,21 +4631,37 @@ async function readSingleOeeRowLocally(rowCanvas){
       7
     );
 
-    const firstCandidates=
+    let candidates=
       extractLikelyOeeCandidates(text);
 
-    const strongPercent=
-      firstCandidates.withPercent.length>0;
-
-    if(!strongPercent){
-      const second=
+    if(
+      !candidates.withPercent.length
+    ){
+      const psm6=
         await localOcrTextForCanvas(
           variant,
           6
         );
 
       text=
-        `${text} ${second}`
+        `${text} ${psm6}`
+          .trim();
+
+      candidates=
+        extractLikelyOeeCandidates(text);
+    }
+
+    if(
+      !candidates.withPercent.length
+    ){
+      const psm11=
+        await localOcrTextForCanvas(
+          variant,
+          11
+        );
+
+      text=
+        `${text} ${psm11}`
           .trim();
     }
 
@@ -4670,88 +4685,191 @@ async function readSingleOeeRowLocally(rowCanvas){
 }
 
 function buildReliableRowCanvases(image, operationalDate, shift){
-  const processed=preprocessLegacyOeeColumn(
+  const naturalWidth=image.naturalWidth||image.width;
+  const naturalHeight=image.naturalHeight||image.height;
+
+  // Detecta a coluna correta na foto original.
+  const crop=getLegacyOeeCropSettings(
     image,
     operationalDate,
     shift
   );
 
-  const columnCanvas=processed.previewCanvas;
-  const ranges=machineRowRangesFromCanvas(columnCanvas);
+  // Cria uma cópia de referência da coluna apenas para detectar linhas.
+  // IMPORTANTE: essa cópia não é usada como fonte final do OCR.
+  const ref=document.createElement('canvas');
+  const rctx=ref.getContext('2d',{willReadFrequently:true});
+
+  ref.width=Math.max(
+    500,
+    Math.min(1000,crop.sw)
+  );
+
+  ref.height=Math.max(
+    1200,
+    Math.round(
+      crop.sh*
+      (ref.width/Math.max(1,crop.sw))
+    )
+  );
+
+  rctx.fillStyle='#fff';
+  rctx.fillRect(0,0,ref.width,ref.height);
+
+  rctx.imageSmoothingEnabled=true;
+  rctx.imageSmoothingQuality='high';
+
+  rctx.drawImage(
+    image,
+    crop.sx,
+    crop.sy,
+    crop.sw,
+    crop.sh,
+    0,
+    0,
+    ref.width,
+    ref.height
+  );
+
+  const ranges=machineRowRangesFromCanvas(ref);
 
   return OEE_BOARD_MACHINES.map((machine,index)=>{
     const range=ranges[index]||{
-      top:index*(columnCanvas.height/20),
-      bottom:(index+1)*(columnCanvas.height/20)
+      top:index*(ref.height/20),
+      bottom:(index+1)*(ref.height/20)
     };
 
-    const rawTop=Math.max(0,range.rawTop??range.top);
-    const rawBottom=Math.min(
-      columnCanvas.height,
-      range.rawBottom??range.bottom
-    );
+    // Converte coordenadas da imagem de referência
+    // de volta para coordenadas da FOTO ORIGINAL.
+    const topRatio=
+      Math.max(
+        0,
+        Math.min(1,range.top/ref.height)
+      );
 
-    const rawHeight=Math.max(1,rawBottom-rawTop);
+    const bottomRatio=
+      Math.max(
+        0,
+        Math.min(1,range.bottom/ref.height)
+      );
 
-    // V98.2:
-    // usa a CÉLULA INTEIRA entre duas linhas horizontais.
-    // Não corta o miolo da escrita.
-    const extra=Math.min(
-      rawHeight*0.12,
-      10
-    );
+    const sourceY=
+      crop.sy+
+      Math.round(
+        crop.sh*topRatio
+      );
 
-    const y=Math.max(
-      0,
-      rawTop-extra
-    );
+    const sourceBottom=
+      crop.sy+
+      Math.round(
+        crop.sh*bottomRatio
+      );
 
-    const bottom=Math.min(
-      columnCanvas.height,
-      rawBottom+extra
-    );
+    const rawHeight=
+      Math.max(
+        1,
+        sourceBottom-sourceY
+      );
 
-    const h=Math.max(
-      1,
-      bottom-y
-    );
+    // Margem pequena na foto original para não cortar traços.
+    const padY=
+      Math.min(
+        Math.round(rawHeight*0.10),
+        Math.max(2,Math.round(naturalHeight*0.004))
+      );
+
+    const y=
+      Math.max(
+        0,
+        sourceY-padY
+      );
+
+    const bottom=
+      Math.min(
+        naturalHeight,
+        sourceBottom+padY
+      );
+
+    const h=
+      Math.max(
+        1,
+        bottom-y
+      );
+
+    // Também abre levemente a coluna na horizontal,
+    // pois às vezes o % fica encostado na borda.
+    const padX=
+      Math.min(
+        Math.round(crop.sw*0.08),
+        Math.max(4,Math.round(naturalWidth*0.01))
+      );
+
+    const x=
+      Math.max(
+        0,
+        crop.sx-padX
+      );
+
+    const right=
+      Math.min(
+        naturalWidth,
+        crop.sx+crop.sw+padX
+      );
+
+    const w=
+      Math.max(
+        1,
+        right-x
+      );
+
+    // Canvas OCR preserva detalhe da foto original.
+    const targetWidth=
+      Math.max(
+        1200,
+        Math.min(
+          2000,
+          Math.round(w*2.2)
+        )
+      );
+
+    const sourceAspect=
+      h/Math.max(1,w);
+
+    const targetHeight=
+      Math.max(
+        220,
+        Math.min(
+          520,
+          Math.round(
+            targetWidth*
+            sourceAspect*
+            1.25
+          )
+        )
+      );
 
     const canvas=document.createElement('canvas');
     const ctx=canvas.getContext('2d');
 
-    // Mantém proporção e evita "esticar" uma faixa muito fina.
-    const targetWidth=1200;
-    const aspect=h/Math.max(1,columnCanvas.width);
-
     canvas.width=targetWidth;
-    canvas.height=Math.max(
-      190,
-      Math.min(
-        320,
-        Math.round(targetWidth*aspect*1.7)
-      )
-    );
+    canvas.height=targetHeight;
 
     ctx.fillStyle='#fff';
-    ctx.fillRect(
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    );
+    ctx.fillRect(0,0,canvas.width,canvas.height);
 
     ctx.imageSmoothingEnabled=true;
     ctx.imageSmoothingQuality='high';
 
-    // Pequena margem branca para não encostar a escrita na borda.
-    const marginX=18;
-    const marginY=14;
+    const marginX=24;
+    const marginY=18;
 
+    // AQUI é a mudança principal da V98.3:
+    // recorta diretamente da foto ORIGINAL.
     ctx.drawImage(
-      columnCanvas,
-      0,
+      image,
+      x,
       y,
-      columnCanvas.width,
+      w,
       h,
       marginX,
       marginY,
@@ -4762,12 +4880,16 @@ function buildReliableRowCanvases(image, operationalDate, shift){
     return {
       machine,
       canvas,
-      dataUrl:canvas.toDataURL('image/jpeg',0.97),
+      dataUrl:canvas.toDataURL('image/jpeg',0.98),
       debug:{
-        rawTop,
-        rawBottom,
+        source:'original-highres',
+        x,
         y,
-        h
+        w,
+        h,
+        crop,
+        rowTopRatio:topRatio,
+        rowBottomRatio:bottomRatio
       }
     };
   });
@@ -4787,7 +4909,7 @@ async function processOeeColumnPhoto() {
 
   try{
     statusEl.textContent=
-      `OCR local confiável lendo ${scope.label} — 3 passagens por máquina...`;
+      `OCR local em alta resolução lendo ${scope.label} — foto original por máquina...`;
 
     const fullDataUrl=
       state.oeeImageDataUrl||
@@ -4864,7 +4986,7 @@ async function processOeeColumnPhoto() {
     ).length;
 
     statusEl.textContent=
-      `OCR local ${scope.label}: ${found}/20 OEE confiável(is). `+
+      `OCR alta resolução ${scope.label}: ${found}/20 OEE confiável(is). `+
       `Máquinas sem consenso ficaram vazias e não entram no relatório.`;
 
     return rows;
@@ -7887,7 +8009,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=98.2.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=98.3.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -14491,7 +14613,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=98.2.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=98.3.0');
         registration.update();
       } catch {}
     });

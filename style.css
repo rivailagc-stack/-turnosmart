@@ -2281,3 +2281,16 @@ button.secondary,
   border:1px solid #d0d5dd;
   border-radius:12px;
 }
+
+
+/* V98.3 - preview da célula vindo da foto original */
+.oee-row-preview{
+  display:block !important;
+  width:100%;
+  max-height:300px !important;
+  object-fit:contain !important;
+  image-rendering:auto;
+  background:#fff;
+  border:1px solid #d0d5dd;
+  border-radius:12px;
+}
