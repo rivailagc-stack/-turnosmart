@@ -1,18 +1,14 @@
-PATCH V97
+PATCH V98
 
 Substitua:
 - app.js
 - index.html
+- style.css
 - sw.js
-- api/oee-vision.js
 - api/health.js (se presente)
 
-VERCEL:
-1. Mantenha GEMINI_API_KEY.
-2. Se existir GEMINI_MODEL=gemini-2.5-flash:
-   troque para GEMINI_MODEL=gemini-3.6-flash
-   OU apague GEMINI_MODEL para usar o padrão da V97.
-3. Faça Redeploy.
-4. Confirme V97.0.0.
+Faça Redeploy.
+Confirme V98.0.0.
 
-Agora usa Gemini 3.6 Flash + Interactions API.
+A leitura principal voltou a ser OCR local.
+IA não é chamada automaticamente nesta versão.

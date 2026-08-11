@@ -2249,3 +2249,23 @@ button.secondary,
   border:1px solid #d0d5dd;
   border-radius:12px;
 }
+
+
+/* V98 - OCR local conservador */
+.oee-editor-row.confidence-empty{
+  border-color:#98a2b3 !important;
+  background:#f8fafc !important;
+}
+.oee-editor-row.confidence-good{
+  border-color:#12b76a !important;
+  background:#f0fdf4 !important;
+}
+.oee-row-preview{
+  display:block !important;
+  width:100%;
+  max-height:160px;
+  object-fit:contain !important;
+  background:#fff;
+  border:1px solid #d0d5dd;
+  border-radius:12px;
+}

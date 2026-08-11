@@ -1,4 +1,4 @@
-const CACHE = 'turnosmart-v97.0.0';
+const CACHE = 'turnosmart-v98.0.0';
 const STATIC_ASSETS = [
   '/assets/training/valvula-5-3-exemplo.jpeg',
   '/historico-grupo.json',

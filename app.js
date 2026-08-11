@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '97.0.0';
+const APP_VERSION = '98.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v97.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2464,7 +2464,7 @@ function renderOeeMachineEditor(rows=state.oeeMachineEditorData){
     <div class="oee-editor-head">
       <strong>OEE lido da foto</strong>
       <span class="muted">
-        Cada cartão mostra exatamente a imagem enviada ao Gemini para aquela MK.
+        Preenche apenas quando as leituras locais concordam. Sem consenso = vazio.
       </span>
     </div>
 
@@ -2481,9 +2481,7 @@ function renderOeeMachineEditor(rows=state.oeeMachineEditorData){
         const css=
           displayed===''
             ?'confidence-empty'
-            :row.needsConfirmation
-              ?'confidence-warning'
-              :'confidence-good';
+            :'confidence-good';
 
         const preview=
           state.oeeRowPreviews?.[index]||'';
@@ -2519,10 +2517,8 @@ function renderOeeMachineEditor(rows=state.oeeMachineEditorData){
             <small class="oee-read-status">
               ${
                 displayed===''
-                  ?'Não identificado'
-                  :row.needsConfirmation
-                    ?`${String(displayed).replace('.',',')}% — conferir`
-                    :`${String(displayed).replace('.',',')}% — identificado`
+                  ?'Não confirmado'
+                  :`${String(displayed).replace('.',',')}% — consenso local`
               }
             </small>
 
@@ -2555,24 +2551,18 @@ function renderOeeMachineEditor(rows=state.oeeMachineEditorData){
       const value=raw===''?'':Number(raw);
       const row=state.oeeMachineEditorData[index];
 
-      row.oee=Number.isFinite(value)?value:'';
+      row.oee=
+        Number.isFinite(value)
+          ?value
+          :'';
 
       if(Number.isFinite(value)){
         row.candidateOee=value;
         row.confidence=100;
         row.needsConfirmation=false;
         row.ambiguous=false;
-
-        if(!row.description){
-          row.description='Valor confirmado manualmente.';
-        }
-
-        const card=event.target.closest('.oee-editor-row');
-        card?.classList.remove(
-          'confidence-empty',
-          'confidence-warning'
-        );
-        card?.classList.add('confidence-good');
+        row.source='Confirmado manualmente';
+        row.description='Valor confirmado manualmente.';
       }
     };
 
@@ -2584,20 +2574,23 @@ function renderOeeMachineEditor(rows=state.oeeMachineEditorData){
   wrap.classList.remove('hidden');
 }
 
-function machineOeeFromEditor() {
+function machineOeeFromEditor(){
   return (state.oeeMachineEditorData||[])
-    .filter(row=>
-      row.needsConfirmation!==true
-    )
-    .map(row=>({
-      machine:row.machine,
-      oee:row.oee===''?null:Number(row.oee),
-      line:`${row.machine} ${row.oee}%`
-    }))
+    .map(row=>{
+      const value=Number(row.oee);
+
+      return {
+        machine:row.machine,
+        oee:value,
+        confidence:Number(row.confidence||0),
+        source:row.source||''
+      };
+    })
     .filter(row=>
       Number.isFinite(row.oee) &&
       row.oee>=0 &&
-      row.oee<=100
+      row.oee<=100 &&
+      row.confidence>=67
     );
 }
 
@@ -4357,6 +4350,264 @@ async function processOeeColumnPhotoLocalOcr() {
 }
 
 
+
+function makeOcrVariant(sourceCanvas, mode='normal'){
+  const canvas=document.createElement('canvas');
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+
+  // Mantém resolução útil sem exagerar interpolação.
+  const scale=Math.max(
+    1,
+    Math.min(
+      2.2,
+      1400/Math.max(1,sourceCanvas.width)
+    )
+  );
+
+  canvas.width=Math.max(1,Math.round(sourceCanvas.width*scale));
+  canvas.height=Math.max(1,Math.round(sourceCanvas.height*scale));
+
+  ctx.fillStyle='#fff';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.imageSmoothingEnabled=true;
+  ctx.imageSmoothingQuality='high';
+  ctx.drawImage(sourceCanvas,0,0,canvas.width,canvas.height);
+
+  const img=ctx.getImageData(0,0,canvas.width,canvas.height);
+  const d=img.data;
+
+  for(let i=0;i<d.length;i+=4){
+    const r=d[i], g=d[i+1], b=d[i+2];
+    const gray=Math.round(0.299*r+0.587*g+0.114*b);
+
+    let v=gray;
+
+    if(mode==='contrast'){
+      v=Math.max(0,Math.min(255,(gray-128)*1.55+128));
+    }else if(mode==='threshold'){
+      v=gray<168?35:245;
+    }else if(mode==='color'){
+      // Realça escrita colorida e reduz fundo branco/cinza do quadro.
+      const max=Math.max(r,g,b);
+      const min=Math.min(r,g,b);
+      const saturation=max-min;
+      if(saturation>22 && gray<225){
+        v=Math.max(0,gray-40);
+      }else{
+        v=Math.min(255,gray+35);
+      }
+    }
+
+    d[i]=d[i+1]=d[i+2]=v;
+  }
+
+  ctx.putImageData(img,0,0);
+  return canvas;
+}
+
+function extractLikelyOeeCandidates(text=''){
+  const normalized=String(text||'')
+    .replace(/,/g,'.')
+    .replace(/[Oo]/g,'0')
+    .replace(/[Il|]/g,'1');
+
+  const percentMatches=[
+    ...normalized.matchAll(/(^|[^0-9])([0-9]{1,3}(?:\.[0-9])?)\s*%/g)
+  ].map(m=>Number(m[2]));
+
+  const plainMatches=[
+    ...normalized.matchAll(/(^|[^0-9])([0-9]{2,3})(?![0-9])/g)
+  ].map(m=>Number(m[2]));
+
+  const validPercent=percentMatches.filter(n=>n>=0&&n<=100);
+  const validPlain=plainMatches.filter(n=>n>=20&&n<=100);
+
+  return {
+    withPercent:validPercent,
+    plain:validPlain
+  };
+}
+
+function chooseConsensusOee(readings){
+  const candidates=[];
+
+  for(const reading of readings){
+    for(const value of reading.withPercent||[]){
+      candidates.push({value,weight:3,source:'percent'});
+    }
+    for(const value of reading.plain||[]){
+      candidates.push({value,weight:1,source:'plain'});
+    }
+  }
+
+  if(!candidates.length){
+    return {
+      value:null,
+      confidence:0,
+      reason:'Nenhum percentual encontrado.'
+    };
+  }
+
+  // Agrupa valores com tolerância de ±1 ponto.
+  const groups=[];
+
+  for(const cand of candidates){
+    let group=groups.find(g=>Math.abs(g.center-cand.value)<=1);
+    if(!group){
+      group={center:cand.value,items:[],score:0};
+      groups.push(group);
+    }
+    group.items.push(cand);
+    group.score+=cand.weight;
+    group.center=
+      group.items.reduce((s,x)=>s+x.value,0)/
+      group.items.length;
+  }
+
+  groups.sort((a,b)=>b.score-a.score);
+
+  const best=groups[0];
+  const second=groups[1];
+
+  // Exige consenso de pelo menos 2 passagens OU uma leitura com % muito forte.
+  const distinctSources=
+    new Set(best.items.map(x=>x.source));
+
+  const enoughEvidence=
+    best.items.length>=2 ||
+    best.score>=6;
+
+  const clearlyBetter=
+    !second ||
+    best.score>=second.score+2;
+
+  if(!enoughEvidence || !clearlyBetter){
+    return {
+      value:null,
+      confidence:0,
+      reason:'Leituras locais divergentes.'
+    };
+  }
+
+  const rounded=Math.round(best.center*10)/10;
+
+  return {
+    value:rounded,
+    confidence:Math.min(
+      99,
+      55+best.score*6
+    ),
+    reason:
+      best.items.some(x=>x.source==='percent')
+        ?'Consenso local com símbolo %.'
+        :'Consenso local em múltiplas leituras.'
+  };
+}
+
+async function localOcrTextForCanvas(canvas, psm=7){
+  const worker=await getOcrWorker();
+  try{
+    await worker.setParameters({
+      tessedit_pageseg_mode:String(psm),
+      preserve_interword_spaces:'1'
+    });
+  }catch{}
+
+  const result=await worker.recognize(canvas);
+  return String(result?.data?.text||'').trim();
+}
+
+async function readSingleOeeRowLocally(rowCanvas){
+  const variants=[
+    makeOcrVariant(rowCanvas,'normal'),
+    makeOcrVariant(rowCanvas,'contrast'),
+    makeOcrVariant(rowCanvas,'color')
+  ];
+
+  const texts=[];
+
+  for(const variant of variants){
+    // Primeiro PSM 7 (uma linha)
+    let text=await localOcrTextForCanvas(variant,7);
+
+    // Se não achou %, tenta PSM 6.
+    if(!/%/.test(text)){
+      const second=await localOcrTextForCanvas(variant,6);
+      text=`${text} ${second}`.trim();
+    }
+
+    texts.push(text);
+  }
+
+  const readings=texts.map(extractLikelyOeeCandidates);
+  const consensus=chooseConsensusOee(readings);
+
+  return {
+    ...consensus,
+    texts
+  };
+}
+
+function buildReliableRowCanvases(image, operationalDate, shift){
+  const processed=preprocessLegacyOeeColumn(
+    image,
+    operationalDate,
+    shift
+  );
+
+  const columnCanvas=processed.previewCanvas;
+  const ranges=machineRowRangesFromCanvas(columnCanvas);
+
+  return OEE_BOARD_MACHINES.map((machine,index)=>{
+    const range=ranges[index]||{
+      top:index*(columnCanvas.height/20),
+      bottom:(index+1)*(columnCanvas.height/20)
+    };
+
+    const rawHeight=Math.max(1,range.bottom-range.top);
+
+    // Usa margem maior da linha real, mas sem pegar metade da vizinha.
+    const pad=Math.max(1,rawHeight*0.03);
+    const y=Math.max(0,range.top+pad);
+    const h=Math.max(
+      1,
+      Math.min(
+        columnCanvas.height-y,
+        rawHeight-pad*2
+      )
+    );
+
+    const canvas=document.createElement('canvas');
+    const ctx=canvas.getContext('2d');
+
+    canvas.width=900;
+    canvas.height=150;
+
+    ctx.fillStyle='#fff';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality='high';
+
+    ctx.drawImage(
+      columnCanvas,
+      0,
+      y,
+      columnCanvas.width,
+      h,
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+
+    return {
+      machine,
+      canvas,
+      dataUrl:canvas.toDataURL('image/jpeg',0.95)
+    };
+  });
+}
 async function processOeeColumnPhoto() {
   const file=$('oeeImageInput')?.files?.[0];
 
@@ -4372,7 +4623,7 @@ async function processOeeColumnPhoto() {
 
   try{
     statusEl.textContent=
-      `Gemini 3.6 lendo ${scope.label}: 20 imagens, uma por máquina...`;
+      `OCR local confiável lendo ${scope.label} — 3 passagens por máquina...`;
 
     const fullDataUrl=
       state.oeeImageDataUrl||
@@ -4382,68 +4633,87 @@ async function processOeeColumnPhoto() {
 
     const image=await loadImageElement(fullDataUrl);
 
-    const fullVisionDataUrl=
-      await visionReadyFullImageDataUrl(image);
-
-    const prepared=
-      buildGeminiOeeComposite(
+    const rowsPrepared=
+      buildReliableRowCanvases(
         image,
         operationalDate,
         shift
       );
 
-    const rows=await analyzeOeeWithVision(
-      fullVisionDataUrl,
-      operationalDate,
-      shift,
-      scope,
-      prepared.dataUrl,
-      prepared.rowImages
-    );
+    state.oeeRowPreviews=
+      rowsPrepared.map(row=>row.dataUrl);
+
+    const rows=[];
+
+    for(let i=0;i<rowsPrepared.length;i++){
+      const item=rowsPrepared[i];
+
+      statusEl.textContent=
+        `OCR local ${scope.label}: ${i+1}/20 — ${item.machine}...`;
+
+      const local=
+        await readSingleOeeRowLocally(
+          item.canvas
+        );
+
+      if(
+        Number.isFinite(local.value) &&
+        local.confidence>=67
+      ){
+        rows.push({
+          machine:item.machine,
+          oee:local.value,
+          candidateOee:local.value,
+          confidence:local.confidence,
+          source:'OCR local por consenso',
+          needsConfirmation:false,
+          ambiguous:false,
+          description:
+            `${local.reason} `+
+            `Leituras: ${local.texts.filter(Boolean).join(' | ').slice(0,220)}`
+        });
+      }else{
+        rows.push({
+          machine:item.machine,
+          oee:'',
+          candidateOee:'',
+          confidence:0,
+          source:'OCR local inconclusivo',
+          needsConfirmation:false,
+          ambiguous:false,
+          description:
+            local.reason||
+            'Sem leitura confiável.'
+        });
+      }
+    }
 
     state.oeeMachineEditorData=rows;
-    state.oeeCropDataUrl=prepared.dataUrl;
-    state.oeeRowPreviews=prepared.rowImages.map(x=>x.dataUrl);
 
     renderOeeMachineEditor(rows);
 
     $('oeeOcrText').value=editorOeeText();
     state.oeeOcrText=$('oeeOcrText').value;
 
-    const found=rows.filter(row=>row.oee!=='').length;
-    const confirmed=rows.filter(
-      row=>row.oee!=='' &&
-      row.needsConfirmation!==true
+    const found=rows.filter(
+      row=>row.oee!==''
     ).length;
 
-    const diagnostic=rows._diagnostic||{};
-
     statusEl.textContent=
-      `Gemini 3.6 ${scope.label}: ${found}/20 OEE preenchido(s), `+
-      `${confirmed} confirmado(s). `+
-      `Modelo: ${diagnostic.model||'Gemini'}.`;
-
-    if(found===0){
-      showToast(
-        'Gemini respondeu, mas não encontrou percentuais. '+
-        'As 20 linhas foram enviadas separadamente.'
-      );
-    }
+      `OCR local ${scope.label}: ${found}/20 OEE confiável(is). `+
+      `Máquinas sem consenso ficaram vazias e não entram no relatório.`;
 
     return rows;
 
   }catch(error){
-    console.error('Gemini Vision falhou:',error);
+    console.error('OCR local confiável falhou:',error);
 
     statusEl.textContent=
-      `Gemini falhou: ${error.message}. OCR local NÃO será usado automaticamente.`;
+      `Erro na leitura local: ${error.message}`;
 
     showToast(
-      `Gemini: ${error.message}`
+      `OCR local: ${error.message}`
     );
-
-    // V96: evita esconder o problema com o OCR ruim.
-    renderOeeMachineEditor([]);
 
     return [];
   }
@@ -7453,7 +7723,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=97.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=98.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -14057,7 +14327,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=97.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=98.0.0');
         registration.update();
       } catch {}
     });
