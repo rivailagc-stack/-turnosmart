@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '92.0.0';
+const APP_VERSION = '93.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v92.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v93.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -571,10 +571,16 @@ function dayDifference(fromISO, toISO) {
 const WEEKDAYS_PT = ['DOMINGO','SEGUNDA','TERÇA','QUARTA','QUINTA','SEXTA','SÁBADO'];
 
 function boardScopeForReport(operationalDate, shift) {
-  const date = parseISODateAtNoon(operationalDate || todayISO());
-  const weekday = WEEKDAYS_PT[date.getDay()];
-  const column = String(shift || '1') === '2' ? 'B' : 'A';
-  return { weekday, column, label: `${weekday} ${column}` };
+  const date=new Date(`${operationalDate}T12:00:00`);
+  const names=['DOMINGO','SEGUNDA','TERÇA','QUARTA','QUINTA','SEXTA','SÁBADO'];
+  const dayName=names[date.getDay()]||'DIA';
+  const shiftLabel=String(shift)==='2'?'B':'A';
+  return {
+    dayName,
+    shiftLabel,
+    label:`${dayName} ${shiftLabel}`,
+    columnIndex:boardColumnIndex(operationalDate,shift)
+  };
 }
 
 function getConfig() {
@@ -2052,11 +2058,11 @@ function loadImageElement(dataUrl) {
 }
 
 function boardColumnIndex(operationalDate, shift) {
-  const date = parseISODateAtNoon(operationalDate || todayISO());
-  const jsDay = date.getDay(); // domingo = 0
-  const mondayIndex = jsDay === 0 ? 6 : jsDay - 1;
-  const shiftOffset = String(shift || '1') === '2' ? 1 : 0;
-  return mondayIndex * 2 + shiftOffset;
+  const date=new Date(`${operationalDate}T12:00:00`);
+  const day=date.getDay();
+  const weekdayIndex=Math.max(0,Math.min(5,day-1));
+  const shiftOffset=String(shift)==='2'?1:0;
+  return weekdayIndex*2+shiftOffset;
 }
 
 function getOeeBoardGeometry(image, operationalDate, shift) {
@@ -3627,105 +3633,61 @@ function associatePercentToMachineRows(anchors=[],percentWords=[],fullHeight=1){
 
 
 function getLegacyOeeCropSettings(image, operationalDate, shift) {
-  // V90: recorte calculado a partir das linhas reais do quadro.
-  // Não usa mais posição fixa que pegava o cabeçalho.
-
   const naturalWidth=image.naturalWidth||image.width;
   const naturalHeight=image.naturalHeight||image.height;
 
   const temp=document.createElement('canvas');
   const ctx=temp.getContext('2d',{willReadFrequently:true});
 
-  const scale=Math.min(1,1200/Math.max(1,naturalWidth));
+  const scale=Math.min(1,1600/Math.max(1,naturalWidth));
   temp.width=Math.max(1,Math.round(naturalWidth*scale));
   temp.height=Math.max(1,Math.round(naturalHeight*scale));
 
   ctx.fillStyle='#fff';
   ctx.fillRect(0,0,temp.width,temp.height);
-  ctx.drawImage(
-    image,
-    0,0,naturalWidth,naturalHeight,
-    0,0,temp.width,temp.height
-  );
+  ctx.drawImage(image,0,0,naturalWidth,naturalHeight,0,0,temp.width,temp.height);
 
-  // Detecta linhas verticais do quadro.
-  const verticalLines=detectBoardVerticalLines(temp);
-
-  // Divisória entre a coluna MK e a primeira coluna de produção.
-  let machineDivider=verticalLines.find(x=>
-    x>temp.width*0.20 &&
-    x<temp.width*0.42
-  );
-
-  if(!Number.isFinite(machineDivider)){
-    machineDivider=temp.width*0.285;
-  }
-
-  const afterMachine=verticalLines
-    .filter(x=>x>machineDivider+temp.width*0.06)
+  const verticalLines=detectBoardVerticalLines(temp)
+    .filter(x=>x>temp.width*0.08 && x<temp.width*0.995)
     .sort((a,b)=>a-b);
 
-  const expectedIndex=boardColumnIndex(
-    operationalDate,
-    shift
-  );
-
-  let left;
-  let right;
-
-  // Na foto estreita, normalmente só há uma coluna útil visível.
-  if(expectedIndex===0){
-    left=machineDivider;
-    right=
-      afterMachine.find(x=>x>machineDivider+temp.width*0.20) ||
-      temp.width*0.72;
-  }else{
-    const usableStart=machineDivider;
-    const usableEnd=temp.width*0.99;
-    const expectedColumns=10;
-    const columnWidth=(usableEnd-usableStart)/expectedColumns;
-
-    left=usableStart+expectedIndex*columnWidth;
-    right=usableStart+(expectedIndex+1)*columnWidth;
-
-    if(afterMachine.length>=expectedIndex+1){
-      left=
-        expectedIndex===0
-          ?machineDivider
-          :(afterMachine[expectedIndex-1]||left);
-
-      right=afterMachine[expectedIndex]||right;
+  const clean=[];
+  for(const x of verticalLines){
+    if(!clean.length || x-clean[clean.length-1]>temp.width*0.012){
+      clean.push(x);
     }
   }
 
-  // IMPORTANTE:
-  // As máquinas começam bem abaixo do cabeçalho.
-  // Na foto do quadro, MK138 inicia por volta de 29-31% da altura.
-  // MK149 termina por volta de 91-93%.
-  //
-  // Mantemos pequena folga para não cortar MK138/MK149.
+  let machineDivider=clean.find(x=>x>temp.width*0.10 && x<temp.width*0.24);
+  if(!Number.isFinite(machineDivider)) machineDivider=temp.width*0.145;
+
+  const dataBoundaries=clean
+    .filter(x=>x>machineDivider+temp.width*0.018)
+    .sort((a,b)=>a-b);
+
+  const index=boardColumnIndex(operationalDate,shift);
+
+  let left,right;
+
+  if(dataBoundaries.length>=12){
+    left=index===0?machineDivider:(dataBoundaries[index-1]||machineDivider);
+    right=dataBoundaries[index]||temp.width*0.995;
+  }else{
+    const boardStart=machineDivider;
+    const boardEnd=temp.width*0.995;
+    const totalColumns=12;
+    const colWidth=(boardEnd-boardStart)/totalColumns;
+    left=boardStart+index*colWidth;
+    right=boardStart+(index+1)*colWidth;
+  }
+
   const topRatio=0.285;
   const bottomRatio=0.935;
 
-  const sx=Math.max(
-    0,
-    Math.round((left/temp.width)*naturalWidth)
-  );
-
-  const ex=Math.min(
-    naturalWidth,
-    Math.round((right/temp.width)*naturalWidth)
-  );
-
-  const sy=Math.max(
-    0,
-    Math.round(naturalHeight*topRatio)
-  );
-
-  const ey=Math.min(
-    naturalHeight,
-    Math.round(naturalHeight*bottomRatio)
-  );
+  const sx=Math.max(0,Math.round((left/temp.width)*naturalWidth));
+  const ex=Math.min(naturalWidth,Math.round((right/temp.width)*naturalWidth));
+  const sy=Math.round(naturalHeight*topRatio);
+  const ey=Math.round(naturalHeight*bottomRatio);
 
   return {
     sx,
@@ -3733,12 +3695,12 @@ function getLegacyOeeCropSettings(image, operationalDate, shift) {
     sw:Math.max(1,ex-sx),
     sh:Math.max(1,ey-sy),
     debug:{
+      scope:boardScopeForReport(operationalDate,shift).label,
+      index,
+      detectedVerticalLines:clean.length,
       machineDividerRatio:machineDivider/temp.width,
       leftRatio:left/temp.width,
-      rightRatio:right/temp.width,
-      topRatio,
-      bottomRatio,
-      expectedIndex
+      rightRatio:right/temp.width
     }
   };
 }
@@ -7346,7 +7308,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=92.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=93.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -13950,7 +13912,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=92.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=93.0.0');
         registration.update();
       } catch {}
     });

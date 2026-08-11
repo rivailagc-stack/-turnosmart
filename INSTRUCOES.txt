@@ -1,10 +1,9 @@
-V92 GEMINI PATCH
+PATCH V93
 Substitua:
 - app.js
 - index.html
 - sw.js
 - api/oee-vision.js
+- api/health.js (se estiver no patch)
 
-Na Vercel:
-GEMINI_API_KEY = sua chave
-Depois Redeploy e confirme V92.0.0.
+Depois faça Redeploy e confirme V93.0.0.
