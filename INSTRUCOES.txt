@@ -1,12 +1,2 @@
-PATCH V94
-
-Substitua:
-- app.js
-- index.html
-- style.css
-- sw.js
-- api/oee-vision.js
-- api/health.js (se presente)
-
-Faça Redeploy e confirme V94.0.0.
-A GEMINI_API_KEY continua a mesma.
+PATCH V95
+Substitua app.js, index.html, style.css, sw.js, api/oee-vision.js e api/health.js se presente. Faça Redeploy.

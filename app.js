@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '94.0.0';
+const APP_VERSION = '95.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v94.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v95.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2464,7 +2464,7 @@ function renderOeeMachineEditor(rows=state.oeeMachineEditorData){
     <div class="oee-editor-head">
       <strong>OEE lido da foto</strong>
       <span class="muted">
-        Sequência fixa do quadro. A IA não altera a ordem das máquinas.
+        Cada linha foi enviada ao Gemini já identificada com a MK correta.
       </span>
     </div>
 
@@ -2646,96 +2646,30 @@ async function visionReadyFullImageDataUrl(image){
 
 
 function buildGeminiOeeComposite(image, operationalDate, shift){
-  const naturalWidth=image.naturalWidth||image.width;
-  const naturalHeight=image.naturalHeight||image.height;
-
-  const selected=getLegacyOeeCropSettings(
-    image,
-    operationalDate,
-    shift
-  );
-
-  const machineLeft=Math.round(naturalWidth*0.082);
-  const machineRight=Math.round(naturalWidth*0.148);
-
-  const top=Math.round(naturalHeight*0.255);
-  const bottom=Math.round(naturalHeight*0.945);
-  const sourceHeight=Math.max(1,bottom-top);
-
-  const selectedLeft=Math.max(
-    0,
-    Math.round(selected.sx-selected.sw*0.10)
-  );
-
-  const selectedRight=Math.min(
-    naturalWidth,
-    Math.round(selected.sx+selected.sw*1.12)
-  );
-
-  const machineWidth=Math.max(1,machineRight-machineLeft);
-  const selectedWidth=Math.max(1,selectedRight-selectedLeft);
-
-  const targetHeight=2200;
-  const yScale=targetHeight/sourceHeight;
-
-  const machineTargetWidth=Math.max(
-    230,
-    Math.round(machineWidth*yScale*1.8)
-  );
-
-  const selectedTargetWidth=Math.max(
-    720,
-    Math.round(selectedWidth*yScale*1.8)
-  );
-
-  const gutter=34;
-  const canvas=document.createElement('canvas');
-  const ctx=canvas.getContext('2d');
-
-  canvas.width=machineTargetWidth+gutter+selectedTargetWidth;
-  canvas.height=targetHeight;
-
-  ctx.fillStyle='#fff';
-  ctx.fillRect(0,0,canvas.width,canvas.height);
-
-  ctx.imageSmoothingEnabled=true;
-  ctx.imageSmoothingQuality='high';
-
-  ctx.drawImage(
-    image,
-    machineLeft,top,machineWidth,sourceHeight,
-    0,0,machineTargetWidth,targetHeight
-  );
-
-  ctx.fillStyle='#111827';
-  ctx.fillRect(machineTargetWidth+gutter/2-2,0,4,targetHeight);
-
-  ctx.drawImage(
-    image,
-    selectedLeft,top,selectedWidth,sourceHeight,
-    machineTargetWidth+gutter,0,selectedTargetWidth,targetHeight
-  );
-
-  ctx.fillStyle='rgba(255,255,255,.92)';
-  ctx.fillRect(0,0,canvas.width,64);
-
-  ctx.fillStyle='#111827';
-  ctx.font='bold 27px Arial';
-
-  ctx.fillText(
-    'MAQUINA IMPRESSA | '+boardScopeForReport(
-      operationalDate,
-      shift
-    ).label,
-    16,
-    42
-  );
-
-  return {
-    canvas,
-    dataUrl:canvas.toDataURL('image/jpeg',0.92),
-    selectedCrop:selected
-  };
+  const scope=boardScopeForReport(operationalDate,shift);
+  const processed=preprocessLegacyOeeColumn(image,operationalDate,shift);
+  const columnCanvas=processed.previewCanvas;
+  const ranges=machineRowRangesFromCanvas(columnCanvas);
+  const labelWidth=260, rowHeight=120, gap=8, topHeader=74, contentWidth=900;
+  const sheet=document.createElement('canvas');
+  const ctx=sheet.getContext('2d');
+  sheet.width=labelWidth+contentWidth;
+  sheet.height=topHeader+OEE_BOARD_MACHINES.length*(rowHeight+gap)+gap;
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,sheet.width,sheet.height);
+  ctx.fillStyle='#111827'; ctx.font='bold 34px Arial';
+  ctx.fillText(`OEE ${scope.label} — 20 LINHAS`,24,48);
+  OEE_BOARD_MACHINES.forEach((machine,index)=>{
+    const y=topHeader+index*(rowHeight+gap);
+    const range=ranges[index]||{top:index*(columnCanvas.height/20),bottom:(index+1)*(columnCanvas.height/20)};
+    const sourceY=Math.max(0,range.top);
+    const sourceHeight=Math.max(1,Math.min(columnCanvas.height-sourceY,range.bottom-range.top));
+    ctx.fillStyle=index%2===0?'#f8fafc':'#fff'; ctx.fillRect(0,y,sheet.width,rowHeight);
+    ctx.fillStyle='#111827'; ctx.font='bold 32px Arial'; ctx.fillText(machine,22,y+72);
+    ctx.fillStyle='#d0d5dd'; ctx.fillRect(labelWidth-4,y,4,rowHeight);
+    ctx.drawImage(columnCanvas,0,sourceY,columnCanvas.width,sourceHeight,labelWidth,y+8,contentWidth,rowHeight-16);
+    ctx.strokeStyle='#d0d5dd'; ctx.lineWidth=2; ctx.strokeRect(1,y,sheet.width-2,rowHeight);
+  });
+  return {canvas:sheet,dataUrl:sheet.toDataURL('image/jpeg',0.94),selectedCrop:processed.crop,rowRanges:ranges,scope};
 }
 
 async function analyzeOeeWithVision(
@@ -2804,8 +2738,7 @@ async function analyzeOeeWithVision(
 
     if(
       !valid ||
-      found.anchorFound===false ||
-      found.rowChecked===false
+      false
     ){
       return {
         machine,
@@ -2830,7 +2763,7 @@ async function analyzeOeeWithVision(
       candidateOee:oee,
       confidence,
       source:found.evidence||'Gemini Vision',
-      needsConfirmation:confidence<70,
+      needsConfirmation:confidence<60,
       ambiguous:false,
       visionSource:true,
       anchorFound:true,
@@ -4351,7 +4284,7 @@ async function processOeeColumnPhoto() {
 
   try{
     statusEl.textContent=
-      `Gemini alinhando máquinas com ${scope.label}...`;
+      `Gemini lendo 20 linhas identificadas de ${scope.label}...`;
 
     const fullDataUrl=
       state.oeeImageDataUrl||
@@ -7427,7 +7360,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=94.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=95.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -14031,7 +13964,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=94.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=95.0.0');
         registration.update();
       } catch {}
     });

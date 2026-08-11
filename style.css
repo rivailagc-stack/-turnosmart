@@ -2235,3 +2235,5 @@ button.secondary,
 .oee-editor-row.confidence-empty .oee-read-description{
   background:#fff5f5;
 }
+
+#oeeCropPreview{width:100% !important;max-height:none !important;object-fit:contain !important;}
