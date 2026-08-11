@@ -1,13 +1,18 @@
-PATCH V96
+PATCH V97
 
 Substitua:
 - app.js
 - index.html
-- style.css
 - sw.js
 - api/oee-vision.js
 - api/health.js (se presente)
 
-Faça Redeploy.
-Confirme V96.0.0.
-A GEMINI_API_KEY continua a mesma.
+VERCEL:
+1. Mantenha GEMINI_API_KEY.
+2. Se existir GEMINI_MODEL=gemini-2.5-flash:
+   troque para GEMINI_MODEL=gemini-3.6-flash
+   OU apague GEMINI_MODEL para usar o padrão da V97.
+3. Faça Redeploy.
+4. Confirme V97.0.0.
+
+Agora usa Gemini 3.6 Flash + Interactions API.

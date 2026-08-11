@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '96.0.0';
+const APP_VERSION = '97.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v96.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v97.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -4372,7 +4372,7 @@ async function processOeeColumnPhoto() {
 
   try{
     statusEl.textContent=
-      `Gemini lendo ${scope.label}: 20 imagens, uma por máquina...`;
+      `Gemini 3.6 lendo ${scope.label}: 20 imagens, uma por máquina...`;
 
     const fullDataUrl=
       state.oeeImageDataUrl||
@@ -4419,7 +4419,7 @@ async function processOeeColumnPhoto() {
     const diagnostic=rows._diagnostic||{};
 
     statusEl.textContent=
-      `Gemini ${scope.label}: ${found}/20 OEE preenchido(s), `+
+      `Gemini 3.6 ${scope.label}: ${found}/20 OEE preenchido(s), `+
       `${confirmed} confirmado(s). `+
       `Modelo: ${diagnostic.model||'Gemini'}.`;
 
@@ -7453,7 +7453,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=96.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=97.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -14057,7 +14057,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=96.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=97.0.0');
         registration.update();
       } catch {}
     });
