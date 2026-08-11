@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '95.0.0';
+const APP_VERSION = '96.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v95.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v96.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2464,7 +2464,7 @@ function renderOeeMachineEditor(rows=state.oeeMachineEditorData){
     <div class="oee-editor-head">
       <strong>OEE lido da foto</strong>
       <span class="muted">
-        Cada linha foi enviada ao Gemini já identificada com a MK correta.
+        Cada cartão mostra exatamente a imagem enviada ao Gemini para aquela MK.
       </span>
     </div>
 
@@ -2473,7 +2473,8 @@ function renderOeeMachineEditor(rows=state.oeeMachineEditorData){
         const n=Number(row.oee);
 
         const displayed=
-          row.oee!=='' && Number.isFinite(n)
+          row.oee!=='' &&
+          Number.isFinite(n)
             ?n
             :'';
 
@@ -2484,11 +2485,24 @@ function renderOeeMachineEditor(rows=state.oeeMachineEditorData){
               ?'confidence-warning'
               :'confidence-good';
 
+        const preview=
+          state.oeeRowPreviews?.[index]||'';
+
         return `
           <label class="oee-editor-row ${css}">
             <span class="oee-machine-name">
               ${escapeHtml(row.machine)}
             </span>
+
+            ${
+              preview
+                ?`<img
+                    class="oee-row-preview"
+                    src="${preview}"
+                    alt="${escapeHtml(row.machine)}"
+                  />`
+                :''
+            }
 
             <input
               class="oee-editor-input"
@@ -2552,6 +2566,13 @@ function renderOeeMachineEditor(rows=state.oeeMachineEditorData){
         if(!row.description){
           row.description='Valor confirmado manualmente.';
         }
+
+        const card=event.target.closest('.oee-editor-row');
+        card?.classList.remove(
+          'confidence-empty',
+          'confidence-warning'
+        );
+        card?.classList.add('confidence-good');
       }
     };
 
@@ -2647,29 +2668,119 @@ async function visionReadyFullImageDataUrl(image){
 
 function buildGeminiOeeComposite(image, operationalDate, shift){
   const scope=boardScopeForReport(operationalDate,shift);
-  const processed=preprocessLegacyOeeColumn(image,operationalDate,shift);
+
+  // Usa o recorte da coluna que já está funcionando corretamente.
+  const processed=preprocessLegacyOeeColumn(
+    image,
+    operationalDate,
+    shift
+  );
+
   const columnCanvas=processed.previewCanvas;
   const ranges=machineRowRangesFromCanvas(columnCanvas);
-  const labelWidth=260, rowHeight=120, gap=8, topHeader=74, contentWidth=900;
-  const sheet=document.createElement('canvas');
-  const ctx=sheet.getContext('2d');
-  sheet.width=labelWidth+contentWidth;
-  sheet.height=topHeader+OEE_BOARD_MACHINES.length*(rowHeight+gap)+gap;
-  ctx.fillStyle='#fff'; ctx.fillRect(0,0,sheet.width,sheet.height);
-  ctx.fillStyle='#111827'; ctx.font='bold 34px Arial';
-  ctx.fillText(`OEE ${scope.label} — 20 LINHAS`,24,48);
+
+  const rowImages=[];
+
   OEE_BOARD_MACHINES.forEach((machine,index)=>{
-    const y=topHeader+index*(rowHeight+gap);
-    const range=ranges[index]||{top:index*(columnCanvas.height/20),bottom:(index+1)*(columnCanvas.height/20)};
+    const range=ranges[index]||{
+      top:index*(columnCanvas.height/20),
+      bottom:(index+1)*(columnCanvas.height/20)
+    };
+
     const sourceY=Math.max(0,range.top);
-    const sourceHeight=Math.max(1,Math.min(columnCanvas.height-sourceY,range.bottom-range.top));
-    ctx.fillStyle=index%2===0?'#f8fafc':'#fff'; ctx.fillRect(0,y,sheet.width,rowHeight);
-    ctx.fillStyle='#111827'; ctx.font='bold 32px Arial'; ctx.fillText(machine,22,y+72);
-    ctx.fillStyle='#d0d5dd'; ctx.fillRect(labelWidth-4,y,4,rowHeight);
-    ctx.drawImage(columnCanvas,0,sourceY,columnCanvas.width,sourceHeight,labelWidth,y+8,contentWidth,rowHeight-16);
-    ctx.strokeStyle='#d0d5dd'; ctx.lineWidth=2; ctx.strokeRect(1,y,sheet.width-2,rowHeight);
+    const sourceHeight=Math.max(
+      1,
+      Math.min(
+        columnCanvas.height-sourceY,
+        range.bottom-range.top
+      )
+    );
+
+    const canvas=document.createElement('canvas');
+    const ctx=canvas.getContext('2d');
+
+    // Alta resolução apenas para uma única linha.
+    canvas.width=1100;
+    canvas.height=190;
+
+    ctx.fillStyle='#fff';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // Rótulo digital grande e inequívoco.
+    ctx.fillStyle='#111827';
+    ctx.font='bold 42px Arial';
+    ctx.fillText(machine,18,62);
+
+    ctx.fillStyle='#475467';
+    ctx.font='bold 24px Arial';
+    ctx.fillText(scope.label,18,108);
+
+    ctx.fillStyle='#d0d5dd';
+    ctx.fillRect(235,0,4,canvas.height);
+
+    // Conteúdo real da linha.
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality='high';
+
+    ctx.drawImage(
+      columnCanvas,
+      0,
+      sourceY,
+      columnCanvas.width,
+      sourceHeight,
+      250,
+      8,
+      835,
+      174
+    );
+
+    rowImages.push({
+      machine,
+      dataUrl:canvas.toDataURL('image/jpeg',0.94)
+    });
   });
-  return {canvas:sheet,dataUrl:sheet.toDataURL('image/jpeg',0.94),selectedCrop:processed.crop,rowRanges:ranges,scope};
+
+  // Folha visual apenas para o usuário conferir.
+  const preview=document.createElement('canvas');
+  const pctx=preview.getContext('2d');
+
+  const pw=900;
+  const ph=OEE_BOARD_MACHINES.length*115+60;
+
+  preview.width=pw;
+  preview.height=ph;
+
+  pctx.fillStyle='#fff';
+  pctx.fillRect(0,0,pw,ph);
+
+  pctx.fillStyle='#111827';
+  pctx.font='bold 30px Arial';
+  pctx.fillText(
+    `Gemini — ${scope.label} — linha por linha`,
+    16,
+    40
+  );
+
+  OEE_BOARD_MACHINES.forEach((machine,index)=>{
+    const y=60+index*115;
+    const row=rowImages[index];
+
+    const img=new Image();
+    img.src=row.dataUrl;
+
+    // Como dataURL já está em memória, desenhamos assim que carregado.
+    img.onload=()=>{
+      pctx.drawImage(img,0,0,img.width,img.height,0,y,pw,108);
+    };
+  });
+
+  return {
+    canvas:preview,
+    dataUrl:preview.toDataURL('image/jpeg',0.90),
+    rowImages,
+    selectedCrop:processed.crop,
+    scope
+  };
 }
 
 async function analyzeOeeWithVision(
@@ -2677,7 +2788,8 @@ async function analyzeOeeWithVision(
   operationalDate,
   shift,
   scope,
-  compositeDataUrl=''
+  compositeDataUrl='',
+  rowImages=[]
 ){
   const response=await fetch('/api/oee-vision',{
     method:'POST',
@@ -2685,6 +2797,7 @@ async function analyzeOeeWithVision(
     body:JSON.stringify({
       imageDataUrl,
       compositeDataUrl,
+      rowImages,
       date:operationalDate,
       shift,
       scope
@@ -2707,22 +2820,8 @@ async function analyzeOeeWithVision(
     ])
   );
 
-  return OEE_BOARD_MACHINES.map(machine=>{
-    const found=byMachine.get(machine);
-
-    if(!found){
-      return {
-        machine,
-        oee:'',
-        candidateOee:'',
-        confidence:0,
-        source:'Gemini: sem retorno',
-        needsConfirmation:false,
-        ambiguous:false,
-        visionSource:true,
-        description:'Sem leitura para esta linha.'
-      };
-    }
+  const normalized=OEE_BOARD_MACHINES.map(machine=>{
+    const found=byMachine.get(machine)||{};
 
     const oee=Number(found.oee);
 
@@ -2736,45 +2835,34 @@ async function analyzeOeeWithVision(
 
     const confidence=Number(found.confidence||0);
 
-    if(
-      !valid ||
-      false
-    ){
-      return {
-        machine,
-        oee:'',
-        candidateOee:'',
-        confidence,
-        source:found.evidence||'Gemini: sem OEE confiável',
-        needsConfirmation:false,
-        ambiguous:false,
-        visionSource:true,
-        description:String(
-          found.description||
-          found.evidence||
-          'Linha localizada, sem percentual legível.'
-        )
-      };
-    }
-
     return {
       machine,
-      oee,
-      candidateOee:oee,
+      oee:valid?oee:'',
+      candidateOee:valid?oee:'',
       confidence,
-      source:found.evidence||'Gemini Vision',
-      needsConfirmation:confidence<60,
+      source:found.evidence||'Gemini linha por linha',
+      needsConfirmation:valid && confidence<60,
       ambiguous:false,
       visionSource:true,
-      anchorFound:true,
-      rowChecked:true,
       description:String(
         found.description||
-        found.evidence||
-        `OEE ${oee}% identificado na mesma linha.`
+        (
+          valid
+            ?`${oee}% identificado nesta linha.`
+            :'Sem percentual legível nesta linha.'
+        )
       )
     };
   });
+
+  normalized._diagnostic={
+    provider:data.provider||'gemini',
+    model:data.model||'',
+    returned:Number(data.returned||0),
+    nonNull:Number(data.nonNull||0)
+  };
+
+  return normalized;
 }
 
 function usefulOeeReadCount(rows=[]){
@@ -4284,7 +4372,7 @@ async function processOeeColumnPhoto() {
 
   try{
     statusEl.textContent=
-      `Gemini lendo 20 linhas identificadas de ${scope.label}...`;
+      `Gemini lendo ${scope.label}: 20 imagens, uma por máquina...`;
 
     const fullDataUrl=
       state.oeeImageDataUrl||
@@ -4297,7 +4385,7 @@ async function processOeeColumnPhoto() {
     const fullVisionDataUrl=
       await visionReadyFullImageDataUrl(image);
 
-    const composite=
+    const prepared=
       buildGeminiOeeComposite(
         image,
         operationalDate,
@@ -4309,20 +4397,13 @@ async function processOeeColumnPhoto() {
       operationalDate,
       shift,
       scope,
-      composite.dataUrl
+      prepared.dataUrl,
+      prepared.rowImages
     );
 
     state.oeeMachineEditorData=rows;
-    state.oeeCropDataUrl=composite.dataUrl;
-    state.oeeRowPreviews=[];
-
-    if($('oeeCropPreview')){
-      $('oeeCropPreview').src=composite.dataUrl;
-    }
-
-    if($('oeeCropPreviewWrap')){
-      $('oeeCropPreviewWrap').classList.remove('hidden');
-    }
+    state.oeeCropDataUrl=prepared.dataUrl;
+    state.oeeRowPreviews=prepared.rowImages.map(x=>x.dataUrl);
 
     renderOeeMachineEditor(rows);
 
@@ -4331,12 +4412,23 @@ async function processOeeColumnPhoto() {
 
     const found=rows.filter(row=>row.oee!=='').length;
     const confirmed=rows.filter(
-      row=>row.oee!=='' && row.needsConfirmation!==true
+      row=>row.oee!=='' &&
+      row.needsConfirmation!==true
     ).length;
 
+    const diagnostic=rows._diagnostic||{};
+
     statusEl.textContent=
-      `Gemini ${scope.label}: ${found} OEE encontrado(s), `+
-      `${confirmed} confirmado(s). Ordem das MK fixa.`;
+      `Gemini ${scope.label}: ${found}/20 OEE preenchido(s), `+
+      `${confirmed} confirmado(s). `+
+      `Modelo: ${diagnostic.model||'Gemini'}.`;
+
+    if(found===0){
+      showToast(
+        'Gemini respondeu, mas não encontrou percentuais. '+
+        'As 20 linhas foram enviadas separadamente.'
+      );
+    }
 
     return rows;
 
@@ -4344,15 +4436,16 @@ async function processOeeColumnPhoto() {
     console.error('Gemini Vision falhou:',error);
 
     statusEl.textContent=
-      `Gemini falhou (${error.message}). Usando OCR local como reserva...`;
+      `Gemini falhou: ${error.message}. OCR local NÃO será usado automaticamente.`;
 
-    const rows=await processOeeColumnPhotoLocalOcr();
+    showToast(
+      `Gemini: ${error.message}`
+    );
 
-    if(rows.length){
-      statusEl.textContent+=' • OCR local usado como reserva.';
-    }
+    // V96: evita esconder o problema com o OCR ruim.
+    renderOeeMachineEditor([]);
 
-    return rows;
+    return [];
   }
 }
 
@@ -7360,7 +7453,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=95.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=96.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -13964,7 +14057,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=95.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=96.0.0');
         registration.update();
       } catch {}
     });

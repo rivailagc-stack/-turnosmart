@@ -2237,3 +2237,15 @@ button.secondary,
 }
 
 #oeeCropPreview{width:100% !important;max-height:none !important;object-fit:contain !important;}
+
+
+/* V96 - cada cartão exibe a imagem individual enviada ao Gemini */
+.oee-row-preview{
+  display:block !important;
+  width:100%;
+  max-height:150px;
+  object-fit:contain !important;
+  background:#fff;
+  border:1px solid #d0d5dd;
+  border-radius:12px;
+}
