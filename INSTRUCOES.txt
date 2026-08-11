@@ -1,14 +1,6 @@
-PATCH V98.3
+PATCH V98.4
+Substitua os arquivos do patch e faça Redeploy.
+Confirme V98.4.0 no topo.
 
-Substitua:
-- app.js
-- index.html
-- style.css
-- sw.js
-- api/health.js (se presente)
-
-Depois faça Redeploy.
-Confirme V98.3.0.
-
-Mudança:
-o recorte de cada MK vem direto da FOTO ORIGINAL em alta resolução.
+A leitura agora é híbrida:
+foto original -> OCR local -> IA validadora -> regra de consenso.

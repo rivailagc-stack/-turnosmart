@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '98.3.0';
+const APP_VERSION = '98.4.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.3.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.4.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -4615,6 +4615,188 @@ async function localOcrTextForCanvas(canvas, psm=7){
   ).trim();
 }
 
+
+// ================================
+// V98.4 — LEITURA HÍBRIDA OCR + IA
+// ================================
+
+// Nunca aceita um valor de IA fora de faixa e nunca transforma produção em OEE.
+function normalizeHybridOee(value){
+  const n = Number(String(value ?? '').replace(',', '.').replace(/[^\d.]/g,''));
+  if(!Number.isFinite(n)) return null;
+  const v = Math.round(n);
+  if(v < 1 || v > 100) return null;
+  return v;
+}
+
+function parseAiOeeJson(raw){
+  if(!raw) return {oee:null, status:'unreadable', confidence:0, evidence:''};
+
+  let text = typeof raw === 'string' ? raw : JSON.stringify(raw);
+  text = text.replace(/```json/gi,'').replace(/```/g,'').trim();
+
+  let obj = null;
+  try{
+    obj = JSON.parse(text);
+  }catch(_){
+    const m = text.match(/\{[\s\S]*\}/);
+    if(m){
+      try{ obj = JSON.parse(m[0]); }catch(__){}
+    }
+  }
+
+  if(!obj) return {oee:null, status:'unreadable', confidence:0, evidence:''};
+
+  const status = String(obj.status || '').toLowerCase();
+  const oee = normalizeHybridOee(obj.oee);
+  const confidence = Math.max(0, Math.min(1, Number(obj.confidence || 0)));
+  const evidence = String(obj.evidence || '').slice(0,120);
+
+  if(status === 'not_running' || status === 'blank' || status === 'unreadable'){
+    return {oee:null, status, confidence, evidence};
+  }
+
+  // IA só pode devolver OEE quando afirma ter visto explicitamente percentual.
+  if(oee === null || !/%/.test(evidence)){
+    return {oee:null, status:'unreadable', confidence, evidence};
+  }
+
+  return {oee, status:'oee', confidence, evidence};
+}
+
+async function readSingleOeeRowWithAI(machine, rowCanvas){
+  // Usa a mesma infraestrutura de IA que o TurnoSmart já possui.
+  // O endpoint /api/gemini é tentado primeiro; se o projeto tiver outro
+  // endpoint configurado, window.TURNOSMART_AI_ENDPOINT pode sobrescrever.
+  const endpoint = window.TURNOSMART_AI_ENDPOINT || '/api/gemini';
+
+  const image = rowCanvas.toDataURL('image/jpeg', 0.98);
+
+  const prompt = `
+Você é um leitor industrial de quadro OEE.
+Analise SOMENTE a célula da máquina ${machine} mostrada na imagem.
+
+REGRAS OBRIGATÓRIAS:
+1. Procure apenas o OEE percentual manuscrito da célula.
+2. NÃO use número de produção como OEE.
+3. NÃO use número de máquina como OEE.
+4. NÃO use números de outra linha.
+5. Se a máquina não rodou, célula vazia, traço ou sem percentual legível: não invente.
+6. O OEE válido deve estar entre 1% e 100% e o símbolo % precisa estar visualmente associado ao número.
+7. Escrita pode ser vermelha, azul, verde ou preta.
+8. Se houver dúvida, retorne unreadable.
+
+Responda SOMENTE JSON:
+{"status":"oee|not_running|blank|unreadable","oee":null,"confidence":0.0,"evidence":""}
+
+Quando status="oee", evidence deve conter exatamente a pequena evidência visual, por exemplo "61%".
+`;
+
+  try{
+    const response = await fetch(endpoint,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        task:'oee_cell_read',
+        machine,
+        prompt,
+        image,
+        responseFormat:'json'
+      })
+    });
+
+    if(!response.ok){
+      return {oee:null,status:'unavailable',confidence:0,evidence:'',error:`HTTP ${response.status}`};
+    }
+
+    const data = await response.json();
+    const raw =
+      data?.text ??
+      data?.result ??
+      data?.output ??
+      data?.response ??
+      data;
+
+    return parseAiOeeJson(raw);
+  }catch(error){
+    return {oee:null,status:'unavailable',confidence:0,evidence:'',error:String(error?.message||error)};
+  }
+}
+
+async function readSingleOeeRowHybrid(machine, rowCanvas){
+  const local = await readSingleOeeRowLocally(rowCanvas);
+
+  // Se OCR local já tem consenso forte, preserva.
+  const localValue = normalizeHybridOee(local?.oee ?? local?.value);
+  const localConfidence = Number(local?.confidence || 0);
+
+  // IA sempre faz a segunda leitura quando disponível.
+  const ai = await readSingleOeeRowWithAI(machine, rowCanvas);
+
+  // Caso 1: OCR + IA concordam.
+  if(localValue !== null && ai.oee !== null && Math.abs(localValue-ai.oee) <= 1){
+    return {
+      oee: ai.oee,
+      value: ai.oee,
+      confirmed:true,
+      source:'OCR + IA',
+      confidence:Math.max(0.95, ai.confidence),
+      reason:`OCR e IA confirmaram ${ai.oee}%`,
+      local,
+      ai
+    };
+  }
+
+  // Caso 2: IA vê claramente percentual e OCR não conseguiu ler.
+  // Exige confiança alta + evidence contendo exatamente o percentual.
+  if(localValue === null && ai.oee !== null && ai.confidence >= 0.90){
+    const ev = String(ai.evidence||'');
+    const evNumber = normalizeHybridOee(ev);
+    if(evNumber === ai.oee && ev.includes('%')){
+      return {
+        oee:ai.oee,
+        value:ai.oee,
+        confirmed:true,
+        source:'IA validada pela evidência',
+        confidence:ai.confidence,
+        reason:`IA confirmou visualmente ${ai.oee}%`,
+        local,
+        ai
+      };
+    }
+  }
+
+  // Caso 3: OCR local forte e IA indisponível.
+  if(localValue !== null && localConfidence >= 0.92 && ai.status === 'unavailable'){
+    return {
+      ...local,
+      oee:localValue,
+      value:localValue,
+      confirmed:true,
+      source:'OCR local',
+      reason:`OCR local confirmou ${localValue}%; IA indisponível`,
+      ai
+    };
+  }
+
+  // Divergência = NÃO entra no relatório.
+  return {
+    oee:null,
+    value:null,
+    confirmed:false,
+    source:'não confirmado',
+    confidence:0,
+    reason:
+      ai.status === 'not_running' ? 'IA indicou máquina sem produção/OEE.' :
+      ai.status === 'blank' ? 'Célula vazia.' :
+      (localValue !== null && ai.oee !== null) ? `Divergência: OCR ${localValue}% x IA ${ai.oee}%.` :
+      ai.status === 'unavailable' ? 'IA indisponível e OCR sem confiança suficiente.' :
+      'OCR e IA não confirmaram o percentual.',
+    local,
+    ai
+  };
+}
+
 async function readSingleOeeRowLocally(rowCanvas){
   const variants=[
     makeOcrVariant(rowCanvas,'normal'),
@@ -4909,7 +5091,7 @@ async function processOeeColumnPhoto() {
 
   try{
     statusEl.textContent=
-      `OCR local em alta resolução lendo ${scope.label} — foto original por máquina...`;
+      `Leitura híbrida OCR + IA em alta resolução lendo ${scope.label} — foto original por máquina...`;
 
     const fullDataUrl=
       state.oeeImageDataUrl||
@@ -4938,9 +5120,7 @@ async function processOeeColumnPhoto() {
         `OCR local ${scope.label}: ${i+1}/20 — ${item.machine}...`;
 
       const local=
-        await readSingleOeeRowLocally(
-          item.canvas
-        );
+        await readSingleOeeRowHybrid(item.machine, item.canvas);
 
       if(
         Number.isFinite(local.value) &&
@@ -4986,7 +5166,7 @@ async function processOeeColumnPhoto() {
     ).length;
 
     statusEl.textContent=
-      `OCR alta resolução ${scope.label}: ${found}/20 OEE confiável(is). `+
+      `OCR + IA ${scope.label}: ${found}/20 OEE confiável(is). `+
       `Máquinas sem consenso ficaram vazias e não entram no relatório.`;
 
     return rows;
@@ -8009,7 +8189,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=98.3.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=98.4.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -14613,7 +14793,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=98.3.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=98.4.0');
         registration.update();
       } catch {}
     });
