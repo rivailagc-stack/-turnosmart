@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '93.0.0';
+const APP_VERSION = '94.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v93.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v94.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2443,140 +2443,114 @@ function mapOcrWordsToMachineRows(
   });
 }
 
-function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
+function renderOeeMachineEditor(rows=state.oeeMachineEditorData){
   const wrap=$('oeeMachineEditor');
   if(!wrap)return;
 
-  state.oeeMachineEditorData=rows.length
-    ?rows
-    :OEE_BOARD_MACHINES.map(machine=>({
+  state.oeeMachineEditorData=
+    OEE_BOARD_MACHINES.map(machine=>{
+      return (rows||[]).find(row=>row.machine===machine)||{
         machine,
         oee:'',
         candidateOee:'',
         confidence:0,
         source:'',
-        needsConfirmation:false
-      }));
+        needsConfirmation:false,
+        description:'Sem leitura.'
+      };
+    });
 
   wrap.innerHTML=`
     <div class="oee-editor-head">
       <strong>OEE lido da foto</strong>
       <span class="muted">
-        O pequeno recorte mostra exatamente a linha usada pelo OCR.
+        Sequência fixa do quadro. A IA não altera a ordem das máquinas.
       </span>
     </div>
 
     <div class="oee-editor-grid">
-      ${state.oeeMachineEditorData.map(
-        (row,index)=>{
-          const displayed=
-            row.oee!==''?row.oee:
-            (
-              row.candidateOee!==undefined &&
-              row.candidateOee!==''
-                ?row.candidateOee
-                :''
-            );
+      ${state.oeeMachineEditorData.map((row,index)=>{
+        const n=Number(row.oee);
 
-          const css=
-            displayed===''
-              ?'confidence-empty'
-              :row.needsConfirmation
-                ?'confidence-warning'
-                :'confidence-good';
+        const displayed=
+          row.oee!=='' && Number.isFinite(n)
+            ?n
+            :'';
 
-          const preview=
-            state.oeeRowPreviews?.[index]||'';
+        const css=
+          displayed===''
+            ?'confidence-empty'
+            :row.needsConfirmation
+              ?'confidence-warning'
+              :'confidence-good';
 
-          return `
-            <label class="oee-editor-row ${css}">
-              <span class="oee-machine-name">
-                ${escapeHtml(row.machine)}
-              </span>
+        return `
+          <label class="oee-editor-row ${css}">
+            <span class="oee-machine-name">
+              ${escapeHtml(row.machine)}
+            </span>
 
+            <input
+              class="oee-editor-input"
+              data-index="${index}"
+              type="number"
+              min="0"
+              max="100"
+              step="0.1"
+              inputmode="decimal"
+              value="${displayed===''?'':escapeHtml(String(displayed))}"
+              placeholder="-"
+            />
+
+            <small class="oee-read-status">
               ${
-                preview
-                  ?`<img
-                      class="oee-row-preview"
-                      src="${preview}"
-                      alt="Linha ${escapeHtml(row.machine)}"
-                    />`
-                  :''
-              }
-
-              <input
-                class="oee-editor-input"
-                data-index="${index}"
-                type="number"
-                min="0"
-                max="100"
-                step="0.1"
-                inputmode="decimal"
-                value="${
-                  displayed===''?'':escapeHtml(String(displayed))
-                }"
-                placeholder="-"
-              />
-
-              <small>${
                 displayed===''
                   ?'Não identificado'
                   :row.needsConfirmation
-                    ?`Leitura provável ${String(displayed).replace('.',',')}% — confira a imagem`
-                    :`${String(displayed).replace('.',',')}% — aceito`
-              }</small>
-            </label>
-          `;
-        }
-      ).join('')}
+                    ?`${String(displayed).replace('.',',')}% — conferir`
+                    :`${String(displayed).replace('.',',')}% — identificado`
+              }
+            </small>
+
+            <div class="oee-read-description">
+              ${escapeHtml(
+                row.description||
+                row.source||
+                'Sem descrição.'
+              )}
+            </div>
+          </label>
+        `;
+      }).join('')}
     </div>
   `;
 
   $$('.oee-editor-input').forEach(input=>{
     const confirm=event=>{
-      const index=Number(
-        event.target.dataset.index
-      );
+      const index=Number(event.target.dataset.index);
 
       if(
         !Number.isInteger(index) ||
         !state.oeeMachineEditorData[index]
       )return;
 
-      const raw=String(
-        event.target.value||''
-      ).replace(',','.');
+      const raw=String(event.target.value||'')
+        .trim()
+        .replace(',','.');
 
-      const value=
-        raw===''?'':Number(raw);
+      const value=raw===''?'':Number(raw);
+      const row=state.oeeMachineEditorData[index];
 
-      state.oeeMachineEditorData[index].oee=
-        Number.isFinite(value)?value:'';
+      row.oee=Number.isFinite(value)?value:'';
 
       if(Number.isFinite(value)){
-        state.oeeMachineEditorData[index].candidateOee=value;
-        state.oeeMachineEditorData[index].confidence=100;
-        state.oeeMachineEditorData[index].needsConfirmation=false;
-        state.oeeMachineEditorData[index].ambiguous=false;
+        row.candidateOee=value;
+        row.confidence=100;
+        row.needsConfirmation=false;
+        row.ambiguous=false;
 
-        const card=event.target.closest(
-          '.oee-editor-row'
-        );
-
-        card?.classList.remove(
-          'confidence-empty',
-          'confidence-warning',
-          'confidence-low'
-        );
-
-        card?.classList.add(
-          'confidence-good'
-        );
-
-        const small=card?.querySelector('small');
-        if(small){
-          small.textContent=
-            `${String(value).replace('.',',')}% — confirmado`;
+        if(!row.description){
+          row.description='Valor confirmado manualmente.';
         }
       }
     };
@@ -2670,12 +2644,113 @@ async function visionReadyFullImageDataUrl(image){
   return canvas.toDataURL('image/jpeg',0.75);
 }
 
-async function analyzeOeeWithVision(imageDataUrl, operationalDate, shift, scope){
+
+function buildGeminiOeeComposite(image, operationalDate, shift){
+  const naturalWidth=image.naturalWidth||image.width;
+  const naturalHeight=image.naturalHeight||image.height;
+
+  const selected=getLegacyOeeCropSettings(
+    image,
+    operationalDate,
+    shift
+  );
+
+  const machineLeft=Math.round(naturalWidth*0.082);
+  const machineRight=Math.round(naturalWidth*0.148);
+
+  const top=Math.round(naturalHeight*0.255);
+  const bottom=Math.round(naturalHeight*0.945);
+  const sourceHeight=Math.max(1,bottom-top);
+
+  const selectedLeft=Math.max(
+    0,
+    Math.round(selected.sx-selected.sw*0.10)
+  );
+
+  const selectedRight=Math.min(
+    naturalWidth,
+    Math.round(selected.sx+selected.sw*1.12)
+  );
+
+  const machineWidth=Math.max(1,machineRight-machineLeft);
+  const selectedWidth=Math.max(1,selectedRight-selectedLeft);
+
+  const targetHeight=2200;
+  const yScale=targetHeight/sourceHeight;
+
+  const machineTargetWidth=Math.max(
+    230,
+    Math.round(machineWidth*yScale*1.8)
+  );
+
+  const selectedTargetWidth=Math.max(
+    720,
+    Math.round(selectedWidth*yScale*1.8)
+  );
+
+  const gutter=34;
+  const canvas=document.createElement('canvas');
+  const ctx=canvas.getContext('2d');
+
+  canvas.width=machineTargetWidth+gutter+selectedTargetWidth;
+  canvas.height=targetHeight;
+
+  ctx.fillStyle='#fff';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  ctx.imageSmoothingEnabled=true;
+  ctx.imageSmoothingQuality='high';
+
+  ctx.drawImage(
+    image,
+    machineLeft,top,machineWidth,sourceHeight,
+    0,0,machineTargetWidth,targetHeight
+  );
+
+  ctx.fillStyle='#111827';
+  ctx.fillRect(machineTargetWidth+gutter/2-2,0,4,targetHeight);
+
+  ctx.drawImage(
+    image,
+    selectedLeft,top,selectedWidth,sourceHeight,
+    machineTargetWidth+gutter,0,selectedTargetWidth,targetHeight
+  );
+
+  ctx.fillStyle='rgba(255,255,255,.92)';
+  ctx.fillRect(0,0,canvas.width,64);
+
+  ctx.fillStyle='#111827';
+  ctx.font='bold 27px Arial';
+
+  ctx.fillText(
+    'MAQUINA IMPRESSA | '+boardScopeForReport(
+      operationalDate,
+      shift
+    ).label,
+    16,
+    42
+  );
+
+  return {
+    canvas,
+    dataUrl:canvas.toDataURL('image/jpeg',0.92),
+    selectedCrop:selected
+  };
+}
+
+async function analyzeOeeWithVision(
+  imageDataUrl,
+  operationalDate,
+  shift,
+  scope,
+  compositeDataUrl=''
+){
   const response=await fetch('/api/oee-vision',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
       imageDataUrl,
+      compositeDataUrl,
       date:operationalDate,
       shift,
       scope
@@ -2685,25 +2760,50 @@ async function analyzeOeeWithVision(imageDataUrl, operationalDate, shift, scope)
   const data=await response.json().catch(()=>({}));
 
   if(!response.ok || data.ok===false){
-    const details=[
-      data.error||`Falha OCR local HTTP ${response.status}`,
-      data.hint||''
-    ].filter(Boolean).join(' — ');
-
-    throw new Error(details);
+    throw new Error(
+      data.error||
+      `Falha Gemini HTTP ${response.status}`
+    );
   }
 
-  const rows=Array.isArray(data.rows)?data.rows:[];
+  const byMachine=new Map(
+    (data.rows||[]).map(row=>[
+      normalizeMachineCode(row.machine),
+      row
+    ])
+  );
 
   return OEE_BOARD_MACHINES.map(machine=>{
-    const found=rows.find(row=>
-      normalizeMachineCode(row.machine)===machine
-    );
+    const found=byMachine.get(machine);
+
+    if(!found){
+      return {
+        machine,
+        oee:'',
+        candidateOee:'',
+        confidence:0,
+        source:'Gemini: sem retorno',
+        needsConfirmation:false,
+        ambiguous:false,
+        visionSource:true,
+        description:'Sem leitura para esta linha.'
+      };
+    }
+
+    const oee=Number(found.oee);
+
+    const valid=
+      found.oee!==null &&
+      found.oee!==undefined &&
+      found.oee!=='' &&
+      Number.isFinite(oee) &&
+      oee>=0 &&
+      oee<=100;
+
+    const confidence=Number(found.confidence||0);
 
     if(
-      !found ||
-      found.oee===null ||
-      found.oee===undefined ||
+      !valid ||
       found.anchorFound===false ||
       found.rowChecked===false
     ){
@@ -2711,30 +2811,35 @@ async function analyzeOeeWithVision(imageDataUrl, operationalDate, shift, scope)
         machine,
         oee:'',
         candidateOee:'',
-        confidence:Number(found?.confidence||0),
-        source:found?.evidence||'Linha localizada, mas OEE não identificado',
+        confidence,
+        source:found.evidence||'Gemini: sem OEE confiável',
         needsConfirmation:false,
         ambiguous:false,
         visionSource:true,
-        anchorFound:Boolean(found?.anchorFound),
-        rowChecked:Boolean(found?.rowChecked)
+        description:String(
+          found.description||
+          found.evidence||
+          'Linha localizada, sem percentual legível.'
+        )
       };
     }
 
-    const oee=Number(found.oee);
-    const confidence=Number(found.confidence||0);
-
     return {
       machine,
-      oee:Number.isFinite(oee)?oee:'',
-      candidateOee:Number.isFinite(oee)?oee:'',
+      oee,
+      candidateOee:oee,
       confidence,
-      source:found.evidence||'OCR local',
-      needsConfirmation:confidence<85,
+      source:found.evidence||'Gemini Vision',
+      needsConfirmation:confidence<70,
       ambiguous:false,
       visionSource:true,
-      anchorFound:Boolean(found.anchorFound),
-      rowChecked:Boolean(found.rowChecked)
+      anchorFound:true,
+      rowChecked:true,
+      description:String(
+        found.description||
+        found.evidence||
+        `OEE ${oee}% identificado na mesma linha.`
+      )
     };
   });
 }
@@ -4245,7 +4350,8 @@ async function processOeeColumnPhoto() {
   const scope=boardScopeForReport(operationalDate,shift);
 
   try{
-    statusEl.textContent=`Gemini Vision lendo a foto inteira — ${scope.label}...`;
+    statusEl.textContent=
+      `Gemini alinhando máquinas com ${scope.label}...`;
 
     const fullDataUrl=
       state.oeeImageDataUrl||
@@ -4254,52 +4360,63 @@ async function processOeeColumnPhoto() {
     state.oeeImageDataUrl=fullDataUrl;
 
     const image=await loadImageElement(fullDataUrl);
-    const visionDataUrl=await visionReadyFullImageDataUrl(image);
+
+    const fullVisionDataUrl=
+      await visionReadyFullImageDataUrl(image);
+
+    const composite=
+      buildGeminiOeeComposite(
+        image,
+        operationalDate,
+        shift
+      );
 
     const rows=await analyzeOeeWithVision(
-      visionDataUrl,
+      fullVisionDataUrl,
       operationalDate,
       shift,
-      scope
+      scope,
+      composite.dataUrl
     );
 
-    const found=usefulOeeReadCount(rows);
+    state.oeeMachineEditorData=rows;
+    state.oeeCropDataUrl=composite.dataUrl;
+    state.oeeRowPreviews=[];
 
-    if(found<3){
-      throw new Error(
-        `Gemini identificou somente ${found} OEE.`
-      );
+    if($('oeeCropPreview')){
+      $('oeeCropPreview').src=composite.dataUrl;
     }
 
-    state.oeeMachineEditorData=rows;
-    state.oeeRowPreviews=[];
+    if($('oeeCropPreviewWrap')){
+      $('oeeCropPreviewWrap').classList.remove('hidden');
+    }
+
     renderOeeMachineEditor(rows);
 
     $('oeeOcrText').value=editorOeeText();
     state.oeeOcrText=$('oeeOcrText').value;
 
-    const confirmed=rows.filter(row=>
-      row.oee!=='' &&
-      row.needsConfirmation!==true
+    const found=rows.filter(row=>row.oee!=='').length;
+    const confirmed=rows.filter(
+      row=>row.oee!=='' && row.needsConfirmation!==true
     ).length;
 
     statusEl.textContent=
-      `Gemini Vision: ${found} OEE encontrado(s), `+
-      `${confirmed} confirmado(s) automaticamente.`;
+      `Gemini ${scope.label}: ${found} OEE encontrado(s), `+
+      `${confirmed} confirmado(s). Ordem das MK fixa.`;
 
     return rows;
 
   }catch(error){
-    console.warn('Gemini Vision falhou. Usando OCR local:',error);
+    console.error('Gemini Vision falhou:',error);
 
     statusEl.textContent=
-      `Gemini indisponível (${error.message}). Usando OCR local...`;
+      `Gemini falhou (${error.message}). Usando OCR local como reserva...`;
 
     const rows=await processOeeColumnPhotoLocalOcr();
 
     if(rows.length){
-      statusEl.textContent+=
-        ' • OCR local usado como reserva.';
+      statusEl.textContent+=' • OCR local usado como reserva.';
     }
 
     return rows;
@@ -5537,7 +5654,8 @@ function maintenanceMessage() {
     .map(row=>({
       machine:row.machine,
       oee:row.oee===''?null:Number(row.oee),
-      uncertain:row.needsConfirmation===true
+      uncertain:row.needsConfirmation===true,
+      description:String(row.description||row.source||'')
     }))
     .filter(row=>
       Number.isFinite(row.oee) &&
@@ -5559,7 +5677,8 @@ function maintenanceMessage() {
       lines.push(
         `• ${row.machine}: ${row.oee.toFixed(1).replace('.', ',')}%`+
         `${row.uncertain?' *(a confirmar)*':''}`+
-        lost
+        lost+
+        `${row.description?` — ${row.description}`:''}`
       );
     });
 
@@ -7308,7 +7427,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=93.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=94.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -13912,7 +14031,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=93.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=94.0.0');
         registration.update();
       } catch {}
     });

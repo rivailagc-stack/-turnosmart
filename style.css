@@ -2213,3 +2213,25 @@ button.secondary,
   border-radius:10px;
   border:1px solid #d0d5dd;
 }
+
+
+.oee-read-description{
+  width:100%;
+  margin-top:8px;
+  padding:10px 12px;
+  border-radius:10px;
+  background:#f8fafc;
+  color:#475467;
+  font-size:.92rem;
+  line-height:1.35;
+  font-weight:600;
+}
+.oee-editor-row.confidence-good .oee-read-description{
+  background:#f0fdf4;
+}
+.oee-editor-row.confidence-warning .oee-read-description{
+  background:#fffaeb;
+}
+.oee-editor-row.confidence-empty .oee-read-description{
+  background:#fff5f5;
+}
