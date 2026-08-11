@@ -1,14 +1,14 @@
-PATCH V98
+PATCH V98.1
 
 Substitua:
 - app.js
 - index.html
-- style.css
 - sw.js
 - api/health.js (se presente)
 
-Faça Redeploy.
-Confirme V98.0.0.
+Depois faça Redeploy.
+Confirme V98.1.0.
 
-A leitura principal voltou a ser OCR local.
-IA não é chamada automaticamente nesta versão.
+Correção:
+getOcrWorker removido.
+OCR usa o Tesseract já carregado no TurnoSmart.

@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '98.0.0';
+const APP_VERSION = '98.1.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.1.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -4505,16 +4505,31 @@ function chooseConsensusOee(readings){
 }
 
 async function localOcrTextForCanvas(canvas, psm=7){
-  const worker=await getOcrWorker();
-  try{
-    await worker.setParameters({
-      tessedit_pageseg_mode:String(psm),
-      preserve_interword_spaces:'1'
-    });
-  }catch{}
+  if(
+    !window.Tesseract ||
+    typeof window.Tesseract.recognize!=='function'
+  ){
+    throw new Error('Tesseract OCR não carregado.');
+  }
 
-  const result=await worker.recognize(canvas);
-  return String(result?.data?.text||'').trim();
+  const result=await window.Tesseract.recognize(
+    canvas.toDataURL('image/png'),
+    'eng',
+    {
+      logger:()=>{}
+    },
+    {
+      tessedit_char_whitelist:'0123456789%.,',
+      tessedit_pageseg_mode:String(psm),
+      preserve_interword_spaces:'1',
+      user_defined_dpi:'300'
+    }
+  );
+
+  return String(
+    result?.data?.text||
+    ''
+  ).trim();
 }
 
 async function readSingleOeeRowLocally(rowCanvas){
@@ -4527,20 +4542,41 @@ async function readSingleOeeRowLocally(rowCanvas){
   const texts=[];
 
   for(const variant of variants){
-    // Primeiro PSM 7 (uma linha)
-    let text=await localOcrTextForCanvas(variant,7);
+    let text=await localOcrTextForCanvas(
+      variant,
+      7
+    );
 
-    // Se não achou %, tenta PSM 6.
-    if(!/%/.test(text)){
-      const second=await localOcrTextForCanvas(variant,6);
-      text=`${text} ${second}`.trim();
+    const firstCandidates=
+      extractLikelyOeeCandidates(text);
+
+    const strongPercent=
+      firstCandidates.withPercent.length>0;
+
+    if(!strongPercent){
+      const second=
+        await localOcrTextForCanvas(
+          variant,
+          6
+        );
+
+      text=
+        `${text} ${second}`
+          .trim();
     }
 
     texts.push(text);
   }
 
-  const readings=texts.map(extractLikelyOeeCandidates);
-  const consensus=chooseConsensusOee(readings);
+  const readings=
+    texts.map(
+      extractLikelyOeeCandidates
+    );
+
+  const consensus=
+    chooseConsensusOee(
+      readings
+    );
 
   return {
     ...consensus,
@@ -7723,7 +7759,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=98.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=98.1.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -14327,7 +14363,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=98.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=98.1.0');
         registration.update();
       } catch {}
     });
