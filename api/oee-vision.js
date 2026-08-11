@@ -35,6 +35,13 @@ module.exports=async(req,res)=>{
 Data do relatório: ${date||''}
 Turno/coluna esperada: ${scope?.label||shift||''}
 
+MAPA REAL DO CABEÇALHO:
+SEGUNDA A, SEGUNDA B, TERÇA A, TERÇA B, QUARTA A, QUARTA B,
+QUINTA A, QUINTA B, SEXTA A, SEXTA B, SÁBADO A, SÁBADO B.
+
+Se o escopo for SEGUNDA B, leia somente a segunda coluna de produção,
+imediatamente à direita de SEGUNDA A.
+
 Máquinas na ordem vertical:
 ${machines.join(', ')}
 
