@@ -1,4 +1,4 @@
-const MODEL=process.env.GEMINI_MODEL||'gemini-3.6-flash';
+const MODEL=process.env.GEMINI_MODEL||'gemini-3.6-flash'; // configurável no Vercel
 
 const MACHINES=[
   'MK-138','MK-105','MK-108','MK-223','MK-192',
@@ -117,7 +117,7 @@ module.exports=async(req,res)=>{
       {
         type:'text',
         text:
-`Você receberá 20 imagens individuais de linhas de um quadro industrial.
+`Você receberá 20 imagens individuais de linhas de um quadro industrial. Cada imagem contém 4 faixas da MESMA célula: natural, contraste, realce de cor e limiar. Compare as faixas antes de decidir.
 
 Cada imagem é precedida pelo nome EXATO da máquina correspondente.
 
@@ -129,9 +129,10 @@ Para CADA imagem:
 3. Exemplo: "49.000 55%" => OEE é 55; 49.000 é produção.
 4. Nunca use número da máquina como OEE.
 5. Nunca atribua valor a outra máquina.
-6. Se não houver percentual legível, use null.
-7. Não invente.
-8. confidence deve ser inteiro de 0 a 100.
+6. Se não houver percentual legível, use null. Célula vazia ou máquina que não rodou deve ser null.
+7. Só aceite OEE se houver evidência visual de percentual (número associado ao símbolo %).
+8. Não invente. Se produção e percentual aparecerem juntos, escolha SOMENTE o que tem %.
+9. confidence deve ser inteiro de 0 a 100.
 9. description deve explicar de forma curta o que foi lido.
 10. Retorne exatamente as 20 máquinas.`
       }
