@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '99.2.0';
+const APP_VERSION = '99.4.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v99.2.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v99.4.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -5348,256 +5348,6 @@ function oee986BlockUnsafeReport(rows){
   return state.oeeReadingReady;
 }
 
-
-// =====================================================
-// V98.9 — PÓS-LEITURA APENAS
-// A leitura da foto permanece EXATAMENTE a da V98.7.
-// =====================================================
-
-function v989PriorityCandidates(){
-  return (state.oeeMachineEditorData||[])
-    .filter(row=>{
-      const oee=Number(row.oee);
-      return Number.isFinite(oee) && oee<65;
-    })
-    .sort((a,b)=>Number(a.oee)-Number(b.oee))
-    .slice(0,10);
-}
-
-function v989SelectedMachines(){
-  state.v989SelectedPriorities=
-    Array.isArray(state.v989SelectedPriorities)
-      ?state.v989SelectedPriorities
-      :[];
-
-  return state.v989SelectedPriorities.slice(0,3);
-}
-
-function v989TogglePriority(machine){
-  const mk=oee986NormalizeMachine(machine);
-  if(!mk)return;
-
-  state.v989SelectedPriorities=
-    Array.isArray(state.v989SelectedPriorities)
-      ?state.v989SelectedPriorities
-      :[];
-
-  const pos=state.v989SelectedPriorities.indexOf(mk);
-
-  if(pos>=0){
-    state.v989SelectedPriorities.splice(pos,1);
-  }else{
-    if(state.v989SelectedPriorities.length>=3){
-      showToast('Escolha no máximo 3 prioridades.');
-      return;
-    }
-    state.v989SelectedPriorities.push(mk);
-  }
-
-  v989RenderPriorityPicker();
-}
-
-function v989RenderPriorityPicker(){
-  const box=
-    $('automaticPriorities')||
-    $('priorityList')||
-    $('prioritiesList');
-
-  if(!box)return;
-
-  const candidates=v989PriorityCandidates();
-  const allowed=new Set(candidates.map(r=>r.machine));
-
-  state.v989SelectedPriorities=
-    v989SelectedMachines()
-      .filter(m=>allowed.has(m));
-
-  if(!candidates.length){
-    box.innerHTML=`
-      <div class="empty-state">
-        Nenhuma máquina abaixo de 65% no OEE confirmado.
-      </div>
-    `;
-    return;
-  }
-
-  box.innerHTML=`
-    <div class="v989-top10-head">
-      <strong>Top 10 prioridades por OEE</strong>
-      <span>Escolha somente 3 para o próximo turno.</span>
-    </div>
-
-    <div class="v989-top10-list">
-      ${candidates.map((row,index)=>{
-        const selected=state.v989SelectedPriorities.includes(row.machine);
-        const oee=Number(row.oee);
-        const loss=Math.max(0,(100-oee)/100*12);
-
-        return `
-          <button
-            type="button"
-            class="v989-priority ${selected?'selected':''}"
-            data-machine="${escapeHtml(row.machine)}"
-          >
-            <span class="v989-rank">${index+1}</span>
-
-            <span class="v989-main">
-              <strong>${escapeHtml(row.machine)}</strong>
-              <span>
-                OEE ${oee.toFixed(1).replace('.',',')}%
-                • perda ${loss.toFixed(1).replace('.',',')} h
-              </span>
-            </span>
-
-            <span class="v989-check">
-              ${selected?'✓':'○'}
-            </span>
-          </button>
-        `;
-      }).join('')}
-    </div>
-
-    <div class="v989-count">
-      ${state.v989SelectedPriorities.length}/3 selecionada(s)
-    </div>
-  `;
-
-  $$('.v989-priority').forEach(btn=>{
-    btn.addEventListener('click',()=>{
-      v989TogglePriority(btn.dataset.machine);
-    });
-  });
-}
-
-function v989GetSelectedRows(){
-  const byMachine=new Map(
-    v989PriorityCandidates()
-      .map(row=>[row.machine,row])
-  );
-
-  return v989SelectedMachines()
-    .map(m=>byMachine.get(m))
-    .filter(Boolean)
-    .slice(0,3);
-}
-
-function v989PreviousShiftLabel(scopeLabel=''){
-  const clean=String(scopeLabel||'')
-    .toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g,'');
-
-  const order=[
-    'SEGUNDA A','SEGUNDA B',
-    'TERCA A','TERCA B',
-    'QUARTA A','QUARTA B',
-    'QUINTA A','QUINTA B',
-    'SEXTA A','SEXTA B',
-    'SABADO A','SABADO B',
-    'DOMINGO A','DOMINGO B'
-  ];
-
-  const idx=order.indexOf(clean);
-  return idx>0 ? order[idx-1] : '';
-}
-
-function v989FindShiftOee(label){
-  const target=String(label||'')
-    .toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g,'');
-
-  const pools=[
-    state.oeeShiftHistory,
-    state.oeeHistory,
-    state.boardHistory,
-    state.recentOee,
-    state.previousOee
-  ].filter(Boolean);
-
-  for(const pool of pools){
-    const arr=Array.isArray(pool)
-      ?pool
-      :Object.values(pool||{});
-
-    for(const item of arr){
-      const itemLabel=String(
-        item?.label||
-        item?.scope||
-        item?.shiftLabel||
-        item?.boardScope||
-        ''
-      )
-        .toUpperCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g,'');
-
-      const value=Number(
-        item?.oee ??
-        item?.oeeTurno ??
-        item?.value ??
-        item?.percentage
-      );
-
-      if(itemLabel===target && Number.isFinite(value)){
-        return value;
-      }
-    }
-  }
-
-  return null;
-}
-
-function v989TrendText(currentOee,scopeLabel){
-  const current=Number(currentOee);
-
-  if(!Number.isFinite(current)){
-    return 'Tendência da eficiência: sem OEE atual confirmado.';
-  }
-
-  const prevLabel=v989PreviousShiftLabel(scopeLabel);
-  const previous=v989FindShiftOee(prevLabel);
-
-  if(!prevLabel || !Number.isFinite(previous)){
-    return 'Tendência da eficiência: turno anterior não disponível.';
-  }
-
-  const delta=Math.round((current-previous)*10)/10;
-  const abs=Math.abs(delta).toFixed(1).replace('.',',');
-
-  if(delta>0){
-    return `Tendência da eficiência: ⬆ melhora de ${abs} ponto(s) percentual(is) (${String(previous).replace('.',',')}% → ${String(current).replace('.',',')}%).`;
-  }
-
-  if(delta<0){
-    return `Tendência da eficiência: ⬇ piora de ${abs} ponto(s) percentual(is) (${String(previous).replace('.',',')}% → ${String(current).replace('.',',')}%).`;
-  }
-
-  return `Tendência da eficiência: ➜ estável (${String(previous).replace('.',',')}% → ${String(current).replace('.',',')}%).`;
-}
-
-function v989CompactActionBlock(){
-  const rows=v989GetSelectedRows();
-
-  if(rows.length<3){
-    return '*AÇÕES PARA CORREÇÃO*\nSelecione 3 prioridades no Top 10.';
-  }
-
-  return '*AÇÕES PARA CORREÇÃO*\n'+
-    rows.map((row,index)=>{
-      const oee=Number(row.oee);
-      const loss=Math.max(0,(100-oee)/100*12);
-      const level=oee<=50
-        ?'🔴 PRIORIDADE MÁXIMA'
-        :'🟠 PRIORIDADE ALTA';
-
-      return `${index+1}. ${level} — ${row.machine} — OEE ${oee.toFixed(1).replace('.',',')}% — perda estimada ${loss.toFixed(1).replace('.',',')} h.
-   • Analisar e resolver no turno.
-   • Apontar tudo no SGMan.
-   • Evitar retrabalho.`;
-    }).join('\n');
-}
-
 async function processOeeColumnPhoto(){
   const file=$('oeeImageInput')?.files?.[0];
 
@@ -5711,10 +5461,6 @@ async function processOeeColumnPhoto(){
 
     return [];
   }
-
-  try{
-    v989RenderPriorityPicker();
-  }catch(_){}
 }
 
 async function recognizeOeeImage(dataUrl) {
@@ -6578,13 +6324,12 @@ function efficiencyTrendMessage(){
     return {
       line:'Tendência da eficiência: turno anterior ainda não disponível para comparação.',
       guidance:trend.phrase||
-        'Registre os dois turnos consecutivos para comparar.'
+        'Registrar os dois turnos consecutivos para comparar.'
     };
   }
 
   const current=formatOee(trend.current);
   const previous=formatOee(trend.previous);
-
   const delta=Math.abs(trend.delta)
     .toFixed(1)
     .replace('.',',');
@@ -6602,7 +6347,7 @@ function efficiencyTrendMessage(){
   return {
     line:
       `Tendência da eficiência: ${trend.arrow} ${movement} `+
-      `(turno anterior ${previous} → atual ${current}).`,
+      `(${previous} → ${current}).`,
     guidance:trend.phrase
   };
 }
@@ -6874,10 +6619,16 @@ function maintenanceAccountabilityReport() {
 function maintenanceMessage(){
   if(!state.analysis)return '';
 
-  v991ManageSelectionScope();
-  v991PrioritySourceRows();
+  let fusionRows=state.supervisorFusionRows?.length
+    ?state.supervisorFusionRows
+    :supervisorFusionRanking(10);
 
-  let fusionRows=supervisorFusionRanking(10);
+  if(!fusionRows.length){
+    fusionRows=fallbackCurrentShiftPriorities(10)
+      .filter(row=>row.oee!==null && row.oee<OEE_PRIORITY_LIMIT)
+      .sort((a,b)=>a.oee-b.oee);
+  }
+
   fusionRows=applyAutomaticSupervisorSelection(fusionRows);
   state.supervisorFusionRows=fusionRows;
 
@@ -6888,17 +6639,7 @@ function maintenanceMessage(){
 
   const lowOee=fusionRows
     .filter(row=>row.oee!==null && row.oee<OEE_PRIORITY_LIMIT)
-    .map(row=>({
-      machine:row.machine,
-      oee:row.oee
-    }));
-
-  const recurrence=deriveRecurrenceMachines(state.analysis)
-    .filter(machine=>
-      supervisorRows.some(row=>
-        row.machine===normalizeMachineCode(machine)
-      )
-    );
+    .map(row=>({machine:row.machine,oee:row.oee}));
 
   const trend=efficiencyTrendMessage();
   const lines=['*AÇÕES DA MANUTENÇÃO*'];
@@ -6936,34 +6677,27 @@ function maintenanceMessage(){
     lines.push(`OEE geral 3 dias: ${formatOee(dashboard.companyAverage)}.`);
   }
 
-  // Usa a mesma lista persistida no relatório, mesmo após trocar de tela/recarregar.
-  const photoOeeRows=v991PrioritySourceRows()
-    .map(row=>({
-      machine:row.machine,
-      oee:Number(row.oee),
-      description:'OEE confirmado na leitura do quadro.'
-    }))
+  const photoOeeRows=getAnalysisMachineOee(state.analysis)
     .filter(row=>
-      Number.isFinite(row.oee) &&
-      row.oee>=0 &&
-      row.oee<=100
+      Number.isFinite(Number(row.oee)) &&
+      Number(row.oee)>=0 &&
+      Number(row.oee)<=100
     )
-    .sort((a,b)=>a.oee-b.oee);
+    .sort((a,b)=>Number(a.oee)-Number(b.oee));
 
   if(photoOeeRows.length){
     lines.push('');
     lines.push('*OEE LIDO DA FOTO*');
 
     photoOeeRows.forEach(row=>{
+      const oee=Number(row.oee);
       const lost=
-        row.oee<OEE_PRIORITY_LIMIT
-          ?` — perda estimada ${formatOeeLostHours(row.oee)}`
+        oee<OEE_PRIORITY_LIMIT
+          ?` — perda estimada ${formatOeeLostHours(oee)}`
           :'';
 
       lines.push(
-        `• ${row.machine}: ${row.oee.toFixed(1).replace('.',',')}%`+
-        lost+
-        ` — ${row.description}`
+        `• ${row.machine}: ${oee.toFixed(1).replace('.',',')}%${lost}.`
       );
     });
 
@@ -6977,21 +6711,17 @@ function maintenanceMessage(){
 
   if(supervisorRows.length!==3){
     lines.push(
-      'Selecione exatamente 3 máquinas no Top 10 para definir as ações do próximo turno.'
+      'Escolha exatamente 3 máquinas no Top 10 antes de compartilhar o relatório.'
     );
   }else{
     supervisorRows.forEach((row,index)=>{
-      const icon=row.oee<=50?'🔴':'🟠';
-      const label=row.oee<=50
-        ?'PRIORIDADE MÁXIMA'
-        :'PRIORIDADE ALTA';
+      const priority=oeePriorityMeta(row.oee);
 
       lines.push(
-        `${index+1}. ${icon} *${label} — ${row.machine}* — `+
+        `${index+1}. ${priority.icon} *${priority.label} — ${row.machine}* — `+
         `OEE ${row.oee.toFixed(1).replace('.',',')}% — `+
         `perda estimada ${formatOeeLostHours(row.oee)}.`
       );
-
       lines.push('   • Analisar e resolver no turno.');
       lines.push('   • Apontar tudo no SGMan.');
       lines.push('   • Evitar retrabalho.');
@@ -7005,12 +6735,6 @@ function maintenanceMessage(){
           `${row.machine} ${row.oee.toFixed(1).replace('.',',')}%`
         ).join(' | ')
       }.`
-    );
-  }
-
-  if(recurrence.length){
-    lines.push(
-      `Reincidência entre as prioridades atuais: ${recurrence.join(', ')}.`
     );
   }
 
@@ -7181,44 +6905,25 @@ function bindActionCards() {
   });
 }
 
-function renderActions(){
-  const has=!!state.analysis;
+function renderActions() {
+  const has = !!state.analysis;
+  $('emptyActions').classList.toggle('hidden', has);
+  $('actionsContent').classList.toggle('hidden', !has);
+  if (!has) return;
 
-  $('emptyActions').classList.toggle('hidden',has);
-  $('actionsContent').classList.toggle('hidden',!has);
-
-  if(!has)return;
-
-  // V99.2: recupera os números ANTES de montar o relatório e o Top 10.
-  v991PrioritySourceRows();
-
-  const maintenanceResponsible=findMaintenanceResponsible(
+  const maintenanceResponsible = findMaintenanceResponsible(
     state.analysis.responsibleDate,
     state.analysis.responsibleShift,
     state.analysis.responsibleCrew
   );
+  const productionResponsible = findProductionResponsible(state.analysis.responsibleCrew);
 
-  const productionResponsible=
-    findProductionResponsible(
-      state.analysis.responsibleCrew
-    );
+  $('responsibleBadge').textContent = maintenanceResponsible;
+  $('productionResponsibleBadge').textContent = productionResponsible;
 
-  $('responsibleBadge').textContent=
-    maintenanceResponsible;
-
-  $('productionResponsibleBadge').textContent=
-    productionResponsible;
-
-  $('maintenanceActionsList').innerHTML=
-    messageHtml(maintenanceMessage());
-
-  $('productionActionsList').innerHTML=
-    messageHtml(productionMessage());
-
+  $('maintenanceActionsList').innerHTML = messageHtml(maintenanceMessage());
+  $('productionActionsList').innerHTML = messageHtml(productionMessage());
   renderSgmanMachineAnalysis();
-
-  // O painel é reconstruído toda vez que a tela Ações abre/atualiza.
-  renderSupervisorFusionPanel();
 }
 
 function fillScaleForm(crew) {
@@ -7799,8 +7504,6 @@ function calculateMachineSgmanMetrics(machine, orders) {
 
 function calculateEfficiencyTrend(){
   const current=Number(state.analysis?.reportedOee);
-  const currentDate=String(state.analysis?.date||'');
-  const currentShift=String(state.analysis?.shift||'1');
 
   if(!Number.isFinite(current) || current<=0){
     return {
@@ -7813,44 +7516,47 @@ function calculateEfficiencyTrend(){
     };
   }
 
-  const key=(date,shift)=>
-    `${String(date||'')}-${String(shift||'1')}`;
+  const currentDate=String(state.analysis?.date||'');
+  const currentShift=String(state.analysis?.shift||'1');
 
-  const currentKey=key(currentDate,currentShift);
+  let previousDate=currentDate;
+  let previousShift='1';
 
-  const previousCandidates=getHistory()
+  if(currentShift==='2'){
+    // B compara com A do mesmo dia.
+    previousShift='1';
+  }else{
+    // A compara com B do dia anterior.
+    previousShift='2';
+
+    const d=new Date(`${currentDate}T12:00:00`);
+    if(!Number.isNaN(d.getTime())){
+      d.setDate(d.getDate()-1);
+      previousDate=[
+        d.getFullYear(),
+        String(d.getMonth()+1).padStart(2,'0'),
+        String(d.getDate()).padStart(2,'0')
+      ].join('-');
+    }
+  }
+
+  const previousAnalysis=getHistory()
     .map(item=>item.analysis)
     .filter(Boolean)
-    .map(analysis=>({
-      date:String(analysis.date||''),
-      shift:String(analysis.shift||'1'),
-      value:Number(analysis.reportedOee)
-    }))
-    .filter(item=>
-      item.date &&
-      Number.isFinite(item.value) &&
-      item.value>0 &&
-      key(item.date,item.shift)<currentKey
-    )
-    .sort((a,b)=>
-      key(a.date,a.shift)
-        .localeCompare(key(b.date,b.shift))
+    .find(item=>
+      String(item.date||'')===previousDate &&
+      String(item.shift||'1')===previousShift &&
+      Number.isFinite(Number(item.reportedOee)) &&
+      Number(item.reportedOee)>0
     );
 
-  const previousRow=
-    previousCandidates[
-      previousCandidates.length-1
-    ]||null;
+  const previous=previousAnalysis
+    ?Number(previousAnalysis.reportedOee)
+    :null;
 
-  const previous=
-    previousRow
-      ?previousRow.value
-      :null;
-
-  const delta=
-    previous===null
-      ?null
-      :current-previous;
+  const delta=previous===null
+    ?null
+    :current-previous;
 
   let direction='stable';
   let arrow='➜';
@@ -7865,10 +7571,10 @@ function calculateEfficiencyTrend(){
 
   const phrase=
     direction==='up'
-      ?'O turno melhorou em relação ao turno imediatamente anterior. Sustentar os ganhos e atuar nas três prioridades escolhidas.'
+      ?'Melhora em relação ao turno anterior. Manter o ganho e atuar nas três prioridades escolhidas.'
       :direction==='down'
-        ?'O turno perdeu eficiência em relação ao turno imediatamente anterior. Atuar nas três prioridades escolhidas.'
-        :'Eficiência estável em relação ao turno imediatamente anterior. Buscar ganho nas três prioridades escolhidas.';
+        ?'Queda em relação ao turno anterior. Atuar nas três prioridades escolhidas.'
+        :'Resultado estável. Buscar ganho nas três prioridades escolhidas.';
 
   return {
     direction,
@@ -7876,8 +7582,8 @@ function calculateEfficiencyTrend(){
     current,
     previous,
     delta,
-    previousDate:previousRow?.date||'',
-    previousShift:previousRow?.shift||'',
+    previousDate,
+    previousShift,
     phrase
   };
 }
@@ -8736,7 +8442,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=99.2.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=99.4.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -9988,6 +9694,8 @@ function saveSupervisorPriorities(machines=[]){
 function applyAutomaticSupervisorSelection(rows=[]){
   const available=new Set(rows.map(row=>row.machine));
 
+  // V99.4: nunca escolhe automaticamente.
+  // Mantém somente escolhas feitas pelo supervisor.
   const selected=loadSavedSupervisorPriorities()
     .filter(machine=>available.has(machine))
     .slice(0,3);
@@ -10054,203 +9762,32 @@ function fallbackCurrentShiftPriorities(limit=3){
     });
 }
 
+function supervisorFusionRanking(limit=10){
+  const report=productionReportMachineMentions();
+  const board=currentBoardMap();
+  const rows=[];
 
-// =====================================================
-// V99.1 — TOP 10 USA EXATAMENTE O OEE DO RELATÓRIO
-// =====================================================
+  for(const [machine,boardRow] of board.entries()){
+    const oee=smartNumeric(boardRow?.oee);
 
-function v991CurrentScopeKey(){
-  return [
-    String(state.analysis?.date||$('reportDate')?.value||''),
-    String(state.analysis?.shift||$('reportShift')?.value||'1')
-  ].join('|');
-}
+    // Mantém a regra original:
+    // prioridade de manutenção somente abaixo de 65%.
+    if(oee===null || oee>=OEE_PRIORITY_LIMIT)continue;
 
-function v991PrioritySourceRows(){
-  const collected=[];
-
-  const pushRows=(rows=[],source='')=>{
-    for(const raw of rows||[]){
-      const machine=normalizeMachineCode(
-        raw?.machine||
-        raw?.maquina||
-        ''
-      );
-
-      const oee=smartNumeric(
-        raw?.oee ??
-        raw?.value ??
-        raw?.efficiency
-      );
-
-      if(
-        !machine ||
-        oee===null ||
-        !Number.isFinite(oee) ||
-        oee<0 ||
-        oee>100
-      )continue;
-
-      collected.push({
-        machine,
-        oee,
-        confidence:Number(raw?.confidence||100),
-        source:raw?.source||source
-      });
-    }
-  };
-
-  // 1) Leitura que ainda está aberta na tela.
-  try{
-    pushRows(
-      machineOeeFromEditor(),
-      'photo'
-    );
-  }catch(_){}
-
-  // 2) Valores gravados na análise atual.
-  pushRows(
-    state.analysis?.machineOee||[],
-    'analysis'
-  );
-
-  // 3) Texto de OEE já convertido e salvo no relatório.
-  try{
-    pushRows(
-      extractAllMachineOeeFromText(
-        state.analysis?.oeeOcrText||
-        state.oeeOcrText||
-        $('oeeOcrText')?.value||
-        ''
-      ),
-      'ocr-text'
-    );
-  }catch(_){}
-
-  // 4) Mapa atual usado pelo próprio relatório.
-  try{
-    const board=currentBoardMap();
-
-    for(const [machine,row] of board.entries()){
-      const oee=smartNumeric(row?.oee);
-
-      if(oee!==null){
-        collected.push({
-          machine:normalizeMachineCode(machine),
-          oee,
-          confidence:100,
-          source:'board'
-        });
-      }
-    }
-  }catch(_){}
-
-  // 5) Última análise salva do MESMO dia/turno.
-  try{
-    const date=String(
-      state.analysis?.date||
-      $('reportDate')?.value||
+    const reportRow=report.get(machine);
+    const issue=compactIssue(
+      reportRow?.problem||
+      boardRow.raw?.problem||
+      boardRow.raw?.issue||
+      boardRow.raw?.mainLoss||
+      boardRow.raw?.cause||
+      boardRow.raw?.causale_standard||
       ''
     );
 
-    const shift=String(
-      state.analysis?.shift||
-      $('reportShift')?.value||
-      '1'
-    );
-
-    const history=getHistory()
-      .map(item=>item.analysis)
-      .filter(Boolean)
-      .filter(item=>
-        String(item.date||'')===date &&
-        String(item.shift||'1')===shift
-      )
-      .reverse();
-
-    if(history.length){
-      pushRows(
-        getAnalysisMachineOee(history[0]),
-        'history'
-      );
-    }
-  }catch(_){}
-
-  // A prioridade de origem é: foto atual > análise > texto > board > histórico.
-  const sourceWeight={
-    photo:5,
-    analysis:4,
-    'ocr-text':3,
-    board:2,
-    history:1
-  };
-
-  const map=new Map();
-
-  for(const row of collected){
-    const existing=map.get(row.machine);
-    const currentWeight=
-      sourceWeight[row.source]||0;
-    const oldWeight=
-      sourceWeight[existing?.source]||0;
-
-    if(
-      !existing ||
-      currentWeight>=oldWeight
-    ){
-      map.set(row.machine,row);
-    }
-  }
-
-  const result=[...map.values()]
-    .sort((a,b)=>a.oee-b.oee);
-
-  // Regrava no state.analysis para a tela Ações não perder os valores.
-  if(state.analysis && result.length){
-    state.analysis.machineOee=
-      result.map(row=>({
-        machine:row.machine,
-        oee:row.oee,
-        confidence:row.confidence,
-        source:row.source
-      }));
-
-    state.analysis.lowOeeMachines=
-      state.analysis.machineOee
-        .filter(row=>row.oee<65)
-        .sort((a,b)=>a.oee-b.oee);
-  }
-
-  return result;
-}
-
-function v991ManageSelectionScope(){
-  const key=v991CurrentScopeKey();
-  const storageKey='turnosmart_supervisor_priority_scope_v991';
-
-  try{
-    const previous=localStorage.getItem(storageKey)||'';
-
-    if(previous && previous!==key){
-      localStorage.removeItem(supervisorPriorityStorageKey());
-    }
-
-    localStorage.setItem(storageKey,key);
-  }catch(_){}
-}
-function supervisorFusionRanking(limit=10){
-  const report=productionReportMachineMentions();
-  const rows=[];
-
-  for(const current of v991PrioritySourceRows()){
-    const machine=current.machine;
-    const oee=Number(current.oee);
-
-    if(!Number.isFinite(oee))continue;
-
-    const reportRow=report.get(machine);
-    const issue=compactIssue(reportRow?.problem||'');
     const history=smartHistoryFor(machine,issue);
+    const priority=oeePriorityMeta(oee);
+    const lostHours=oeeLostHours(oee);
 
     const sources=['board'];
     if(reportRow?.mentioned)sources.push('production');
@@ -10259,23 +9796,21 @@ function supervisorFusionRanking(limit=10){
     rows.push({
       machine,
       oee,
-      lostHours:oeeLostHours(oee),
-      priorityKey:
-        oee<=50?'max':
-        oee<65?'high':
-        'monitor',
-      priorityLabel:
-        oee<=50?'PRIORIDADE MÁXIMA':
-        oee<65?'PRIORIDADE ALTA':
-        'ACOMPANHAR',
+      lostHours,
+      priorityKey:priority.key,
+      priorityLabel:priority.label,
       score:Math.round((100-oee)*10),
-      trend:null,
+      trend:boardRow.trend??null,
       reasons:uniqueStrings([
         `OEE ${oee.toFixed(1)}%`,
         `${formatOeeLostHours(oee)} de perda estimada pelo OEE`
       ]),
       issue,
-      actions:[],
+      actions:[
+        'Analisar e resolver no turno.',
+        'Apontar tudo no SGMan.',
+        'Evitar retrabalho.'
+      ],
       historyCount:history.length,
       sources:uniqueStrings(sources),
       selected:false
@@ -10309,10 +9844,14 @@ function renderSupervisorFusionPanel(){
   const target=$('supervisorFusionPanel');
   if(!target)return;
 
-  v991ManageSelectionScope();
-  v991PrioritySourceRows();
-
   let rows=supervisorFusionRanking(10);
+
+  if(!rows.length){
+    rows=fallbackCurrentShiftPriorities(10)
+      .filter(row=>row.oee!==null && row.oee<OEE_PRIORITY_LIMIT)
+      .sort((a,b)=>a.oee-b.oee);
+  }
+
   rows=applyAutomaticSupervisorSelection(rows);
   state.supervisorFusionRows=rows;
 
@@ -10322,68 +9861,54 @@ function renderSupervisorFusionPanel(){
     <div class="supervisor-confirm-box">
       <strong>Top 10 — escolha 3 prioridades</strong>
       <p>
-        As máquinas abaixo são os mesmos OEE confirmados usados no relatório atual.
+        O TurnoSmart mostra até 10 máquinas abaixo de 65%,
+        ordenadas do menor OEE para o maior.
         Escolha somente 3 para o próximo turno.
       </p>
       <b>${selectedCount}/3 selecionada(s)</b>
     </div>
 
     <div class="supervisor-fusion-panel">
-      ${
-        rows.length
-          ?rows.map((row,index)=>`
-            <article class="supervisor-fusion-row ${
-              row.selected?'is-selected':''
-            } priority-${escapeHtml(row.priorityKey||'monitor')}">
-              <span class="supervisor-fusion-rank">${index+1}</span>
-
-              <div>
-                <strong>${
-                  row.oee<=50?'🔴':
-                  row.oee<65?'🟠':
-                  '🟢'
-                } ${escapeHtml(row.priorityLabel)} —
-                  ${escapeHtml(row.machine)} —
-                  OEE ${row.oee.toFixed(1).replace('.',',')}%
-                </strong>
-
-                <p>
-                  <b>Perda estimada:</b>
-                  ${escapeHtml(formatOeeLostHours(row.oee))}
-                </p>
-
-                <div class="supervisor-fusion-meta">
-                  ${row.sources.map(sourceBadge).join('')}
-                </div>
-              </div>
-
-              <label>
-                <input
-                  class="supervisor-priority-check"
-                  data-machine="${escapeHtml(row.machine)}"
-                  type="checkbox"
-                  ${row.selected?'checked':''}
-                >
-                Escolher
-              </label>
-            </article>
-          `).join('')
-          :'<p class="muted">Nenhum OEE confirmado no relatório atual. Analise a foto primeiro.</p>'
-      }
+      ${rows.length?rows.map((row,index)=>`
+        <article class="supervisor-fusion-row ${row.selected?'is-selected':''} priority-${escapeHtml(row.priorityKey||'high')}">
+          <span class="supervisor-fusion-rank">${index+1}</span>
+          <div>
+            <strong>${
+              row.priorityKey==='max'?'🔴':'🟠'
+            } ${escapeHtml(row.priorityLabel||'PRIORIDADE ALTA')}
+              — ${escapeHtml(row.machine)}
+              — OEE ${row.oee.toFixed(1).replace('.',',')}%
+            </strong>
+            <p>
+              Perda estimada:
+              ${escapeHtml(formatOeeLostHours(row.oee))}
+            </p>
+          </div>
+          <label>
+            <input
+              class="supervisor-priority-check"
+              data-machine="${escapeHtml(row.machine)}"
+              type="checkbox"
+              ${row.selected?'checked':''}
+            >
+            Escolher
+          </label>
+        </article>
+      `).join(''):'<p class="muted">Nenhuma máquina abaixo de 65% no OEE confirmado.</p>'}
     </div>
   `;
 
   $$('.supervisor-priority-check').forEach(input=>{
     input.addEventListener('change',()=>{
-      const checked=[...$$('.supervisor-priority-check:checked')];
+      const selected=[...$$('.supervisor-priority-check:checked')];
 
-      if(checked.length>3){
+      if(selected.length>3){
         input.checked=false;
         showToast('Escolha no máximo 3 prioridades.');
         return;
       }
 
-      const selectedMachines=checked
+      const selectedMachines=selected
         .map(item=>normalizeMachineCode(item.dataset.machine))
         .filter(Boolean)
         .slice(0,3);
@@ -10403,9 +9928,10 @@ function renderSupervisorFusionPanel(){
 }
 
 function confirmedSupervisorPlan(){
-  v991ManageSelectionScope();
+  let rows=state.supervisorFusionRows?.length
+    ?state.supervisorFusionRows
+    :supervisorFusionRanking(10);
 
-  let rows=supervisorFusionRanking(10);
   rows=applyAutomaticSupervisorSelection(rows);
   state.supervisorFusionRows=rows;
 
@@ -10419,10 +9945,7 @@ function confirmedSupervisorPlan(){
   }
 
   return selected.map((row,index)=>{
-    const priority=
-      row.oee<=50
-        ?{icon:'🔴',label:'PRIORIDADE MÁXIMA'}
-        :{icon:'🟠',label:'PRIORIDADE ALTA'};
+    const priority=oeePriorityMeta(row.oee);
 
     return `${index+1}. ${priority.icon} *${priority.label} — ${row.machine}* — OEE ${row.oee.toFixed(1).replace('.',',')}% — perda estimada ${formatOeeLostHours(row.oee)}.
    • Analisar e resolver no turno.
@@ -12375,12 +11898,21 @@ async function analyzeCurrentReport() {
     state.analysis = analysis;
     state.actions = generateActions(analysis);
 
-    // V99.1: o Top 10 usa exatamente analysis.machineOee.
-    // Não apaga as 3 escolhas ao atualizar o mesmo turno.
-    v991ManageSelectionScope();
+    // V99.4: leitura da V98.7 mantida.
+    // Após a leitura, mostra até 10 prioridades e o supervisor escolhe 3.
+    try{
+      localStorage.removeItem(supervisorPriorityStorageKey());
+    }catch{}
 
     state.supervisorFusionRows=
       supervisorFusionRanking(10);
+
+    if(!state.supervisorFusionRows.length){
+      state.supervisorFusionRows=
+        fallbackCurrentShiftPriorities(10)
+          .filter(row=>row.oee!==null && row.oee<OEE_PRIORITY_LIMIT)
+          .sort((a,b)=>a.oee-b.oee);
+    }
 
     state.supervisorFusionRows=
       applyAutomaticSupervisorSelection(
@@ -15521,7 +15053,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=99.2.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=99.4.0');
         registration.update();
       } catch {}
     });
@@ -15591,19 +15123,8 @@ document.addEventListener('click',event=>{
 
 document.addEventListener('click',event=>{
   if(event.target?.id==='refreshSupervisorFusionBtn'){
-    const rows=v991PrioritySourceRows();
-
-    state.supervisorFusionRows=
-      supervisorFusionRanking(10);
-
     renderSupervisorFusionPanel();
-    renderActions();
-
-    showToast(
-      rows.length
-        ?`${rows.length} OEE recuperado(s). Top 10 atualizado.`
-        :'Nenhum OEE encontrado no turno atual.'
-    );
+    showToast('Prioridades atualizadas com quadro e relatório da produção.');
   }
 });
 

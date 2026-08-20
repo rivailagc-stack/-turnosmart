@@ -2325,84 +2325,12 @@ button.secondary,
 }
 
 
-/* V98.9 — Top 10 sem tocar na leitura V98.7 */
-.v989-top10-head{
-  display:flex;
-  flex-direction:column;
-  gap:6px;
-  margin:12px 0 16px;
-}
-.v989-top10-head span{
-  color:#667085;
-}
-.v989-top10-list{
-  display:flex;
-  flex-direction:column;
-  gap:10px;
-}
-.v989-priority{
-  width:100%;
-  display:grid;
-  grid-template-columns:42px 1fr 38px;
-  align-items:center;
-  gap:12px;
-  padding:14px;
-  border-radius:16px;
-  border:1px solid #d0d5dd;
-  background:#fff;
-  text-align:left;
-}
-.v989-priority.selected{
-  border:2px solid #f79009;
-  background:#fff7ed;
-}
-.v989-rank{
-  width:36px;
-  height:36px;
-  border-radius:50%;
-  background:#f2f4f7;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-weight:800;
-}
-.v989-main{
-  display:flex;
-  flex-direction:column;
-  gap:4px;
-}
-.v989-main span{
-  color:#667085;
-  font-size:.92rem;
-}
-.v989-check{
-  font-size:1.45rem;
-  font-weight:900;
-  text-align:center;
-}
-.v989-count{
-  margin-top:14px;
-  font-weight:800;
-  color:#b54708;
-}
-
-
-/* V99 — Top 10 correto */
-.supervisor-fusion-row.priority-monitor{
-  border-color:#d0d5dd;
-  background:#f8fafc;
+/* V99.4 — somente ajustes de relatório/prioridades */
+.supervisor-confirm-box b{
+  display:block;
+  margin-top:10px;
 }
 .supervisor-fusion-row.is-selected{
   outline:2px solid #f79009;
   background:#fff7ed;
-}
-.supervisor-confirm-box b{
-  display:inline-block;
-  margin-top:8px;
-}
-
-
-/* V99.2 */
-.supervisor-confirm-box{
-  position:relative;
 }
