@@ -2385,3 +2385,18 @@ button.secondary,
   font-weight:800;
   color:#b54708;
 }
+
+
+/* V99 — Top 10 correto */
+.supervisor-fusion-row.priority-monitor{
+  border-color:#d0d5dd;
+  background:#f8fafc;
+}
+.supervisor-fusion-row.is-selected{
+  outline:2px solid #f79009;
+  background:#fff7ed;
+}
+.supervisor-confirm-box b{
+  display:inline-block;
+  margin-top:8px;
+}
