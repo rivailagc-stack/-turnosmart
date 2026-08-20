@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '99.1.0';
+const APP_VERSION = '99.2.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v99.1.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v99.2.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -6875,6 +6875,7 @@ function maintenanceMessage(){
   if(!state.analysis)return '';
 
   v991ManageSelectionScope();
+  v991PrioritySourceRows();
 
   let fusionRows=supervisorFusionRanking(10);
   fusionRows=applyAutomaticSupervisorSelection(fusionRows);
@@ -7180,25 +7181,44 @@ function bindActionCards() {
   });
 }
 
-function renderActions() {
-  const has = !!state.analysis;
-  $('emptyActions').classList.toggle('hidden', has);
-  $('actionsContent').classList.toggle('hidden', !has);
-  if (!has) return;
+function renderActions(){
+  const has=!!state.analysis;
 
-  const maintenanceResponsible = findMaintenanceResponsible(
+  $('emptyActions').classList.toggle('hidden',has);
+  $('actionsContent').classList.toggle('hidden',!has);
+
+  if(!has)return;
+
+  // V99.2: recupera os números ANTES de montar o relatório e o Top 10.
+  v991PrioritySourceRows();
+
+  const maintenanceResponsible=findMaintenanceResponsible(
     state.analysis.responsibleDate,
     state.analysis.responsibleShift,
     state.analysis.responsibleCrew
   );
-  const productionResponsible = findProductionResponsible(state.analysis.responsibleCrew);
 
-  $('responsibleBadge').textContent = maintenanceResponsible;
-  $('productionResponsibleBadge').textContent = productionResponsible;
+  const productionResponsible=
+    findProductionResponsible(
+      state.analysis.responsibleCrew
+    );
 
-  $('maintenanceActionsList').innerHTML = messageHtml(maintenanceMessage());
-  $('productionActionsList').innerHTML = messageHtml(productionMessage());
+  $('responsibleBadge').textContent=
+    maintenanceResponsible;
+
+  $('productionResponsibleBadge').textContent=
+    productionResponsible;
+
+  $('maintenanceActionsList').innerHTML=
+    messageHtml(maintenanceMessage());
+
+  $('productionActionsList').innerHTML=
+    messageHtml(productionMessage());
+
   renderSgmanMachineAnalysis();
+
+  // O painel é reconstruído toda vez que a tela Ações abre/atualiza.
+  renderSupervisorFusionPanel();
 }
 
 function fillScaleForm(crew) {
@@ -8716,7 +8736,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=99.1.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=99.2.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -10047,39 +10067,161 @@ function v991CurrentScopeKey(){
 }
 
 function v991PrioritySourceRows(){
-  let source=(state.analysis?.machineOee||[])
-    .map(row=>({
-      machine:normalizeMachineCode(row.machine||row.maquina||''),
-      oee:smartNumeric(row.oee??row.value??row.efficiency),
-      confidence:Number(row.confidence||100),
-      source:row.source||'analysis'
-    }))
-    .filter(row=>
-      row.machine &&
-      row.oee!==null &&
-      Number.isFinite(row.oee) &&
-      row.oee>=0 &&
-      row.oee<=100
+  const collected=[];
+
+  const pushRows=(rows=[],source='')=>{
+    for(const raw of rows||[]){
+      const machine=normalizeMachineCode(
+        raw?.machine||
+        raw?.maquina||
+        ''
+      );
+
+      const oee=smartNumeric(
+        raw?.oee ??
+        raw?.value ??
+        raw?.efficiency
+      );
+
+      if(
+        !machine ||
+        oee===null ||
+        !Number.isFinite(oee) ||
+        oee<0 ||
+        oee>100
+      )continue;
+
+      collected.push({
+        machine,
+        oee,
+        confidence:Number(raw?.confidence||100),
+        source:raw?.source||source
+      });
+    }
+  };
+
+  // 1) Leitura que ainda está aberta na tela.
+  try{
+    pushRows(
+      machineOeeFromEditor(),
+      'photo'
+    );
+  }catch(_){}
+
+  // 2) Valores gravados na análise atual.
+  pushRows(
+    state.analysis?.machineOee||[],
+    'analysis'
+  );
+
+  // 3) Texto de OEE já convertido e salvo no relatório.
+  try{
+    pushRows(
+      extractAllMachineOeeFromText(
+        state.analysis?.oeeOcrText||
+        state.oeeOcrText||
+        $('oeeOcrText')?.value||
+        ''
+      ),
+      'ocr-text'
+    );
+  }catch(_){}
+
+  // 4) Mapa atual usado pelo próprio relatório.
+  try{
+    const board=currentBoardMap();
+
+    for(const [machine,row] of board.entries()){
+      const oee=smartNumeric(row?.oee);
+
+      if(oee!==null){
+        collected.push({
+          machine:normalizeMachineCode(machine),
+          oee,
+          confidence:100,
+          source:'board'
+        });
+      }
+    }
+  }catch(_){}
+
+  // 5) Última análise salva do MESMO dia/turno.
+  try{
+    const date=String(
+      state.analysis?.date||
+      $('reportDate')?.value||
+      ''
     );
 
-  if(!source.length){
-    source=machineOeeFromEditor()
-      .map(row=>({
-        machine:normalizeMachineCode(row.machine),
-        oee:smartNumeric(row.oee),
-        confidence:Number(row.confidence||100),
-        source:row.source||'photo'
-      }))
-      .filter(row=>row.machine && row.oee!==null);
-  }
+    const shift=String(
+      state.analysis?.shift||
+      $('reportShift')?.value||
+      '1'
+    );
+
+    const history=getHistory()
+      .map(item=>item.analysis)
+      .filter(Boolean)
+      .filter(item=>
+        String(item.date||'')===date &&
+        String(item.shift||'1')===shift
+      )
+      .reverse();
+
+    if(history.length){
+      pushRows(
+        getAnalysisMachineOee(history[0]),
+        'history'
+      );
+    }
+  }catch(_){}
+
+  // A prioridade de origem é: foto atual > análise > texto > board > histórico.
+  const sourceWeight={
+    photo:5,
+    analysis:4,
+    'ocr-text':3,
+    board:2,
+    history:1
+  };
 
   const map=new Map();
-  for(const row of source){
-    map.set(row.machine,row);
+
+  for(const row of collected){
+    const existing=map.get(row.machine);
+    const currentWeight=
+      sourceWeight[row.source]||0;
+    const oldWeight=
+      sourceWeight[existing?.source]||0;
+
+    if(
+      !existing ||
+      currentWeight>=oldWeight
+    ){
+      map.set(row.machine,row);
+    }
   }
 
-  return [...map.values()]
+  const result=[...map.values()]
     .sort((a,b)=>a.oee-b.oee);
+
+  // Regrava no state.analysis para a tela Ações não perder os valores.
+  if(state.analysis && result.length){
+    state.analysis.machineOee=
+      result.map(row=>({
+        machine:row.machine,
+        oee:row.oee,
+        confidence:row.confidence,
+        source:row.source
+      }));
+
+    state.analysis.lowOeeMachines=
+      state.analysis.machineOee
+        .filter(row=>row.oee<65)
+        .sort((a,b)=>a.oee-b.oee);
+  }
+
+  return result;
 }
 
 function v991ManageSelectionScope(){
@@ -10168,6 +10310,7 @@ function renderSupervisorFusionPanel(){
   if(!target)return;
 
   v991ManageSelectionScope();
+  v991PrioritySourceRows();
 
   let rows=supervisorFusionRanking(10);
   rows=applyAutomaticSupervisorSelection(rows);
@@ -15378,7 +15521,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=99.1.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=99.2.0');
         registration.update();
       } catch {}
     });
@@ -15448,8 +15591,19 @@ document.addEventListener('click',event=>{
 
 document.addEventListener('click',event=>{
   if(event.target?.id==='refreshSupervisorFusionBtn'){
+    const rows=v991PrioritySourceRows();
+
+    state.supervisorFusionRows=
+      supervisorFusionRanking(10);
+
     renderSupervisorFusionPanel();
-    showToast('Prioridades atualizadas com quadro e relatório da produção.');
+    renderActions();
+
+    showToast(
+      rows.length
+        ?`${rows.length} OEE recuperado(s). Top 10 atualizado.`
+        :'Nenhum OEE encontrado no turno atual.'
+    );
   }
 });
 

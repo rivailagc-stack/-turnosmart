@@ -1,4 +1,5 @@
-PATCH V99.1
+PATCH V99.2
+
 Substitua:
 - app.js
 - index.html
@@ -7,5 +8,12 @@ Substitua:
 - api/health.js (se presente)
 
 NÃO substitua api/oee-vision.js.
-Depois faça Redeploy e confirme V99.1.0.
-Após o deploy, analise a foto uma vez.
+
+Depois:
+1. Faça Redeploy.
+2. Confirme V99.2.0.
+3. Analise a foto.
+4. Vá em Ações.
+5. Se necessário toque "Atualizar prioridades".
+
+O Top 10 deve recuperar os mesmos OEE do relatório.

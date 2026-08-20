@@ -2400,3 +2400,9 @@ button.secondary,
   display:inline-block;
   margin-top:8px;
 }
+
+
+/* V99.2 */
+.supervisor-confirm-box{
+  position:relative;
+}
