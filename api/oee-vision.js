@@ -1,4 +1,4 @@
-const MODEL=process.env.GEMINI_MODEL||'gemini-3.6-flash'; // configurável no Vercel
+const MODEL=process.env.GEMINI_MODEL||'gemini-3.6-flash';
 
 const MACHINES=[
   'MK-138','MK-105','MK-108','MK-223','MK-192',
@@ -7,59 +7,33 @@ const MACHINES=[
   'MK-222','MK-170','MK-176','MK-188','MK-149'
 ];
 
-function normalizeMachine(value){
-  const digits=String(value||'').match(/\d{2,3}/)?.[0];
-  return digits?`MK-${Number(digits)}`:'';
-}
-
 function parseDataUrl(dataUrl){
   const m=String(dataUrl||'').match(
     /^data:(image\/[^;]+);base64,(.+)$/s
   );
-
-  return m
-    ?{mimeType:m[1],data:m[2]}
-    :null;
+  return m?{mimeType:m[1],data:m[2]}:null;
 }
 
-function extractInteractionText(body){
-  // Schema atual da Interactions API: steps[]
-  const texts=[];
+function normalizeMachine(value){
+  const d=String(value||'').match(/\d{2,3}/)?.[0];
+  return d?`MK-${Number(d)}`:'';
+}
 
+function extractText(body){
+  const texts=[];
   for(const step of body?.steps||[]){
     if(step?.type==='model_output'){
-      for(const content of step?.content||[]){
-        if(content?.type==='text' && content?.text){
-          texts.push(content.text);
-        }
+      for(const c of step?.content||[]){
+        if(c?.type==='text'&&c?.text)texts.push(c.text);
       }
     }
-
-    // fallback tolerante
-    if(step?.text){
-      texts.push(step.text);
-    }
+    if(step?.text)texts.push(step.text);
   }
-
-  if(texts.length){
-    return texts.join('').trim();
-  }
-
-  // Compatibilidade defensiva com possíveis convenience/raw outputs.
-  if(typeof body?.output_text==='string'){
-    return body.output_text.trim();
-  }
-
-  for(const output of body?.outputs||[]){
-    if(output?.type==='text' && output?.text){
-      texts.push(output.text);
-    }
-  }
-
+  if(typeof body?.output_text==='string')texts.push(body.output_text);
   return texts.join('').trim();
 }
 
-function extractJson(text){
+function parseJson(text){
   const clean=String(text||'')
     .trim()
     .replace(/^```json\s*/i,'')
@@ -67,26 +41,18 @@ function extractJson(text){
     .replace(/\s*```$/,'')
     .trim();
 
-  try{
-    return JSON.parse(clean);
-  }catch{}
+  try{return JSON.parse(clean);}catch{}
 
   const a=clean.indexOf('{');
   const b=clean.lastIndexOf('}');
+  if(a>=0&&b>a)return JSON.parse(clean.slice(a,b+1));
 
-  if(a>=0 && b>a){
-    return JSON.parse(clean.slice(a,b+1));
-  }
-
-  throw new Error('JSON do Gemini não pôde ser interpretado.');
+  throw new Error('Resposta JSON inválida.');
 }
 
 module.exports=async(req,res)=>{
   if(req.method!=='POST'){
-    return res.status(405).json({
-      ok:false,
-      error:'Use POST.'
-    });
+    return res.status(405).json({ok:false,error:'Use POST.'});
   }
 
   const key=process.env.GEMINI_API_KEY;
@@ -100,102 +66,88 @@ module.exports=async(req,res)=>{
 
   try{
     const {
+      fullBoardDataUrl,
+      imageDataUrl,
       rowImages=[],
       scope
     }=req.body||{};
 
-    if(!Array.isArray(rowImages) || rowImages.length<1){
+    const full=parseDataUrl(fullBoardDataUrl||imageDataUrl);
+
+    if(!full){
       return res.status(400).json({
         ok:false,
-        error:'Nenhuma linha individual recebida.'
+        error:'Foto completa do quadro não recebida.'
       });
     }
 
-    const scopeLabel=scope?.label||'';
+    const label=scope?.label||'';
 
-    const input=[
-      {
-        type:'text',
-        text:
-`Você receberá 20 imagens individuais de linhas de um quadro industrial. Cada imagem contém 4 faixas da MESMA célula: natural, contraste, realce de cor e limiar. Compare as faixas antes de decidir.
+    const parts=[{
+      text:
+`Você é um leitor industrial de quadro OEE manuscrito.
 
-Cada imagem é precedida pelo nome EXATO da máquina correspondente.
+OBJETIVO:
+Ler SOMENTE a coluna ${label}.
 
-Escopo: ${scopeLabel}.
+REGRAS CRÍTICAS:
+1. Use a FOTO COMPLETA para confirmar dia/turno e posição vertical das máquinas.
+2. Depois use cada IMAGEM DE CÉLULA apenas como zoom da mesma máquina.
+3. Nunca transfira OEE de uma máquina para outra.
+4. Produção em peças NÃO é OEE.
+5. Número da máquina NÃO é OEE.
+6. OEE válido é percentual entre 0 e 100 e precisa estar visualmente associado ao símbolo %.
+7. Célula vazia ou máquina sem registro = status "blank" ou "not_running", oee null.
+8. Se houver escrita mas não der para confirmar percentual, status "unreadable", oee null.
+9. NÃO INVENTE.
+10. sameCell só pode ser true se o percentual estiver visualmente na mesma célula da máquina.
+11. percentVisible só pode ser true se o símbolo % ou notação percentual estiver realmente visível.
+12. confidence é 0 a 100.
+13. Retorne todas as 20 máquinas.
 
-Para CADA imagem:
-1. Leia SOMENTE o percentual OEE manuscrito de 0 a 100.
-2. Ignore produção em peças, nomes, OP, meta, semana e outros números.
-3. Exemplo: "49.000 55%" => OEE é 55; 49.000 é produção.
-4. Nunca use número da máquina como OEE.
-5. Nunca atribua valor a outra máquina.
-6. Se não houver percentual legível, use null. Célula vazia ou máquina que não rodou deve ser null.
-7. Só aceite OEE se houver evidência visual de percentual (número associado ao símbolo %).
-8. Não invente. Se produção e percentual aparecerem juntos, escolha SOMENTE o que tem %.
-9. confidence deve ser inteiro de 0 a 100.
-9. description deve explicar de forma curta o que foi lido.
-10. Retorne exatamente as 20 máquinas.`
+ORDEM:
+${MACHINES.join(', ')}
+
+JSON:
+{
+ "rows":[
+  {
+   "machine":"MK-172",
+   "status":"oee|not_running|blank|unreadable",
+   "oee":68,
+   "confidence":96,
+   "sameCell":true,
+   "percentVisible":true,
+   "evidence":"68%",
+   "description":"68% lido na mesma célula."
+  }
+ ]
+}`
+    }];
+
+    parts.push({
+      inlineData:{
+        mimeType:full.mimeType,
+        data:full.data
       }
-    ];
+    });
 
     for(const item of rowImages){
       const machine=normalizeMachine(item.machine);
-      const image=parseDataUrl(item.dataUrl);
+      const img=parseDataUrl(item.dataUrl);
+      if(!machine||!img)continue;
 
-      if(!machine || !image){
-        continue;
-      }
-
-      input.push({
-        type:'text',
-        text:`MÁQUINA ${machine} — leia somente a próxima imagem para esta máquina.`
+      parts.push({
+        text:`ZOOM DA CÉLULA ${machine}: confira esta célula contra a posição na foto completa.`
       });
 
-      input.push({
-        type:'image',
-        data:image.data,
-        mime_type:image.mimeType
+      parts.push({
+        inlineData:{
+          mimeType:img.mimeType,
+          data:img.data
+        }
       });
     }
-
-    const schema={
-      type:'object',
-      properties:{
-        rows:{
-          type:'array',
-          items:{
-            type:'object',
-            properties:{
-              machine:{
-                type:'string',
-                description:'Código da máquina, ex: MK-138.'
-              },
-              oee:{
-                type:['number','null'],
-                description:'Percentual OEE de 0 a 100, ou null se ilegível.'
-              },
-              confidence:{
-                type:'integer',
-                description:'Confiança da leitura de 0 a 100.'
-              },
-              description:{
-                type:'string',
-                description:'Descrição curta da leitura e do número ignorado, se houver.'
-              }
-            },
-            required:[
-              'machine',
-              'oee',
-              'confidence',
-              'description'
-            ],
-            additionalProperties:false
-          }
-        }
-      },
-      required:['rows'],
-      additionalProperties:false
-    };
 
     const url=
       'https://generativelanguage.googleapis.com/v1beta/interactions';
@@ -209,15 +161,21 @@ Para CADA imagem:
       },
       body:JSON.stringify({
         model:MODEL,
-        input,
+        input:parts.map(p=>{
+          if(p.text)return {type:'text',text:p.text};
+          return {
+            type:'image',
+            data:p.inlineData.data,
+            mime_type:p.inlineData.mimeType
+          };
+        }),
         store:false,
         generation_config:{
-          thinking_level:'low'
+          thinking_level:'medium'
         },
         response_format:{
           type:'text',
-          mime_type:'application/json',
-          schema
+          mime_type:'application/json'
         }
       })
     });
@@ -233,75 +191,43 @@ Para CADA imagem:
       });
     }
 
-    const text=extractInteractionText(body);
-
-    if(!text){
-      return res.status(502).json({
-        ok:false,
-        error:'Gemini respondeu sem texto estruturado.',
-        model:MODEL,
-        api:'interactions',
-        diagnostic:{
-          status:body?.status||'',
-          stepTypes:(body?.steps||[]).map(s=>s?.type).filter(Boolean)
-        }
-      });
-    }
-
-    const parsed=extractJson(text);
+    const parsed=parseJson(extractText(body));
 
     const incoming=new Map(
-      (parsed.rows||[]).map(row=>[
-        normalizeMachine(row.machine),
-        row
+      (parsed.rows||[]).map(r=>[
+        normalizeMachine(r.machine),
+        r
       ])
     );
 
     const rows=MACHINES.map(machine=>{
-      const row=incoming.get(machine)||{};
-      const n=Number(row.oee);
-
+      const r=incoming.get(machine)||{};
+      const n=Number(r.oee);
       const valid=
-        row.oee!==null &&
-        row.oee!==undefined &&
-        row.oee!=='' &&
+        r.oee!==null &&
+        r.oee!==undefined &&
+        r.oee!=='' &&
         Number.isFinite(n) &&
         n>=0 &&
         n<=100;
 
       return {
         machine,
+        status:String(r.status||'unreadable'),
         oee:valid?n:null,
-        confidence:Math.max(
-          0,
-          Math.min(
-            100,
-            Number(row.confidence||0)
-          )
-        ),
-        anchorFound:true,
-        rowChecked:true,
-        evidence:String(row.description||''),
-        description:String(
-          row.description||
-          (
-            valid
-              ?`${n}% identificado nesta imagem.`
-              :'Sem percentual legível nesta imagem.'
-          )
-        )
+        confidence:Math.max(0,Math.min(100,Number(r.confidence||0))),
+        sameCell:Boolean(r.sameCell),
+        percentVisible:Boolean(r.percentVisible),
+        evidence:String(r.evidence||''),
+        description:String(r.description||r.evidence||'')
       };
     });
-
-    const nonNull=rows.filter(row=>row.oee!==null).length;
 
     return res.status(200).json({
       ok:true,
       provider:'gemini',
       api:'interactions',
       model:MODEL,
-      returned:rows.length,
-      nonNull,
       rows
     });
 
