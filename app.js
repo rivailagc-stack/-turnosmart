@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '99.6.0';
+const APP_VERSION = '99.7.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v99.6.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v99.7.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -5325,14 +5325,15 @@ function oee986MergeVisionRows(visionRows){
 
 function oee986ConfirmedRows(rows){
   return (rows||[]).filter(row=>
-    row.oee!=='' &&
+    row.exactCellConfirmed===true &&
     Number.isFinite(Number(row.oee)) &&
-    Number(row.confidence||0)>=88
+    Number(row.oee)>=0 &&
+    Number(row.oee)<=100
   );
 }
 
 function oee986BlockUnsafeReport(rows){
-  const confirmed=oee986ConfirmedRows(rows);
+  const confirmed=v997ConfirmedRows(rows);
   const ratio=confirmed.length/Math.max(1,oee986MachineOrder().length);
 
   state.oeeReadReliability={
@@ -5495,6 +5496,83 @@ async function v996SafeSecondPass(rows,cells,fullBoardDataUrl,scope){
     };
   });
 }
+
+// =====================================================
+// V99.7 — LEITURA POR INTERSEÇÃO EXATA: MK -> TURNO -> CÉLULA -> %
+// =====================================================
+async function v997ReadExactCell(cell,scope){
+  try{
+    const r=await fetch('/api/oee-cell-vision',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        cellDataUrl:cell.dataUrl,
+        machine:cell.machine,
+        scope
+      })
+    });
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok||!d.ok)return {machine:cell.machine,usable:false,reason:d.error||`HTTP ${r.status}`};
+    return {machine:cell.machine,usable:true,...d};
+  }catch(e){
+    return {machine:cell.machine,usable:false,reason:String(e?.message||e)};
+  }
+}
+
+async function v997ExactCellPass(cells,scope,firstRows){
+  const firstMap=new Map((firstRows||[]).map(r=>[String(r.machine),r]));
+  const reads=[];
+  const batchSize=4;
+
+  for(let i=0;i<(cells||[]).length;i+=batchSize){
+    const batch=(cells||[]).slice(i,i+batchSize);
+    const got=await Promise.all(batch.map(c=>v997ReadExactCell(c,scope)));
+    reads.push(...got);
+  }
+
+  return (cells||[]).map(cell=>{
+    const exact=reads.find(x=>x.machine===cell.machine);
+    const first=firstMap.get(String(cell.machine));
+
+    // Exato confirmado: esta passa a ser a fonte oficial.
+    if(exact?.usable && exact.confirmed && Number.isFinite(Number(exact.oee))){
+      return {
+        ...(first||{}),
+        machine:cell.machine,
+        oee:Number(exact.oee),
+        confidence:Number(exact.confidence||0),
+        confirmed:true,
+        exactCellConfirmed:true,
+        source:'exact_cell_v997',
+        description:`${exact.oee}% confirmado na célula ${cell.machine} / ${scope.label}.`,
+        reason:exact.reason||''
+      };
+    }
+
+    // Não confirmado = não inventar. Primeira leitura fica apenas como referência,
+    // mas NÃO alimenta Top 10/relatório oficial.
+    return {
+      ...(first||{}),
+      machine:cell.machine,
+      oee:null,
+      confirmed:false,
+      exactCellConfirmed:false,
+      source:'exact_cell_v997',
+      firstPassOee:Number.isFinite(Number(first?.oee))?Number(first.oee):null,
+      description:'Célula sem OEE confirmado.',
+      reason:exact?.reason||'Sem confirmação da célula exata.'
+    };
+  });
+}
+
+function v997ConfirmedRows(rows){
+  return (rows||[]).filter(r=>
+    r.exactCellConfirmed===true &&
+    Number.isFinite(Number(r.oee)) &&
+    Number(r.oee)>=0 &&
+    Number(r.oee)<=100
+  );
+}
 async function processOeeColumnPhoto(){
   const file=$('oeeImageInput')?.files?.[0];
 
@@ -5585,6 +5663,29 @@ async function processOeeColumnPhoto(){
         'Conferência de segurança indisponível:',
         error
       );
+    }
+
+    // V99.7: a leitura oficial agora vem da interseção exata
+    // máquina + coluna/turno + célula. Se não confirmar, fica vazio.
+    statusEl.textContent=
+      `Validando célula por célula em ${scope.label}...`;
+
+    try{
+      const exactRows=await v997ExactCellPass(cells,scope,rows);
+      if(exactRows.length){
+        rows=exactRows;
+      }
+    }catch(error){
+      console.warn('Validação exata indisponível:',error);
+      // Segurança: sem validação exata, não declarar como confirmado.
+      rows=(rows||[]).map(r=>({
+        ...r,
+        oee:null,
+        confirmed:false,
+        exactCellConfirmed:false,
+        firstPassOee:Number.isFinite(Number(r.oee))?Number(r.oee):null,
+        reason:'Validação da célula exata indisponível.'
+      }));
     }
 
     state.oeeMachineEditorData=rows;
@@ -8628,7 +8729,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=99.6.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=99.7.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -15239,7 +15340,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=99.6.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=99.7.0');
         registration.update();
       } catch {}
     });

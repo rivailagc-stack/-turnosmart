@@ -1,15 +1,6 @@
-PATCH V99.6
+V99.7 PATCH
+Substitua os arquivos do patch mantendo a mesma estrutura.
+Novo arquivo obrigatório: api/oee-cell-vision.js
 
-Substitua:
-- app.js
-- index.html
-- style.css
-- sw.js
-- api/oee-verify.js
-- api/health.js se existir
-
-NÃO substitua api/oee-vision.js.
-A primeira leitura boa continua sendo a da V99.4.
-
-A segunda conferência agora é apenas uma proteção:
-ela nunca apaga a leitura principal.
+Esta versão NÃO considera uma leitura "confirmada" só porque a IA encontrou um número.
+Ela exige confirmação na célula exata da MK e do turno.
