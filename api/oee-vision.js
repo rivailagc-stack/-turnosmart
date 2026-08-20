@@ -1,3 +1,4 @@
+
 const MODEL=process.env.GEMINI_MODEL||'gemini-3.6-flash';
 
 const MACHINES=[
@@ -7,10 +8,8 @@ const MACHINES=[
   'MK-222','MK-170','MK-176','MK-188','MK-149'
 ];
 
-function parseDataUrl(dataUrl){
-  const m=String(dataUrl||'').match(
-    /^data:(image\/[^;]+);base64,(.+)$/s
-  );
+function parseDataUrl(value){
+  const m=String(value||'').match(/^data:(image\/[^;]+);base64,(.+)$/s);
   return m?{mimeType:m[1],data:m[2]}:null;
 }
 
@@ -20,17 +19,20 @@ function normalizeMachine(value){
 }
 
 function extractText(body){
-  const texts=[];
+  const out=[];
+
   for(const step of body?.steps||[]){
     if(step?.type==='model_output'){
       for(const c of step?.content||[]){
-        if(c?.type==='text'&&c?.text)texts.push(c.text);
+        if(c?.type==='text'&&c?.text)out.push(c.text);
       }
     }
-    if(step?.text)texts.push(step.text);
+    if(step?.text)out.push(step.text);
   }
-  if(typeof body?.output_text==='string')texts.push(body.output_text);
-  return texts.join('').trim();
+
+  if(typeof body?.output_text==='string')out.push(body.output_text);
+
+  return out.join('').trim();
 }
 
 function parseJson(text){
@@ -45,7 +47,10 @@ function parseJson(text){
 
   const a=clean.indexOf('{');
   const b=clean.lastIndexOf('}');
-  if(a>=0&&b>a)return JSON.parse(clean.slice(a,b+1));
+
+  if(a>=0&&b>a){
+    return JSON.parse(clean.slice(a,b+1));
+  }
 
   throw new Error('Resposta JSON inválida.');
 }
@@ -68,7 +73,6 @@ module.exports=async(req,res)=>{
     const {
       fullBoardDataUrl,
       imageDataUrl,
-      rowImages=[],
       scope
     }=req.body||{};
 
@@ -77,77 +81,74 @@ module.exports=async(req,res)=>{
     if(!full){
       return res.status(400).json({
         ok:false,
-        error:'Foto completa do quadro não recebida.'
+        error:'Foto completa não recebida.'
       });
     }
 
-    const label=scope?.label||'';
+    const label=String(scope?.label||'').trim();
 
-    const parts=[{
-      text:
-`Você é um leitor industrial de quadro OEE manuscrito.
+    const instruction=`
+Você está vendo UMA FOTO COMPLETA de um quadro industrial chamado
+"QUADRO DE ACOMPANHAMENTO DE OEE SEMANAL".
 
-OBJETIVO:
-Ler SOMENTE a coluna ${label}.
+TAREFA:
+Ler SOMENTE a coluna "${label}" diretamente na FOTO COMPLETA.
 
-REGRAS CRÍTICAS:
-1. Use a FOTO COMPLETA para confirmar dia/turno e posição vertical das máquinas.
-2. Depois use cada IMAGEM DE CÉLULA apenas como zoom da mesma máquina.
-3. Nunca transfira OEE de uma máquina para outra.
-4. Produção em peças NÃO é OEE.
-5. Número da máquina NÃO é OEE.
-6. OEE válido é percentual entre 0 e 100 e precisa estar visualmente associado ao símbolo %.
-7. Célula vazia ou máquina sem registro = status "blank" ou "not_running", oee null.
-8. Se houver escrita mas não der para confirmar percentual, status "unreadable", oee null.
-9. NÃO INVENTE.
-10. sameCell só pode ser true se o percentual estiver visualmente na mesma célula da máquina.
-11. percentVisible só pode ser true se o símbolo % ou notação percentual estiver realmente visível.
-12. confidence é 0 a 100.
-13. Retorne todas as 20 máquinas.
+A estrutura física é:
+- à esquerda existem as linhas das máquinas;
+- no topo existem dias da semana;
+- cada dia possui turno A e turno B;
+- cada máquina ocupa uma linha horizontal;
+- dentro de cada célula podem existir nome, produção e OEE;
+- OEE normalmente aparece como número seguido de %.
 
-ORDEM:
+MÁQUINAS, NESTA ORDEM VERTICAL:
 ${MACHINES.join(', ')}
 
-JSON:
+PROCEDIMENTO OBRIGATÓRIO PARA CADA MK:
+1. Localize no topo o cabeçalho "${label}".
+2. Desça verticalmente exatamente na mesma coluna.
+3. Localize horizontalmente a linha da máquina usando a coluna de MK à esquerda.
+4. Leia SOMENTE a interseção dessa linha com "${label}".
+5. Se houver percentual legível, retorne o OEE.
+6. Se a célula estiver vazia, retorne blank.
+7. Se houver informação mas nenhum percentual confiável, retorne unreadable.
+8. Se ficar claro que a máquina não rodou/sem apontamento, retorne not_running.
+
+PROIBIDO:
+- usar valor da coluna anterior ou seguinte;
+- usar valor da linha acima ou abaixo;
+- transformar produção em OEE;
+- transformar 61.300 em 61%;
+- inferir OEE pela cor;
+- inventar percentual;
+- usar OEE geral do turno como OEE da máquina.
+
+VALIDAÇÃO:
+columnConfirmed=true SOMENTE se você identificou visualmente o cabeçalho "${label}" e permaneceu nessa coluna.
+rowConfirmed=true SOMENTE se você conferiu a linha da MK pela coluna da esquerda.
+percentVisible=true SOMENTE se houver percentual visualmente legível na célula.
+confidence 0-100.
+
+Retorne TODAS as 20 máquinas.
+
+JSON EXATO:
 {
- "rows":[
-  {
-   "machine":"MK-172",
-   "status":"oee|not_running|blank|unreadable",
-   "oee":68,
-   "confidence":96,
-   "sameCell":true,
-   "percentVisible":true,
-   "evidence":"68%",
-   "description":"68% lido na mesma célula."
-  }
- ]
-}`
-    }];
-
-    parts.push({
-      inlineData:{
-        mimeType:full.mimeType,
-        data:full.data
-      }
-    });
-
-    for(const item of rowImages){
-      const machine=normalizeMachine(item.machine);
-      const img=parseDataUrl(item.dataUrl);
-      if(!machine||!img)continue;
-
-      parts.push({
-        text:`ZOOM DA CÉLULA ${machine}: confira esta célula contra a posição na foto completa.`
-      });
-
-      parts.push({
-        inlineData:{
-          mimeType:img.mimeType,
-          data:img.data
-        }
-      });
+  "rows":[
+    {
+      "machine":"MK-172",
+      "status":"oee|blank|not_running|unreadable",
+      "oee":68,
+      "confidence":96,
+      "columnConfirmed":true,
+      "rowConfirmed":true,
+      "percentVisible":true,
+      "evidence":"68%",
+      "description":"68% visível na linha MK-172 e coluna correta."
     }
+  ]
+}
+`;
 
     const url=
       'https://generativelanguage.googleapis.com/v1beta/interactions';
@@ -161,17 +162,17 @@ JSON:
       },
       body:JSON.stringify({
         model:MODEL,
-        input:parts.map(p=>{
-          if(p.text)return {type:'text',text:p.text};
-          return {
+        input:[
+          {type:'text',text:instruction},
+          {
             type:'image',
-            data:p.inlineData.data,
-            mime_type:p.inlineData.mimeType
-          };
-        }),
+            data:full.data,
+            mime_type:full.mimeType
+          }
+        ],
         store:false,
         generation_config:{
-          thinking_level:'medium'
+          thinking_level:'high'
         },
         response_format:{
           type:'text',
@@ -203,6 +204,7 @@ JSON:
     const rows=MACHINES.map(machine=>{
       const r=incoming.get(machine)||{};
       const n=Number(r.oee);
+
       const valid=
         r.oee!==null &&
         r.oee!==undefined &&
@@ -216,7 +218,8 @@ JSON:
         status:String(r.status||'unreadable'),
         oee:valid?n:null,
         confidence:Math.max(0,Math.min(100,Number(r.confidence||0))),
-        sameCell:Boolean(r.sameCell),
+        columnConfirmed:Boolean(r.columnConfirmed),
+        rowConfirmed:Boolean(r.rowConfirmed),
         percentVisible:Boolean(r.percentVisible),
         evidence:String(r.evidence||''),
         description:String(r.description||r.evidence||'')
@@ -228,6 +231,7 @@ JSON:
       provider:'gemini',
       api:'interactions',
       model:MODEL,
+      mode:'full-board-only',
       rows
     });
 
