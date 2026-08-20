@@ -1,6 +1,14 @@
-PATCH V98.4
-Substitua os arquivos do patch e faça Redeploy.
-Confirme V98.4.0 no topo.
+PATCH V98.6
 
-A leitura agora é híbrida:
-foto original -> OCR local -> IA validadora -> regra de consenso.
+Substitua:
+- app.js
+- index.html
+- style.css
+- sw.js
+- api/oee-vision.js
+- api/health.js (se presente)
+
+Depois faça Redeploy.
+Confirme V98.6.0.
+
+A leitura agora usa FOTO COMPLETA + CÉLULA da mesma MK.
