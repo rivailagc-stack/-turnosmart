@@ -2317,3 +2317,9 @@ button.secondary,
   border:1px solid #d0d5dd;
   border-radius:12px;
 }
+
+
+/* V98.7 */
+.oee-editor-head .muted::after{
+  content:" • leitura principal feita na foto completa";
+}

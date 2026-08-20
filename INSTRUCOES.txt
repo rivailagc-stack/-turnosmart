@@ -1,4 +1,4 @@
-PATCH V98.6
+PATCH V98.7
 
 Substitua:
 - app.js
@@ -8,7 +8,8 @@ Substitua:
 - api/oee-vision.js
 - api/health.js (se presente)
 
-Depois faça Redeploy.
-Confirme V98.6.0.
+Faça Redeploy.
+Confirme V98.7.0.
 
-A leitura agora usa FOTO COMPLETA + CÉLULA da mesma MK.
+Mudança principal:
+A IA lê a FOTO COMPLETA; recortes não decidem mais os números.

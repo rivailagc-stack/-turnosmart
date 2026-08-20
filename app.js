@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '98.6.0';
+const APP_VERSION = '98.7.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.6.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.7.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -5105,35 +5105,38 @@ function oee986NormalizeMachine(value){
 }
 
 function oee986BuildGuideImage(image, operationalDate, shift){
-  // Mantém a foto completa. Adiciona somente uma tarja explicando o escopo.
   const w=image.naturalWidth||image.width;
   const h=image.naturalHeight||image.height;
-  const maxW=1800;
-  const scale=Math.min(1,maxW/Math.max(1,w));
+
+  // V98.7: preserva a resolução ORIGINAL.
+  // Só cria uma cópia quando precisamos escrever a referência visual.
   const canvas=document.createElement('canvas');
   const ctx=canvas.getContext('2d');
 
-  canvas.width=Math.max(1,Math.round(w*scale));
-  canvas.height=Math.max(1,Math.round(h*scale));
+  canvas.width=w;
+  canvas.height=h;
 
-  ctx.drawImage(image,0,0,canvas.width,canvas.height);
+  ctx.drawImage(image,0,0,w,h);
 
   const label=oee986ScopeLabel(operationalDate,shift);
 
-  ctx.fillStyle='rgba(255,255,255,.94)';
-  ctx.fillRect(0,0,canvas.width,64);
+  // Tarja pequena no topo sem cobrir a tabela.
+  const bar=Math.max(42,Math.round(h*0.055));
+
+  ctx.fillStyle='rgba(255,255,255,.96)';
+  ctx.fillRect(0,0,w,bar);
 
   ctx.fillStyle='#111827';
-  ctx.font='bold 28px Arial';
+  ctx.font=`bold ${Math.max(22,Math.round(bar*0.48))}px Arial`;
   ctx.fillText(
-    `QUADRO COMPLETO — LER SOMENTE ${label}`,
-    18,
-    42
+    `ALVO: ${label} — localizar pelo cabeçalho do quadro`,
+    Math.max(12,Math.round(w*0.01)),
+    Math.round(bar*0.68)
   );
 
   return {
     canvas,
-    dataUrl:canvas.toDataURL('image/jpeg',0.94),
+    dataUrl:canvas.toDataURL('image/jpeg',0.98),
     label
   };
 }
@@ -5263,6 +5266,7 @@ function oee986MergeVisionRows(visionRows){
   return oee986MachineOrder().map(machine=>{
     const r=map.get(machine)||{};
     const n=Number(r.oee);
+
     const valid=
       r.oee!==null &&
       r.oee!==undefined &&
@@ -5272,24 +5276,29 @@ function oee986MergeVisionRows(visionRows){
       n<=100;
 
     const status=String(r.status||'').toLowerCase();
-    const confidence=Math.max(
-      0,
-      Math.min(100,Number(r.confidence||0))
-    );
+    const confidence=Math.max(0,Math.min(100,Number(r.confidence||0)));
 
+    const evidence=String(r.evidence||'');
+    const evidenceHasPercent=/%/.test(evidence);
+
+    // V98.7: a validação vem da posição na FOTO COMPLETA.
     const confirmed=
       valid &&
       status==='oee' &&
-      confidence>=88 &&
-      r.sameCell===true &&
-      r.percentVisible===true;
+      confidence>=86 &&
+      r.columnConfirmed===true &&
+      r.rowConfirmed===true &&
+      (
+        r.percentVisible===true ||
+        evidenceHasPercent
+      );
 
     return {
       machine,
       oee:confirmed?n:'',
       candidateOee:valid?n:'',
       confidence:confirmed?confidence:0,
-      source:confirmed?'IA visual validada':'IA visual não confirmada',
+      source:confirmed?'IA — quadro completo':'IA — não confirmado',
       needsConfirmation:!confirmed && valid,
       ambiguous:!confirmed,
       status:
@@ -5299,15 +5308,15 @@ function oee986MergeVisionRows(visionRows){
         'unreadable',
       description:String(
         r.description||
-        r.evidence||
+        evidence||
         (
           status==='not_running'
-            ?'Máquina sem registro no turno.'
+            ?'Sem registro nesta célula do turno.'
             :status==='blank'
-              ?'Célula vazia.'
+              ?'Célula vazia neste turno.'
               :confirmed
-                ?`${n}% confirmado na mesma célula.`
-                :'Leitura não confiável.'
+                ?`${n}% confirmado na linha e coluna corretas.`
+                :'Não foi possível confirmar a posição e o percentual.'
         )
       )
     };
@@ -5354,7 +5363,7 @@ async function processOeeColumnPhoto(){
 
   try{
     statusEl.textContent=
-      `V98.6: analisando quadro completo + células de ${scope.label}...`;
+      `V98.7: IA lendo o quadro COMPLETO e localizando ${scope.label}...`;
 
     const fullDataUrl=
       state.oeeImageDataUrl||
@@ -5370,24 +5379,46 @@ async function processOeeColumnPhoto(){
       shift
     );
 
-    const cells=oee986BuildOriginalCells(
-      image,
-      operationalDate,
-      shift
-    );
+    // Os recortes ficam disponíveis somente para conferência visual.
+    // NÃO são mais usados como fonte da leitura da IA.
+    let cells=[];
+    try{
+      cells=oee986BuildOriginalCells(
+        image,
+        operationalDate,
+        shift
+      );
+    }catch(_){
+      cells=[];
+    }
 
     state.oeeRowPreviews=
       cells.map(c=>c.dataUrl);
 
-    const rows=await analyzeOeeWithVision(
-      guide.dataUrl,
-      operationalDate,
-      shift,
-      scope,
-      '',
-      cells
-    );
+    const response=await fetch('/api/oee-vision',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        fullBoardDataUrl:guide.dataUrl,
+        imageDataUrl:guide.dataUrl,
+        date:operationalDate,
+        shift,
+        scope,
+        machineOrder:oee986MachineOrder(),
+        mode:'full_board_only_v987'
+      })
+    });
 
+    const data=await response.json().catch(()=>({}));
+
+    if(!response.ok || data.ok===false){
+      throw new Error(
+        data.error||
+        `Falha IA HTTP ${response.status}`
+      );
+    }
+
+    const rows=oee986MergeVisionRows(data.rows||[]);
     state.oeeMachineEditorData=rows;
 
     renderOeeMachineEditor(rows);
@@ -5399,34 +5430,34 @@ async function processOeeColumnPhoto(){
 
     const confirmed=oee986ConfirmedRows(rows);
     const reliability=Math.round(
-      (confirmed.length/Math.max(1,oee986MachineOrder().length))*100
+      confirmed.length/
+      Math.max(1,oee986MachineOrder().length)*
+      100
     );
 
     const safe=oee986BlockUnsafeReport(rows);
 
     statusEl.textContent=
-      `V98.6 ${scope.label}: ${confirmed.length}/20 OEE confirmados (${reliability}%). `+
+      `V98.7 ${scope.label}: ${confirmed.length}/20 OEE confirmados (${reliability}%). `+
       (
         safe
-          ?'Leitura liberada para cruzamento.'
-          :'Dados insuficientes: prioridades por OEE bloqueadas.'
+          ?'Dados confirmados liberados.'
+          :'Prioridades por OEE permanecem bloqueadas.'
       );
 
     return rows;
 
   }catch(error){
-    console.error('V98.6 falhou:',error);
+    console.error('V98.7 falhou:',error);
 
     state.oeeReadingReady=false;
     state.oeeMachineEditorData=[];
 
     statusEl.textContent=
       `Falha na leitura do quadro: ${error.message}. `+
-      `Relatório e prioridades por OEE bloqueados.`;
+      `Nenhum OEE da foto foi liberado.`;
 
-    showToast(
-      `Leitura OEE: ${error.message}`
-    );
+    showToast(`Leitura OEE: ${error.message}`);
 
     return [];
   }
@@ -8436,7 +8467,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=98.6.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=98.7.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -15040,7 +15071,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=98.6.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=98.7.0');
         registration.update();
       } catch {}
     });
