@@ -1,15 +1,22 @@
-PATCH V99.4
-
-IMPORTANTE:
-Esta versão voltou à base da V98.7, onde a leitura do OEE funcionou bem.
+PATCH V99.5
 
 Substitua:
 - app.js
 - index.html
 - style.css
 - sw.js
-- api/health.js (se existir)
+- api/oee-verify.js  (NOVO)
+- api/health.js se existir
 
-NÃO substitua api/oee-vision.js se você já tem o leitor bom da V98.7.
+IMPORTANTE:
+NÃO substitua api/oee-vision.js.
+A primeira leitura boa continua exatamente igual.
 
-Depois faça Redeploy e confirme V99.4.0.
+Depois:
+1. Faça Redeploy.
+2. Confirme V99.5.0.
+3. Analise a mesma foto.
+4. Observe no status:
+   - quantos confirmados;
+   - quantos corrigidos na 2ª conferência;
+   - quantos duvidosos foram bloqueados.

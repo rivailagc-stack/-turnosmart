@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '99.4.0';
+const APP_VERSION = '99.5.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v99.4.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v99.5.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -5348,6 +5348,165 @@ function oee986BlockUnsafeReport(rows){
   return state.oeeReadingReady;
 }
 
+
+// =====================================================
+// V99.5 — SEGUNDA CONFERÊNCIA DOS OEE CRÍTICOS
+// =====================================================
+
+async function v995VerifyOneOee({
+  fullBoardDataUrl,
+  cellDataUrl,
+  machine,
+  scope,
+  initialOee
+}){
+  const response=await fetch('/api/oee-verify',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      fullBoardDataUrl,
+      cellDataUrl,
+      machine,
+      scope,
+      initialOee
+    })
+  });
+
+  const data=await response.json().catch(()=>({}));
+
+  if(!response.ok || data.ok===false){
+    return {
+      machine,
+      decision:'uncertain',
+      finalOee:null,
+      confidence:0,
+      reason:data.error||`HTTP ${response.status}`
+    };
+  }
+
+  return data;
+}
+
+async function v995SecondPass(rows,cells,fullBoardDataUrl,scope){
+  const cellMap=new Map(
+    (cells||[]).map(cell=>[
+      String(cell.machine||''),
+      cell.dataUrl
+    ])
+  );
+
+  // Só revisa a faixa que pode mudar prioridade.
+  // Até 69 inclui valores logo acima de 65 para pegar
+  // erros como 26 ↔ 66.
+  const targets=(rows||[]).filter(row=>{
+    const oee=Number(row.oee);
+    return (
+      Number.isFinite(oee) &&
+      oee>=0 &&
+      oee<=69 &&
+      cellMap.has(row.machine)
+    );
+  });
+
+  if(!targets.length)return rows;
+
+  const checks=await Promise.all(
+    targets.map(row=>
+      v995VerifyOneOee({
+        fullBoardDataUrl,
+        cellDataUrl:cellMap.get(row.machine),
+        machine:row.machine,
+        scope,
+        initialOee:Number(row.oee)
+      })
+    )
+  );
+
+  const checkMap=new Map(
+    checks.map(check=>[
+      check.machine,
+      check
+    ])
+  );
+
+  return (rows||[]).map(row=>{
+    const check=checkMap.get(row.machine);
+
+    if(!check){
+      return {
+        ...row,
+        secondCheck:'not_needed'
+      };
+    }
+
+    // CONFIRMOU: mantém.
+    if(
+      check.decision==='confirm' &&
+      Number.isFinite(Number(check.finalOee)) &&
+      Math.abs(Number(check.finalOee)-Number(row.oee))<=1 &&
+      Number(check.confidence)>=85
+    ){
+      return {
+        ...row,
+        oee:Number(check.finalOee),
+        confidence:Math.max(
+          Number(row.confidence||0),
+          Number(check.confidence||0)
+        ),
+        secondCheck:'confirmed',
+        secondEvidence:check.evidence||'',
+        secondReason:check.reason||''
+      };
+    }
+
+    // CORRIGIU: troca somente com confiança >= 90.
+    if(
+      check.decision==='correct' &&
+      Number.isFinite(Number(check.finalOee)) &&
+      Number(check.confidence)>=90 &&
+      check.rowConfirmed &&
+      check.columnConfirmed &&
+      check.percentVisible
+    ){
+      return {
+        ...row,
+        oee:Number(check.finalOee),
+        confidence:Number(check.confidence),
+        secondCheck:'corrected',
+        secondEvidence:check.evidence||'',
+        secondReason:check.reason||'',
+        description:
+          `2ª conferência corrigiu para ${Number(check.finalOee)}%. `+
+          String(check.reason||'')
+      };
+    }
+
+    // DUVIDOSO: não entra no Top 10 nem no relatório.
+    return {
+      ...row,
+      oee:'',
+      status:
+        check.decision==='blank'
+          ?'blank'
+          :'unreadable',
+      confidence:Number(check.confidence||0),
+      columnConfirmed:false,
+      rowConfirmed:false,
+      percentVisible:false,
+      secondCheck:
+        check.decision==='blank'
+          ?'blank'
+          :'uncertain',
+      secondEvidence:check.evidence||'',
+      secondReason:check.reason||'',
+      description:
+        check.decision==='blank'
+          ?'2ª conferência: célula sem percentual.'
+          :'2ª conferência não conseguiu confirmar o percentual.'
+    };
+  });
+}
+
 async function processOeeColumnPhoto(){
   const file=$('oeeImageInput')?.files?.[0];
 
@@ -5363,7 +5522,7 @@ async function processOeeColumnPhoto(){
 
   try{
     statusEl.textContent=
-      `V98.7: IA lendo o quadro COMPLETO e localizando ${scope.label}...`;
+      `V99.5: IA lendo ${scope.label} no quadro completo...`;
 
     const fullDataUrl=
       state.oeeImageDataUrl||
@@ -5379,9 +5538,8 @@ async function processOeeColumnPhoto(){
       shift
     );
 
-    // Os recortes ficam disponíveis somente para conferência visual.
-    // NÃO são mais usados como fonte da leitura da IA.
     let cells=[];
+
     try{
       cells=oee986BuildOriginalCells(
         image,
@@ -5395,6 +5553,7 @@ async function processOeeColumnPhoto(){
     state.oeeRowPreviews=
       cells.map(c=>c.dataUrl);
 
+    // 1ª LEITURA — exatamente a lógica que funcionou na V98.7/V99.4.
     const response=await fetch('/api/oee-vision',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -5418,7 +5577,25 @@ async function processOeeColumnPhoto(){
       );
     }
 
-    const rows=oee986MergeVisionRows(data.rows||[]);
+    let rows=oee986MergeVisionRows(data.rows||[]);
+
+    // 2ª CONFERÊNCIA — somente valores <= 69%.
+    statusEl.textContent=
+      `1ª leitura concluída. Conferindo novamente os OEE críticos de ${scope.label}...`;
+
+    try{
+      rows=await v995SecondPass(
+        rows,
+        cells,
+        guide.dataUrl,
+        scope
+      );
+    }catch(error){
+      console.warn('2ª conferência falhou:',error);
+      // Se a segunda etapa inteira falhar, preserva a primeira leitura,
+      // mas NÃO altera a IA original.
+    }
+
     state.oeeMachineEditorData=rows;
 
     renderOeeMachineEditor(rows);
@@ -5429,6 +5606,13 @@ async function processOeeColumnPhoto(){
     }
 
     const confirmed=oee986ConfirmedRows(rows);
+    const corrected=rows.filter(
+      r=>r.secondCheck==='corrected'
+    ).length;
+    const uncertain=rows.filter(
+      r=>r.secondCheck==='uncertain'
+    ).length;
+
     const reliability=Math.round(
       confirmed.length/
       Math.max(1,oee986MachineOrder().length)*
@@ -5438,7 +5622,8 @@ async function processOeeColumnPhoto(){
     const safe=oee986BlockUnsafeReport(rows);
 
     statusEl.textContent=
-      `V98.7 ${scope.label}: ${confirmed.length}/20 OEE confirmados (${reliability}%). `+
+      `V99.5 ${scope.label}: ${confirmed.length}/20 OEE confirmados (${reliability}%). `+
+      `${corrected} corrigido(s) na 2ª conferência; ${uncertain} duvidoso(s) bloqueado(s). `+
       (
         safe
           ?'Dados confirmados liberados.'
@@ -5448,7 +5633,7 @@ async function processOeeColumnPhoto(){
     return rows;
 
   }catch(error){
-    console.error('V98.7 falhou:',error);
+    console.error('V99.5 falhou:',error);
 
     state.oeeReadingReady=false;
     state.oeeMachineEditorData=[];
@@ -8442,7 +8627,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=99.4.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=99.5.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -15053,7 +15238,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=99.4.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=99.5.0');
         registration.update();
       } catch {}
     });

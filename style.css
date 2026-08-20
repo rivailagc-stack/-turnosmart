@@ -2334,3 +2334,14 @@ button.secondary,
   outline:2px solid #f79009;
   background:#fff7ed;
 }
+
+
+/* V99.5 — segunda validação */
+.oee-second-check{
+  margin-top:8px;
+  font-size:.82rem;
+  font-weight:800;
+}
+.oee-second-check.confirmed{color:#067647;}
+.oee-second-check.corrected{color:#b54708;}
+.oee-second-check.uncertain{color:#b42318;}
