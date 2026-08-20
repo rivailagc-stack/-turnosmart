@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '99.0.0';
+const APP_VERSION = '99.1.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v99.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v99.1.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -6871,45 +6871,50 @@ function maintenanceAccountabilityReport() {
   return lines.join('\\n');
 }
 
-function maintenanceMessage() {
-  if (!state.analysis) return '';
+function maintenanceMessage(){
+  if(!state.analysis)return '';
 
-  // A lista final vem da Inteligência do Supervisor.
-  // Quadro OEE + relatório da produção escolhem as máquinas.
-  // SGMan entra somente para sugerir verificações técnicas.
-  let fusionRows=(state.supervisorFusionRows?.length
-    ?state.supervisorFusionRows
-    :supervisorFusionRanking(10)
-  );
+  v991ManageSelectionScope();
 
+  let fusionRows=supervisorFusionRanking(10);
   fusionRows=applyAutomaticSupervisorSelection(fusionRows);
   state.supervisorFusionRows=fusionRows;
 
-  // SOMENTE as três máquinas escolhidas pelo supervisor.
-  let supervisorRows=fusionRows
+  const supervisorRows=fusionRows
     .filter(row=>row.selected)
     .sort((a,b)=>a.oee-b.oee)
     .slice(0,3);
 
   const lowOee=fusionRows
     .filter(row=>row.oee!==null && row.oee<OEE_PRIORITY_LIMIT)
-    .map(row=>({machine:row.machine,oee:row.oee}));
+    .map(row=>({
+      machine:row.machine,
+      oee:row.oee
+    }));
 
   const recurrence=deriveRecurrenceMachines(state.analysis)
-    .filter(machine=>supervisorRows.some(row=>row.machine===normalizeMachineCode(machine)));
+    .filter(machine=>
+      supervisorRows.some(row=>
+        row.machine===normalizeMachineCode(machine)
+      )
+    );
 
   const trend=efficiencyTrendMessage();
   const lines=['*AÇÕES DA MANUTENÇÃO*'];
 
   if(state.analysis.reportedOee){
-    lines.push(`OEE do turno: ${String(state.analysis.reportedOee).replace('.', ',')}%.`);
+    lines.push(
+      `OEE do turno: ${String(state.analysis.reportedOee).replace('.',',')}%.`
+    );
   }
 
   lines.push(trend.line);
   lines.push(`Direção do turno: ${trend.guidance}`);
 
   if(state.analysis.sgmanSummary){
-    lines.push(`SGMan: ${sgmanDailySummaryText(state.analysis.sgmanSummary)}.`);
+    lines.push(
+      `SGMan: ${sgmanDailySummaryText(state.analysis.sgmanSummary)}.`
+    );
   }
 
   if(state.analysis.reliability3Days){
@@ -6930,12 +6935,12 @@ function maintenanceMessage() {
     lines.push(`OEE geral 3 dias: ${formatOee(dashboard.companyAverage)}.`);
   }
 
-  const photoOeeRows=(state.oeeMachineEditorData||[])
+  // Usa a mesma lista persistida no relatório, mesmo após trocar de tela/recarregar.
+  const photoOeeRows=v991PrioritySourceRows()
     .map(row=>({
       machine:row.machine,
-      oee:row.oee===''?null:Number(row.oee),
-      uncertain:row.needsConfirmation===true,
-      description:String(row.description||row.source||'')
+      oee:Number(row.oee),
+      description:'OEE confirmado na leitura do quadro.'
     }))
     .filter(row=>
       Number.isFinite(row.oee) &&
@@ -6955,22 +6960,14 @@ function maintenanceMessage() {
           :'';
 
       lines.push(
-        `• ${row.machine}: ${row.oee.toFixed(1).replace('.', ',')}%`+
-        `${row.uncertain?' *(a confirmar)*':''}`+
+        `• ${row.machine}: ${row.oee.toFixed(1).replace('.',',')}%`+
         lost+
-        `${row.description?` — ${row.description}`:''}`
+        ` — ${row.description}`
       );
     });
 
-    const confirmed=
-      photoOeeRows.filter(row=>!row.uncertain).length;
-
-    const uncertain=
-      photoOeeRows.filter(row=>row.uncertain).length;
-
     lines.push(
-      `Leitura da foto: ${confirmed} confirmado(s)`+
-      `${uncertain?` | ${uncertain} a confirmar`:''}.`
+      `Leitura da foto: ${photoOeeRows.length} confirmado(s).`
     );
   }
 
@@ -6979,7 +6976,7 @@ function maintenanceMessage() {
 
   if(supervisorRows.length!==3){
     lines.push(
-      'Selecione exatamente 3 máquinas no Top 10 antes de compartilhar o relatório.'
+      'Selecione exatamente 3 máquinas no Top 10 para definir as ações do próximo turno.'
     );
   }else{
     supervisorRows.forEach((row,index)=>{
@@ -7001,14 +6998,24 @@ function maintenanceMessage() {
   }
 
   if(lowOee.length){
-    lines.push(`OEE abaixo de 65: ${lowOee.map(row=>`${row.machine} ${row.oee.toFixed(1).replace('.', ',')}%`).join(' | ')}.`);
+    lines.push(
+      `OEE abaixo de 65: ${
+        lowOee.map(row=>
+          `${row.machine} ${row.oee.toFixed(1).replace('.',',')}%`
+        ).join(' | ')
+      }.`
+    );
   }
 
   if(recurrence.length){
-    lines.push(`Reincidência entre as prioridades atuais: ${recurrence.join(', ')}.`);
+    lines.push(
+      `Reincidência entre as prioridades atuais: ${recurrence.join(', ')}.`
+    );
   }
 
-  lines.push('*Foco:* atacar primeiro o menor OEE, resolver durante o turno, não deixar o problema continuar e confirmar estabilidade antes da liberação.');
+  lines.push(
+    '*Foco:* resolver as três prioridades escolhidas durante o turno, registrar no SGMan e evitar retrabalho.'
+  );
 
   return lines.join('\n');
 }
@@ -8709,7 +8716,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=99.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=99.1.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -10027,31 +10034,81 @@ function fallbackCurrentShiftPriorities(limit=3){
     });
 }
 
-function supervisorFusionRanking(limit=10){
-  const report=productionReportMachineMentions();
-  const board=currentBoardMap();
-  const rows=[];
 
-  for(const [machine,boardRow] of board.entries()){
-    const oee=smartNumeric(boardRow?.oee);
+// =====================================================
+// V99.1 — TOP 10 USA EXATAMENTE O OEE DO RELATÓRIO
+// =====================================================
 
-    // Só entra leitura ATUAL confirmada.
-    if(oee===null)continue;
+function v991CurrentScopeKey(){
+  return [
+    String(state.analysis?.date||$('reportDate')?.value||''),
+    String(state.analysis?.shift||$('reportShift')?.value||'1')
+  ].join('|');
+}
 
-    const reportRow=report.get(machine);
-    const issue=compactIssue(
-      reportRow?.problem||
-      boardRow.raw?.problem||
-      boardRow.raw?.issue||
-      boardRow.raw?.mainLoss||
-      boardRow.raw?.cause||
-      boardRow.raw?.causale_standard||
-      ''
+function v991PrioritySourceRows(){
+  let source=(state.analysis?.machineOee||[])
+    .map(row=>({
+      machine:normalizeMachineCode(row.machine||row.maquina||''),
+      oee:smartNumeric(row.oee??row.value??row.efficiency),
+      confidence:Number(row.confidence||100),
+      source:row.source||'analysis'
+    }))
+    .filter(row=>
+      row.machine &&
+      row.oee!==null &&
+      Number.isFinite(row.oee) &&
+      row.oee>=0 &&
+      row.oee<=100
     );
 
+  if(!source.length){
+    source=machineOeeFromEditor()
+      .map(row=>({
+        machine:normalizeMachineCode(row.machine),
+        oee:smartNumeric(row.oee),
+        confidence:Number(row.confidence||100),
+        source:row.source||'photo'
+      }))
+      .filter(row=>row.machine && row.oee!==null);
+  }
+
+  const map=new Map();
+  for(const row of source){
+    map.set(row.machine,row);
+  }
+
+  return [...map.values()]
+    .sort((a,b)=>a.oee-b.oee);
+}
+
+function v991ManageSelectionScope(){
+  const key=v991CurrentScopeKey();
+  const storageKey='turnosmart_supervisor_priority_scope_v991';
+
+  try{
+    const previous=localStorage.getItem(storageKey)||'';
+
+    if(previous && previous!==key){
+      localStorage.removeItem(supervisorPriorityStorageKey());
+    }
+
+    localStorage.setItem(storageKey,key);
+  }catch(_){}
+}
+function supervisorFusionRanking(limit=10){
+  const report=productionReportMachineMentions();
+  const rows=[];
+
+  for(const current of v991PrioritySourceRows()){
+    const machine=current.machine;
+    const oee=Number(current.oee);
+
+    if(!Number.isFinite(oee))continue;
+
+    const reportRow=report.get(machine);
+    const issue=compactIssue(reportRow?.problem||'');
     const history=smartHistoryFor(machine,issue);
-    const priority=oeePriorityMeta(oee);
-    const lostHours=oeeLostHours(oee);
 
     const sources=['board'];
     if(reportRow?.mentioned)sources.push('production');
@@ -10060,7 +10117,7 @@ function supervisorFusionRanking(limit=10){
     rows.push({
       machine,
       oee,
-      lostHours,
+      lostHours:oeeLostHours(oee),
       priorityKey:
         oee<=50?'max':
         oee<65?'high':
@@ -10070,12 +10127,11 @@ function supervisorFusionRanking(limit=10){
         oee<65?'PRIORIDADE ALTA':
         'ACOMPANHAR',
       score:Math.round((100-oee)*10),
-      trend:boardRow.trend??null,
+      trend:null,
       reasons:uniqueStrings([
         `OEE ${oee.toFixed(1)}%`,
-        `${formatOeeLostHours(oee)} de perda estimada pelo OEE`,
-        reportRow?.mentioned?'problema citado no relatório da produção':''
-      ].filter(Boolean)),
+        `${formatOeeLostHours(oee)} de perda estimada pelo OEE`
+      ]),
       issue,
       actions:[],
       historyCount:history.length,
@@ -10084,14 +10140,14 @@ function supervisorFusionRanking(limit=10){
     });
   }
 
-  const ranked=rows
-    .sort((a,b)=>
-      a.oee-b.oee ||
-      b.historyCount-a.historyCount
-    )
-    .slice(0,Math.max(1,limit));
-
-  return applyAutomaticSupervisorSelection(ranked);
+  return applyAutomaticSupervisorSelection(
+    rows
+      .sort((a,b)=>
+        a.oee-b.oee ||
+        b.historyCount-a.historyCount
+      )
+      .slice(0,Math.max(1,limit))
+  );
 }
 
 function sourceBadge(source){
@@ -10111,12 +10167,9 @@ function renderSupervisorFusionPanel(){
   const target=$('supervisorFusionPanel');
   if(!target)return;
 
+  v991ManageSelectionScope();
+
   let rows=supervisorFusionRanking(10);
-
-  if(!rows.length){
-    rows=fallbackCurrentShiftPriorities(10);
-  }
-
   rows=applyAutomaticSupervisorSelection(rows);
   state.supervisorFusionRows=rows;
 
@@ -10126,53 +10179,54 @@ function renderSupervisorFusionPanel(){
     <div class="supervisor-confirm-box">
       <strong>Top 10 — escolha 3 prioridades</strong>
       <p>
-        As 10 máquinas com menor OEE confirmado aparecem abaixo.
-        Você escolhe somente 3 para enviar como prioridade oficial do próximo turno.
-        Abaixo de 65% permanece como prioridade por OEE.
+        As máquinas abaixo são os mesmos OEE confirmados usados no relatório atual.
+        Escolha somente 3 para o próximo turno.
       </p>
       <b>${selectedCount}/3 selecionada(s)</b>
     </div>
 
     <div class="supervisor-fusion-panel">
-      ${rows.length?rows.map((row,index)=>`
-        <article class="supervisor-fusion-row ${
-          row.selected?'is-selected':''
-        } priority-${escapeHtml(row.priorityKey||'monitor')}">
+      ${
+        rows.length
+          ?rows.map((row,index)=>`
+            <article class="supervisor-fusion-row ${
+              row.selected?'is-selected':''
+            } priority-${escapeHtml(row.priorityKey||'monitor')}">
+              <span class="supervisor-fusion-rank">${index+1}</span>
 
-          <span class="supervisor-fusion-rank">
-            ${index+1}
-          </span>
+              <div>
+                <strong>${
+                  row.oee<=50?'🔴':
+                  row.oee<65?'🟠':
+                  '🟢'
+                } ${escapeHtml(row.priorityLabel)} —
+                  ${escapeHtml(row.machine)} —
+                  OEE ${row.oee.toFixed(1).replace('.',',')}%
+                </strong>
 
-          <div>
-            <strong>${
-              row.oee<=50?'🔴':
-              row.oee<65?'🟠':
-              '🟢'
-            } ${escapeHtml(row.priorityLabel)} — ${escapeHtml(row.machine)}
-              — OEE ${row.oee.toFixed(1).replace('.',',')}%
-            </strong>
+                <p>
+                  <b>Perda estimada:</b>
+                  ${escapeHtml(formatOeeLostHours(row.oee))}
+                </p>
 
-            <p>
-              <b>Perda estimada:</b>
-              ${escapeHtml(formatOeeLostHours(row.oee))}
-            </p>
+                <div class="supervisor-fusion-meta">
+                  ${row.sources.map(sourceBadge).join('')}
+                </div>
+              </div>
 
-            <div class="supervisor-fusion-meta">
-              ${row.sources.map(sourceBadge).join('')}
-            </div>
-          </div>
-
-          <label>
-            <input
-              class="supervisor-priority-check"
-              data-machine="${escapeHtml(row.machine)}"
-              type="checkbox"
-              ${row.selected?'checked':''}
-            >
-            Escolher
-          </label>
-        </article>
-      `).join(''):'<p class="muted">Nenhum OEE confirmado.</p>'}
+              <label>
+                <input
+                  class="supervisor-priority-check"
+                  data-machine="${escapeHtml(row.machine)}"
+                  type="checkbox"
+                  ${row.selected?'checked':''}
+                >
+                Escolher
+              </label>
+            </article>
+          `).join('')
+          :'<p class="muted">Nenhum OEE confirmado no relatório atual. Analise a foto primeiro.</p>'
+      }
     </div>
   `;
 
@@ -10186,9 +10240,7 @@ function renderSupervisorFusionPanel(){
         return;
       }
 
-      const selectedMachines=[
-        ...$$('.supervisor-priority-check:checked')
-      ]
+      const selectedMachines=checked
         .map(item=>normalizeMachineCode(item.dataset.machine))
         .filter(Boolean)
         .slice(0,3);
@@ -10202,15 +10254,15 @@ function renderSupervisorFusionPanel(){
         }));
 
       renderSupervisorFusionPanel();
+      renderActions();
     });
   });
 }
 
 function confirmedSupervisorPlan(){
-  let rows=state.supervisorFusionRows?.length
-    ?state.supervisorFusionRows
-    :supervisorFusionRanking(10);
+  v991ManageSelectionScope();
 
+  let rows=supervisorFusionRanking(10);
   rows=applyAutomaticSupervisorSelection(rows);
   state.supervisorFusionRows=rows;
 
@@ -12180,18 +12232,17 @@ async function analyzeCurrentReport() {
     state.analysis = analysis;
     state.actions = generateActions(analysis);
 
-    // Novo turno/análise: recalcula as prioridades com o quadro atual
-    // e o relatório da produção. Não reutiliza máquina do turno anterior.
-    try{
-      localStorage.removeItem(supervisorPriorityStorageKey());
-    }catch{}
-    state.supervisorFusionRows=supervisorFusionRanking(5);
-    if(!state.supervisorFusionRows.length){
-      state.supervisorFusionRows=fallbackCurrentShiftPriorities(3);
-    }
-    state.supervisorFusionRows=applyAutomaticSupervisorSelection(
-      state.supervisorFusionRows
-    );
+    // V99.1: o Top 10 usa exatamente analysis.machineOee.
+    // Não apaga as 3 escolhas ao atualizar o mesmo turno.
+    v991ManageSelectionScope();
+
+    state.supervisorFusionRows=
+      supervisorFusionRanking(10);
+
+    state.supervisorFusionRows=
+      applyAutomaticSupervisorSelection(
+        state.supervisorFusionRows
+      );
 
     // Aplica histórico já armazenado no aparelho, quando existir.
     applySgmanHistoryToActions();
@@ -15327,7 +15378,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=99.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=99.1.0');
         registration.update();
       } catch {}
     });

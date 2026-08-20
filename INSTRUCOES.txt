@@ -1,5 +1,4 @@
-PATCH V99.0
-
+PATCH V99.1
 Substitua:
 - app.js
 - index.html
@@ -8,6 +7,5 @@ Substitua:
 - api/health.js (se presente)
 
 NÃO substitua api/oee-vision.js.
-A leitura que funcionou permanece intacta.
-
-Depois faça Redeploy e confirme V99.0.0.
+Depois faça Redeploy e confirme V99.1.0.
+Após o deploy, analise a foto uma vez.
