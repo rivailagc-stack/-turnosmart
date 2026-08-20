@@ -1,22 +1,15 @@
-PATCH V99.5
+PATCH V99.6
 
 Substitua:
 - app.js
 - index.html
 - style.css
 - sw.js
-- api/oee-verify.js  (NOVO)
+- api/oee-verify.js
 - api/health.js se existir
 
-IMPORTANTE:
 NÃO substitua api/oee-vision.js.
-A primeira leitura boa continua exatamente igual.
+A primeira leitura boa continua sendo a da V99.4.
 
-Depois:
-1. Faça Redeploy.
-2. Confirme V99.5.0.
-3. Analise a mesma foto.
-4. Observe no status:
-   - quantos confirmados;
-   - quantos corrigidos na 2ª conferência;
-   - quantos duvidosos foram bloqueados.
+A segunda conferência agora é apenas uma proteção:
+ela nunca apaga a leitura principal.

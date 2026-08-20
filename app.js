@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '99.5.0';
+const APP_VERSION = '99.6.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v99.5.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v99.6.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -5350,44 +5350,54 @@ function oee986BlockUnsafeReport(rows){
 
 
 // =====================================================
-// V99.5 — SEGUNDA CONFERÊNCIA DOS OEE CRÍTICOS
+// V99.6 — SEGUNDA CONFERÊNCIA NÃO DESTRUTIVA
 // =====================================================
 
-async function v995VerifyOneOee({
+async function v996VerifyCandidate({
   fullBoardDataUrl,
   cellDataUrl,
   machine,
   scope,
   initialOee
 }){
-  const response=await fetch('/api/oee-verify',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-      fullBoardDataUrl,
-      cellDataUrl,
-      machine,
-      scope,
-      initialOee
-    })
-  });
+  try{
+    const response=await fetch('/api/oee-verify',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        fullBoardDataUrl,
+        cellDataUrl,
+        machine,
+        scope,
+        initialOee
+      })
+    });
 
-  const data=await response.json().catch(()=>({}));
+    const data=await response.json().catch(()=>({}));
 
-  if(!response.ok || data.ok===false){
+    if(!response.ok || !data.ok){
+      return {
+        usable:false,
+        machine,
+        reason:data.error||`HTTP ${response.status}`
+      };
+    }
+
     return {
+      usable:true,
       machine,
-      decision:'uncertain',
-      finalOee:null,
-      confidence:0,
-      reason:data.error||`HTTP ${response.status}`
+      ...data
+    };
+  }catch(error){
+    return {
+      usable:false,
+      machine,
+      reason:String(error?.message||error)
     };
   }
-
-  return data;
 }
 
-async function v995SecondPass(rows,cells,fullBoardDataUrl,scope){
+async function v996SafeSecondPass(rows,cells,fullBoardDataUrl,scope){
   const cellMap=new Map(
     (cells||[]).map(cell=>[
       String(cell.machine||''),
@@ -5395,9 +5405,6 @@ async function v995SecondPass(rows,cells,fullBoardDataUrl,scope){
     ])
   );
 
-  // Só revisa a faixa que pode mudar prioridade.
-  // Até 69 inclui valores logo acima de 65 para pegar
-  // erros como 26 ↔ 66.
   const targets=(rows||[]).filter(row=>{
     const oee=Number(row.oee);
     return (
@@ -5410,9 +5417,9 @@ async function v995SecondPass(rows,cells,fullBoardDataUrl,scope){
 
   if(!targets.length)return rows;
 
-  const checks=await Promise.all(
+  const results=await Promise.all(
     targets.map(row=>
-      v995VerifyOneOee({
+      v996VerifyCandidate({
         fullBoardDataUrl,
         cellDataUrl:cellMap.get(row.machine),
         machine:row.machine,
@@ -5422,91 +5429,72 @@ async function v995SecondPass(rows,cells,fullBoardDataUrl,scope){
     )
   );
 
-  const checkMap=new Map(
-    checks.map(check=>[
-      check.machine,
-      check
+  const map=new Map(
+    results.map(item=>[
+      item.machine,
+      item
     ])
   );
 
   return (rows||[]).map(row=>{
-    const check=checkMap.get(row.machine);
+    const check=map.get(row.machine);
 
-    if(!check){
+    // Nunca apaga a primeira leitura.
+    if(!check || !check.usable){
       return {
         ...row,
-        secondCheck:'not_needed'
+        secondCheck:'unavailable',
+        secondReason:check?.reason||''
       };
     }
 
-    // CONFIRMOU: mantém.
+    const verified=Number(check.finalOee);
+
+    // Confirmou o mesmo valor.
     if(
       check.decision==='confirm' &&
-      Number.isFinite(Number(check.finalOee)) &&
-      Math.abs(Number(check.finalOee)-Number(row.oee))<=1 &&
+      Number.isFinite(verified) &&
+      Math.abs(verified-Number(row.oee))<=1 &&
       Number(check.confidence)>=85
     ){
       return {
         ...row,
-        oee:Number(check.finalOee),
-        confidence:Math.max(
-          Number(row.confidence||0),
-          Number(check.confidence||0)
-        ),
         secondCheck:'confirmed',
-        secondEvidence:check.evidence||'',
         secondReason:check.reason||''
       };
     }
 
-    // CORRIGIU: troca somente com confiança >= 90.
+    // Corrige APENAS quando a segunda leitura tem certeza muito alta.
     if(
       check.decision==='correct' &&
-      Number.isFinite(Number(check.finalOee)) &&
-      Number(check.confidence)>=90 &&
+      Number.isFinite(verified) &&
+      verified>=0 &&
+      verified<=100 &&
+      Number(check.confidence)>=95 &&
       check.rowConfirmed &&
       check.columnConfirmed &&
       check.percentVisible
     ){
       return {
         ...row,
-        oee:Number(check.finalOee),
+        originalOee:Number(row.oee),
+        oee:verified,
         confidence:Number(check.confidence),
         secondCheck:'corrected',
-        secondEvidence:check.evidence||'',
         secondReason:check.reason||'',
         description:
-          `2ª conferência corrigiu para ${Number(check.finalOee)}%. `+
-          String(check.reason||'')
+          `2ª conferência corrigiu ${Number(row.oee)}% para ${verified}%.`
       };
     }
 
-    // DUVIDOSO: não entra no Top 10 nem no relatório.
+    // Em dúvida, mantém o valor original e sinaliza.
     return {
       ...row,
-      oee:'',
-      status:
-        check.decision==='blank'
-          ?'blank'
-          :'unreadable',
-      confidence:Number(check.confidence||0),
-      columnConfirmed:false,
-      rowConfirmed:false,
-      percentVisible:false,
-      secondCheck:
-        check.decision==='blank'
-          ?'blank'
-          :'uncertain',
-      secondEvidence:check.evidence||'',
-      secondReason:check.reason||'',
-      description:
-        check.decision==='blank'
-          ?'2ª conferência: célula sem percentual.'
-          :'2ª conferência não conseguiu confirmar o percentual.'
+      secondCheck:'warning',
+      secondReason:check.reason||''
     };
   });
 }
-
 async function processOeeColumnPhoto(){
   const file=$('oeeImageInput')?.files?.[0];
 
@@ -5522,7 +5510,7 @@ async function processOeeColumnPhoto(){
 
   try{
     statusEl.textContent=
-      `V99.5: IA lendo ${scope.label} no quadro completo...`;
+      `V99.6: IA lendo ${scope.label} no quadro completo...`;
 
     const fullDataUrl=
       state.oeeImageDataUrl||
@@ -5553,7 +5541,7 @@ async function processOeeColumnPhoto(){
     state.oeeRowPreviews=
       cells.map(c=>c.dataUrl);
 
-    // 1ª LEITURA — exatamente a lógica que funcionou na V98.7/V99.4.
+    // PRIMEIRA LEITURA: lógica estável da V99.4.
     const response=await fetch('/api/oee-vision',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -5579,21 +5567,24 @@ async function processOeeColumnPhoto(){
 
     let rows=oee986MergeVisionRows(data.rows||[]);
 
-    // 2ª CONFERÊNCIA — somente valores <= 69%.
+    // SEGUNDA CONFERÊNCIA:
+    // só pode CONFIRMAR ou CORRIGIR com confiança muito alta.
+    // Se falhar, a primeira leitura permanece intacta.
     statusEl.textContent=
-      `1ª leitura concluída. Conferindo novamente os OEE críticos de ${scope.label}...`;
+      `Leitura principal concluída. Fazendo conferência de segurança...`;
 
     try{
-      rows=await v995SecondPass(
+      rows=await v996SafeSecondPass(
         rows,
         cells,
         guide.dataUrl,
         scope
       );
     }catch(error){
-      console.warn('2ª conferência falhou:',error);
-      // Se a segunda etapa inteira falhar, preserva a primeira leitura,
-      // mas NÃO altera a IA original.
+      console.warn(
+        'Conferência de segurança indisponível:',
+        error
+      );
     }
 
     state.oeeMachineEditorData=rows;
@@ -5606,11 +5597,21 @@ async function processOeeColumnPhoto(){
     }
 
     const confirmed=oee986ConfirmedRows(rows);
+
     const corrected=rows.filter(
       r=>r.secondCheck==='corrected'
     ).length;
-    const uncertain=rows.filter(
-      r=>r.secondCheck==='uncertain'
+
+    const confirmed2=rows.filter(
+      r=>r.secondCheck==='confirmed'
+    ).length;
+
+    const warned=rows.filter(
+      r=>r.secondCheck==='warning'
+    ).length;
+
+    const unavailable=rows.filter(
+      r=>r.secondCheck==='unavailable'
     ).length;
 
     const reliability=Math.round(
@@ -5622,25 +5623,25 @@ async function processOeeColumnPhoto(){
     const safe=oee986BlockUnsafeReport(rows);
 
     statusEl.textContent=
-      `V99.5 ${scope.label}: ${confirmed.length}/20 OEE confirmados (${reliability}%). `+
-      `${corrected} corrigido(s) na 2ª conferência; ${uncertain} duvidoso(s) bloqueado(s). `+
+      `V99.6 ${scope.label}: ${confirmed.length}/20 OEE confirmados (${reliability}%). `+
+      `2ª conferência: ${confirmed2} confirmado(s), ${corrected} corrigido(s), `+
+      `${warned} com aviso, ${unavailable} sem conferência. `+
       (
         safe
-          ?'Dados confirmados liberados.'
-          :'Prioridades por OEE permanecem bloqueadas.'
+          ?'Leitura principal mantida.'
+          :'Prioridades por OEE bloqueadas pela regra de segurança original.'
       );
 
     return rows;
 
   }catch(error){
-    console.error('V99.5 falhou:',error);
+    console.error('V99.6 falhou:',error);
 
     state.oeeReadingReady=false;
     state.oeeMachineEditorData=[];
 
     statusEl.textContent=
-      `Falha na leitura do quadro: ${error.message}. `+
-      `Nenhum OEE da foto foi liberado.`;
+      `Falha na leitura do quadro: ${error.message}.`;
 
     showToast(`Leitura OEE: ${error.message}`);
 
@@ -8627,7 +8628,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=99.5.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=99.6.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -15238,7 +15239,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=99.5.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=99.6.0');
         registration.update();
       } catch {}
     });
