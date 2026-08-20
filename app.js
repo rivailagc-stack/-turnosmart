@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '98.8.0';
+const APP_VERSION = '98.9.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.8.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.9.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -5350,10 +5350,11 @@ function oee986BlockUnsafeReport(rows){
 
 
 // =====================================================
-// V98.8 — TOP 10 / ESCOLHER 3 / TENDÊNCIA TURNO ANTERIOR
+// V98.9 — PÓS-LEITURA APENAS
+// A leitura da foto permanece EXATAMENTE a da V98.7.
 // =====================================================
 
-function oee988PriorityCandidates(){
+function v989PriorityCandidates(){
   return (state.oeeMachineEditorData||[])
     .filter(row=>{
       const oee=Number(row.oee);
@@ -5363,58 +5364,124 @@ function oee988PriorityCandidates(){
     .slice(0,10);
 }
 
-function oee988SelectedPriorityMachines(){
-  state.oeeSelectedPriorities=
-    Array.isArray(state.oeeSelectedPriorities)
-      ?state.oeeSelectedPriorities
+function v989SelectedMachines(){
+  state.v989SelectedPriorities=
+    Array.isArray(state.v989SelectedPriorities)
+      ?state.v989SelectedPriorities
       :[];
 
-  return state.oeeSelectedPriorities
-    .map(code=>oee986NormalizeMachine(code))
+  return state.v989SelectedPriorities.slice(0,3);
+}
+
+function v989TogglePriority(machine){
+  const mk=oee986NormalizeMachine(machine);
+  if(!mk)return;
+
+  state.v989SelectedPriorities=
+    Array.isArray(state.v989SelectedPriorities)
+      ?state.v989SelectedPriorities
+      :[];
+
+  const pos=state.v989SelectedPriorities.indexOf(mk);
+
+  if(pos>=0){
+    state.v989SelectedPriorities.splice(pos,1);
+  }else{
+    if(state.v989SelectedPriorities.length>=3){
+      showToast('Escolha no máximo 3 prioridades.');
+      return;
+    }
+    state.v989SelectedPriorities.push(mk);
+  }
+
+  v989RenderPriorityPicker();
+}
+
+function v989RenderPriorityPicker(){
+  const box=
+    $('automaticPriorities')||
+    $('priorityList')||
+    $('prioritiesList');
+
+  if(!box)return;
+
+  const candidates=v989PriorityCandidates();
+  const allowed=new Set(candidates.map(r=>r.machine));
+
+  state.v989SelectedPriorities=
+    v989SelectedMachines()
+      .filter(m=>allowed.has(m));
+
+  if(!candidates.length){
+    box.innerHTML=`
+      <div class="empty-state">
+        Nenhuma máquina abaixo de 65% no OEE confirmado.
+      </div>
+    `;
+    return;
+  }
+
+  box.innerHTML=`
+    <div class="v989-top10-head">
+      <strong>Top 10 prioridades por OEE</strong>
+      <span>Escolha somente 3 para o próximo turno.</span>
+    </div>
+
+    <div class="v989-top10-list">
+      ${candidates.map((row,index)=>{
+        const selected=state.v989SelectedPriorities.includes(row.machine);
+        const oee=Number(row.oee);
+        const loss=Math.max(0,(100-oee)/100*12);
+
+        return `
+          <button
+            type="button"
+            class="v989-priority ${selected?'selected':''}"
+            data-machine="${escapeHtml(row.machine)}"
+          >
+            <span class="v989-rank">${index+1}</span>
+
+            <span class="v989-main">
+              <strong>${escapeHtml(row.machine)}</strong>
+              <span>
+                OEE ${oee.toFixed(1).replace('.',',')}%
+                • perda ${loss.toFixed(1).replace('.',',')} h
+              </span>
+            </span>
+
+            <span class="v989-check">
+              ${selected?'✓':'○'}
+            </span>
+          </button>
+        `;
+      }).join('')}
+    </div>
+
+    <div class="v989-count">
+      ${state.v989SelectedPriorities.length}/3 selecionada(s)
+    </div>
+  `;
+
+  $$('.v989-priority').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      v989TogglePriority(btn.dataset.machine);
+    });
+  });
+}
+
+function v989GetSelectedRows(){
+  const byMachine=new Map(
+    v989PriorityCandidates()
+      .map(row=>[row.machine,row])
+  );
+
+  return v989SelectedMachines()
+    .map(m=>byMachine.get(m))
     .filter(Boolean)
     .slice(0,3);
 }
 
-function oee988TogglePriority(machine){
-  const mk=oee986NormalizeMachine(machine);
-  if(!mk)return;
-
-  state.oeeSelectedPriorities=
-    Array.isArray(state.oeeSelectedPriorities)
-      ?state.oeeSelectedPriorities
-      :[];
-
-  const i=state.oeeSelectedPriorities.indexOf(mk);
-
-  if(i>=0){
-    state.oeeSelectedPriorities.splice(i,1);
-  }else{
-    if(state.oeeSelectedPriorities.length>=3){
-      showToast('Escolha no máximo 3 prioridades.');
-      return;
-    }
-    state.oeeSelectedPriorities.push(mk);
-  }
-
-  try{renderAutomaticPriorities();}catch(_){}
-}
-
-function oee988PriorityActionText(row,index){
-  const oee=Number(row.oee);
-  const loss=Math.max(0,(100-oee)/100*12);
-
-  const level=
-    oee<=50
-      ?'🔴 PRIORIDADE MÁXIMA'
-      :'🟠 PRIORIDADE ALTA';
-
-  return `${index+1}. ${level} — ${row.machine} — OEE ${oee.toFixed(1).replace('.',',')}% — perda estimada ${loss.toFixed(1).replace('.',',')} h.
-   • Analisar e resolver no turno.
-   • Apontar tudo no SGMan.
-   • Evitar retrabalho.`;
-}
-
-function oee988PreviousShiftRef(scopeLabel=''){
+function v989PreviousShiftLabel(scopeLabel=''){
   const clean=String(scopeLabel||'')
     .toUpperCase()
     .normalize('NFD')
@@ -5431,13 +5498,15 @@ function oee988PreviousShiftRef(scopeLabel=''){
   ];
 
   const idx=order.indexOf(clean);
-
-  if(idx<=0)return '';
-  return order[idx-1];
+  return idx>0 ? order[idx-1] : '';
 }
 
-function oee988ExtractShiftOeeFromHistory(label){
-  // Procura no histórico já carregado pelo TurnoSmart.
+function v989FindShiftOee(label){
+  const target=String(label||'')
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'');
+
   const pools=[
     state.oeeShiftHistory,
     state.oeeHistory,
@@ -5446,18 +5515,13 @@ function oee988ExtractShiftOeeFromHistory(label){
     state.previousOee
   ].filter(Boolean);
 
-  const target=String(label||'')
-    .toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g,'');
-
   for(const pool of pools){
     const arr=Array.isArray(pool)
       ?pool
       :Object.values(pool||{});
 
     for(const item of arr){
-      const lbl=String(
+      const itemLabel=String(
         item?.label||
         item?.scope||
         item?.shiftLabel||
@@ -5475,7 +5539,7 @@ function oee988ExtractShiftOeeFromHistory(label){
         item?.percentage
       );
 
-      if(lbl===target && Number.isFinite(value)){
+      if(itemLabel===target && Number.isFinite(value)){
         return value;
       }
     }
@@ -5484,22 +5548,22 @@ function oee988ExtractShiftOeeFromHistory(label){
   return null;
 }
 
-function oee988TrendText(currentOee,scopeLabel){
+function v989TrendText(currentOee,scopeLabel){
   const current=Number(currentOee);
 
   if(!Number.isFinite(current)){
     return 'Tendência da eficiência: sem OEE atual confirmado.';
   }
 
-  const previousLabel=oee988PreviousShiftRef(scopeLabel);
-  const previous=oee988ExtractShiftOeeFromHistory(previousLabel);
+  const prevLabel=v989PreviousShiftLabel(scopeLabel);
+  const previous=v989FindShiftOee(prevLabel);
 
-  if(!previousLabel || !Number.isFinite(previous)){
-    return `Tendência da eficiência: turno anterior não disponível para comparação.`;
+  if(!prevLabel || !Number.isFinite(previous)){
+    return 'Tendência da eficiência: turno anterior não disponível.';
   }
 
   const delta=Math.round((current-previous)*10)/10;
-  const abs=Math.abs(delta).toFixed(1).replace(',','.').replace('.',',');
+  const abs=Math.abs(delta).toFixed(1).replace('.',',');
 
   if(delta>0){
     return `Tendência da eficiência: ⬆ melhora de ${abs} ponto(s) percentual(is) (${String(previous).replace('.',',')}% → ${String(current).replace('.',',')}%).`;
@@ -5512,17 +5576,28 @@ function oee988TrendText(currentOee,scopeLabel){
   return `Tendência da eficiência: ➜ estável (${String(previous).replace('.',',')}% → ${String(current).replace('.',',')}%).`;
 }
 
-function oee988CompactActions(selectedRows){
-  if(!selectedRows?.length){
-    return '*AÇÕES PARA CORREÇÃO*\nNenhuma prioridade selecionada.';
+function v989CompactActionBlock(){
+  const rows=v989GetSelectedRows();
+
+  if(rows.length<3){
+    return '*AÇÕES PARA CORREÇÃO*\nSelecione 3 prioridades no Top 10.';
   }
 
   return '*AÇÕES PARA CORREÇÃO*\n'+
-    selectedRows
-      .slice(0,3)
-      .map(oee988PriorityActionText)
-      .join('\n');
+    rows.map((row,index)=>{
+      const oee=Number(row.oee);
+      const loss=Math.max(0,(100-oee)/100*12);
+      const level=oee<=50
+        ?'🔴 PRIORIDADE MÁXIMA'
+        :'🟠 PRIORIDADE ALTA';
+
+      return `${index+1}. ${level} — ${row.machine} — OEE ${oee.toFixed(1).replace('.',',')}% — perda estimada ${loss.toFixed(1).replace('.',',')} h.
+   • Analisar e resolver no turno.
+   • Apontar tudo no SGMan.
+   • Evitar retrabalho.`;
+    }).join('\n');
 }
+
 async function processOeeColumnPhoto(){
   const file=$('oeeImageInput')?.files?.[0];
 
@@ -5636,6 +5711,10 @@ async function processOeeColumnPhoto(){
 
     return [];
   }
+
+  try{
+    v989RenderPriorityPicker();
+  }catch(_){}
 }
 
 async function recognizeOeeImage(dataUrl) {
@@ -6931,7 +7010,10 @@ function maintenanceMessage() {
         `perda estimada ${formatOeeLostHours(row.oee)}.`
       );
       actions.forEach(action=>lines.push(`   • ${action}`));
-      lines.push(`   Histórico técnico: ${row.historyCount||0} OS semelhante(s) no SGMan.`);
+      lines.push(`      • Analisar e resolver no turno.
+   • Apontar tudo no SGMan.
+   • Evitar retrabalho.
+   Histórico técnico: ${row.historyCount||0} OS semelhante(s) no SGMan.`);
     });
   }
 
@@ -8642,7 +8724,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=98.8.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=98.9.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -10151,6 +10233,9 @@ function confirmedSupervisorPlan(){
     } — perda estimada ${formatOeeLostHours(row.oee)}.
 ${actions}
    Fonte atual: ${sourceText||'confirmação do supervisor'}.
+      • Analisar e resolver no turno.
+   • Apontar tudo no SGMan.
+   • Evitar retrabalho.
    Histórico técnico: ${row.historyCount} OS semelhante(s).`;
   }).join('\n');
 }
@@ -15246,7 +15331,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=98.8.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=98.9.0');
         registration.update();
       } catch {}
     });

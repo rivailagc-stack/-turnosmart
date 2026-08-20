@@ -1,4 +1,6 @@
-PATCH V98.8
+PATCH V98.9
+
+Base: V98.7 (leitura de OEE mantida).
 
 Substitua:
 - app.js
@@ -7,11 +9,7 @@ Substitua:
 - sw.js
 - api/health.js (se presente)
 
-Depois faça Redeploy.
-Confirme V98.8.0.
+NÃO substitua api/oee-vision.js se você já está na V98.7,
+porque a leitura da V98.7 deve permanecer intacta.
 
-Mudanças:
-- Top 10 prioridades.
-- Escolher somente 3.
-- Tendência com turno anterior.
-- Ações reduzidas a 3 linhas objetivas.
+Faça Redeploy e confirme V98.9.0.

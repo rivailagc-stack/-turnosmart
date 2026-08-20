@@ -2325,25 +2325,22 @@ button.secondary,
 }
 
 
-/* V98.8 — Top 10 / escolher 3 */
-.priority-top10-head{
+/* V98.9 — Top 10 sem tocar na leitura V98.7 */
+.v989-top10-head{
   display:flex;
   flex-direction:column;
   gap:6px;
   margin:12px 0 16px;
 }
-.priority-top10-head strong{
-  font-size:1.15rem;
-}
-.priority-top10-head span{
+.v989-top10-head span{
   color:#667085;
 }
-.priority-top10-list{
+.v989-top10-list{
   display:flex;
   flex-direction:column;
   gap:10px;
 }
-.priority-choice{
+.v989-priority{
   width:100%;
   display:grid;
   grid-template-columns:42px 1fr 38px;
@@ -2355,35 +2352,35 @@ button.secondary,
   background:#fff;
   text-align:left;
 }
-.priority-choice.selected{
+.v989-priority.selected{
   border:2px solid #f79009;
   background:#fff7ed;
 }
-.priority-rank{
+.v989-rank{
   width:36px;
   height:36px;
   border-radius:50%;
+  background:#f2f4f7;
   display:flex;
   align-items:center;
   justify-content:center;
   font-weight:800;
-  background:#f2f4f7;
 }
-.priority-choice-main{
+.v989-main{
   display:flex;
   flex-direction:column;
   gap:4px;
 }
-.priority-choice-main span{
+.v989-main span{
   color:#667085;
   font-size:.92rem;
 }
-.priority-check{
+.v989-check{
   font-size:1.45rem;
   font-weight:900;
   text-align:center;
 }
-.priority-selection-status{
+.v989-count{
   margin-top:14px;
   font-weight:800;
   color:#b54708;
