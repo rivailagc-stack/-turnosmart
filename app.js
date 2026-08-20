@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '98.4.0';
+const APP_VERSION = '98.5.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.4.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.5.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -5076,13 +5076,45 @@ function buildReliableRowCanvases(image, operationalDate, shift){
     };
   });
 }
+// V98.5 — pré-processamento visual + Gemini do servidor + validação conservadora.
+function buildVisionComposite(sourceCanvas){
+  const modes=['normal','contrast','color','threshold'];
+  const variants=modes.map(mode=>makeOcrVariant(sourceCanvas,mode));
+  const width=Math.max(...variants.map(c=>c.width));
+  const bandH=Math.max(...variants.map(c=>c.height));
+  const out=document.createElement('canvas');
+  const ctx=out.getContext('2d');
+  out.width=width;
+  out.height=bandH*variants.length;
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,out.width,out.height);
+  variants.forEach((c,i)=>{
+    ctx.imageSmoothingEnabled=true;
+    ctx.imageSmoothingQuality='high';
+    ctx.drawImage(c,0,i*bandH,width,bandH);
+  });
+  return out;
+}
+
+async function readOeeRowsWithServerAI(rowsPrepared,scope){
+  const rowImages=rowsPrepared.map(item=>{
+    const enhanced=buildVisionComposite(item.canvas);
+    return {machine:item.machine,dataUrl:enhanced.toDataURL('image/jpeg',0.96)};
+  });
+  const response=await fetch('/api/oee-vision',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({rowImages,scope})
+  });
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok || !data?.ok){
+    throw new Error(data?.error||`IA OEE HTTP ${response.status}`);
+  }
+  return new Map((data.rows||[]).map(r=>[normalizeMachineCode(r.machine),r]));
+}
+
 async function processOeeColumnPhoto() {
   const file=$('oeeImageInput')?.files?.[0];
-
-  if(!file){
-    showToast('Escolha a foto do quadro primeiro.');
-    return [];
-  }
+  if(!file){ showToast('Escolha a foto do quadro primeiro.'); return []; }
 
   const statusEl=$('oeeStatus');
   const operationalDate=$('reportDate').value||todayISO();
@@ -5090,97 +5122,92 @@ async function processOeeColumnPhoto() {
   const scope=boardScopeForReport(operationalDate,shift);
 
   try{
-    statusEl.textContent=
-      `Leitura híbrida OCR + IA em alta resolução lendo ${scope.label} — foto original por máquina...`;
-
-    const fullDataUrl=
-      state.oeeImageDataUrl||
-      await dataUrlFromFile(file);
-
+    statusEl.textContent=`V98.5: corrigindo e melhorando a foto do quadro — ${scope.label}...`;
+    const fullDataUrl=state.oeeImageDataUrl||await dataUrlFromFile(file);
     state.oeeImageDataUrl=fullDataUrl;
-
     const image=await loadImageElement(fullDataUrl);
+    const rowsPrepared=buildReliableRowCanvases(image,operationalDate,shift);
 
-    const rowsPrepared=
-      buildReliableRowCanvases(
-        image,
-        operationalDate,
-        shift
-      );
+    // A prévia agora mostra a célula original em alta resolução. A IA recebe
+    // um composto com 4 tratamentos diferentes da MESMA célula.
+    state.oeeRowPreviews=rowsPrepared.map(row=>row.dataUrl);
 
-    state.oeeRowPreviews=
-      rowsPrepared.map(row=>row.dataUrl);
+    statusEl.textContent=`V98.5: IA lendo 20 células melhoradas — ${scope.label}...`;
+    let aiMap=new Map();
+    let aiError='';
+    try{ aiMap=await readOeeRowsWithServerAI(rowsPrepared,scope); }
+    catch(e){ aiError=String(e?.message||e); console.error('IA OEE:',e); }
 
     const rows=[];
-
     for(let i=0;i<rowsPrepared.length;i++){
       const item=rowsPrepared[i];
+      statusEl.textContent=`V98.5 validando ${i+1}/20 — ${item.machine}...`;
 
-      statusEl.textContent=
-        `OCR local ${scope.label}: ${i+1}/20 — ${item.machine}...`;
+      // OCR local é uma segunda opinião, nunca a única fonte fraca.
+      let local={value:null,confidence:0,reason:'OCR local indisponível',texts:[]};
+      try{ local=await readSingleOeeRowLocally(item.canvas); }catch(e){ console.warn(e); }
 
-      const local=
-        await readSingleOeeRowHybrid(item.machine, item.canvas);
+      const ai=aiMap.get(normalizeMachineCode(item.machine))||{};
+      const aiValue=normalizeHybridOee(ai.oee);
+      const aiConfidence=Math.max(0,Math.min(100,Number(ai.confidence||0)));
+      const localValue=normalizeHybridOee(local.value);
+      const localConfidence=Number(local.confidence||0);
 
-      if(
-        Number.isFinite(local.value) &&
-        local.confidence>=67
-      ){
-        rows.push({
-          machine:item.machine,
-          oee:local.value,
-          candidateOee:local.value,
-          confidence:local.confidence,
-          source:'OCR local por consenso',
-          needsConfirmation:false,
-          ambiguous:false,
-          description:
-            `${local.reason} `+
-            `Leituras: ${local.texts.filter(Boolean).join(' | ').slice(0,220)}`
-        });
+      let accepted=null, confidence=0, source='', description='';
+      const agree=aiValue!==null && localValue!==null && Math.abs(aiValue-localValue)<=1;
+
+      if(agree && aiConfidence>=70 && localConfidence>=78){
+        accepted=Math.round((aiValue+localValue)/2);
+        confidence=Math.min(99,Math.round((aiConfidence+localConfidence)/2+5));
+        source='IA + OCR confirmados';
+        description=`IA e OCR concordaram em ${accepted}%. ${String(ai.description||ai.evidence||'').slice(0,130)}`;
+      }else if(aiValue!==null && aiConfidence>=92){
+        // IA sozinha só entra com confiança MUITO alta. O prompt do servidor
+        // exige símbolo % e proíbe usar produção/máquina como OEE.
+        accepted=aiValue;
+        confidence=aiConfidence;
+        source='IA visual alta confiança';
+        description=`IA confirmou ${accepted}% com ${aiConfidence}% de confiança. ${String(ai.description||ai.evidence||'').slice(0,130)}`;
+      }else if(localValue!==null && localConfidence>=96 && !aiValue && aiError){
+        // Fallback apenas se IA estiver realmente indisponível e OCR tiver
+        // consenso excepcionalmente forte.
+        accepted=localValue;
+        confidence=localConfidence;
+        source='OCR local excepcional';
+        description=`OCR local confirmou ${accepted}%; IA indisponível (${aiError}).`;
       }else{
-        rows.push({
-          machine:item.machine,
-          oee:'',
-          candidateOee:'',
-          confidence:0,
-          source:'OCR local inconclusivo',
-          needsConfirmation:false,
-          ambiguous:false,
-          description:
-            local.reason||
-            'Sem leitura confiável.'
-        });
+        source='Não confirmado';
+        if(aiError) description=`IA indisponível: ${aiError}. O valor não entra no relatório.`;
+        else if(aiValue!==null && localValue!==null) description=`Divergência: IA ${aiValue}% x OCR ${localValue}%. Conferir.`;
+        else if(aiValue!==null) description=`IA sugeriu ${aiValue}% (${aiConfidence}%), abaixo da confiança exigida. Conferir.`;
+        else description=String(ai.description||ai.evidence||local.reason||'Nenhum percentual confirmado.');
       }
+
+      rows.push({
+        machine:item.machine,
+        oee:accepted===null?'':accepted,
+        candidateOee:accepted===null?'':accepted,
+        confidence,
+        source,
+        needsConfirmation:accepted===null,
+        ambiguous:accepted===null,
+        description
+      });
     }
 
     state.oeeMachineEditorData=rows;
-
     renderOeeMachineEditor(rows);
-
     $('oeeOcrText').value=editorOeeText();
     state.oeeOcrText=$('oeeOcrText').value;
 
-    const found=rows.filter(
-      row=>row.oee!==''
-    ).length;
-
-    statusEl.textContent=
-      `OCR + IA ${scope.label}: ${found}/20 OEE confiável(is). `+
-      `Máquinas sem consenso ficaram vazias e não entram no relatório.`;
-
+    const found=rows.filter(r=>r.oee!=='').length;
+    const rate=Math.round(found/rows.length*100);
+    statusEl.textContent=`V98.5 ${scope.label}: ${found}/20 OEE confirmados (${rate}%). Valores duvidosos NÃO entram no relatório nem nas prioridades.`;
     return rows;
-
   }catch(error){
-    console.error('OCR local confiável falhou:',error);
-
-    statusEl.textContent=
-      `Erro na leitura local: ${error.message}`;
-
-    showToast(
-      `OCR local: ${error.message}`
-    );
-
+    console.error('Leitor OEE V98.5 falhou:',error);
+    statusEl.textContent=`Erro na leitura V98.5: ${error.message}`;
+    showToast(`Leitor OEE: ${error.message}`);
     return [];
   }
 }
@@ -8189,7 +8216,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=98.4.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=98.5.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -14793,7 +14820,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=98.4.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=98.5.0');
         registration.update();
       } catch {}
     });

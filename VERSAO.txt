@@ -1,14 +1,9 @@
-TurnoSmart V81.0.0
-- Layout mobile-first na Inteligência.
-- Filtros empilhados no celular e navegação inferior rolável.
-- Erro de crédito OpenAI não bloqueia mais gestão.
-- Custos continuam independentes da IA.
-- Painel Eficiência por Líder com 4 equipes:
-  Emerson: Carlos, Roberto, Luiz
-  Fider: Jean, Aleilson, Rozental/Rosental
-  Ricardo: Roger, Marcelo
-  Danilo: Thiago, Marcos, Allan
-- OEE por líder é calculado nos dias em que a equipe é identificada pelos executantes do SGMan.
-- Mostra mecânicos previstos e os que realmente possuem registro no SGMan no dia.
-- Filtros por mês, dia, líder, máquina e produto.
-- Gráfico de OEE diário da equipe.
+TurnoSmart V98.5.0 — OEE VISION CONFIÁVEL
+
+- Pré-processa cada célula em 4 versões: natural, contraste, realce de cor e limiar.
+- Gemini recebe as 4 versões juntas pelo endpoint seguro /api/oee-vision.
+- OCR local funciona como segunda opinião.
+- OEE só é confirmado com concordância ou IA >=92% de confiança.
+- Divergência fica para conferência e NÃO entra no relatório/prioridades.
+- Produção, número da MK e valores sem % são proibidos como OEE.
+- Máquina/célula sem percentual legível permanece sem OEE.
