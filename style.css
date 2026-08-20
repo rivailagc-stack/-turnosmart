@@ -2323,3 +2323,68 @@ button.secondary,
 .oee-editor-head .muted::after{
   content:" • leitura principal feita na foto completa";
 }
+
+
+/* V98.8 — Top 10 / escolher 3 */
+.priority-top10-head{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  margin:12px 0 16px;
+}
+.priority-top10-head strong{
+  font-size:1.15rem;
+}
+.priority-top10-head span{
+  color:#667085;
+}
+.priority-top10-list{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.priority-choice{
+  width:100%;
+  display:grid;
+  grid-template-columns:42px 1fr 38px;
+  align-items:center;
+  gap:12px;
+  padding:14px;
+  border-radius:16px;
+  border:1px solid #d0d5dd;
+  background:#fff;
+  text-align:left;
+}
+.priority-choice.selected{
+  border:2px solid #f79009;
+  background:#fff7ed;
+}
+.priority-rank{
+  width:36px;
+  height:36px;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:800;
+  background:#f2f4f7;
+}
+.priority-choice-main{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+.priority-choice-main span{
+  color:#667085;
+  font-size:.92rem;
+}
+.priority-check{
+  font-size:1.45rem;
+  font-weight:900;
+  text-align:center;
+}
+.priority-selection-status{
+  margin-top:14px;
+  font-weight:800;
+  color:#b54708;
+}

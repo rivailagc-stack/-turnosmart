@@ -1,15 +1,17 @@
-PATCH V98.7
+PATCH V98.8
 
 Substitua:
 - app.js
 - index.html
 - style.css
 - sw.js
-- api/oee-vision.js
 - api/health.js (se presente)
 
-Faça Redeploy.
-Confirme V98.7.0.
+Depois faça Redeploy.
+Confirme V98.8.0.
 
-Mudança principal:
-A IA lê a FOTO COMPLETA; recortes não decidem mais os números.
+Mudanças:
+- Top 10 prioridades.
+- Escolher somente 3.
+- Tendência com turno anterior.
+- Ações reduzidas a 3 linhas objetivas.

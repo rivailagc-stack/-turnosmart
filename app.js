@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '98.7.0';
+const APP_VERSION = '98.8.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.7.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v98.8.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -5348,6 +5348,181 @@ function oee986BlockUnsafeReport(rows){
   return state.oeeReadingReady;
 }
 
+
+// =====================================================
+// V98.8 — TOP 10 / ESCOLHER 3 / TENDÊNCIA TURNO ANTERIOR
+// =====================================================
+
+function oee988PriorityCandidates(){
+  return (state.oeeMachineEditorData||[])
+    .filter(row=>{
+      const oee=Number(row.oee);
+      return Number.isFinite(oee) && oee<65;
+    })
+    .sort((a,b)=>Number(a.oee)-Number(b.oee))
+    .slice(0,10);
+}
+
+function oee988SelectedPriorityMachines(){
+  state.oeeSelectedPriorities=
+    Array.isArray(state.oeeSelectedPriorities)
+      ?state.oeeSelectedPriorities
+      :[];
+
+  return state.oeeSelectedPriorities
+    .map(code=>oee986NormalizeMachine(code))
+    .filter(Boolean)
+    .slice(0,3);
+}
+
+function oee988TogglePriority(machine){
+  const mk=oee986NormalizeMachine(machine);
+  if(!mk)return;
+
+  state.oeeSelectedPriorities=
+    Array.isArray(state.oeeSelectedPriorities)
+      ?state.oeeSelectedPriorities
+      :[];
+
+  const i=state.oeeSelectedPriorities.indexOf(mk);
+
+  if(i>=0){
+    state.oeeSelectedPriorities.splice(i,1);
+  }else{
+    if(state.oeeSelectedPriorities.length>=3){
+      showToast('Escolha no máximo 3 prioridades.');
+      return;
+    }
+    state.oeeSelectedPriorities.push(mk);
+  }
+
+  try{renderAutomaticPriorities();}catch(_){}
+}
+
+function oee988PriorityActionText(row,index){
+  const oee=Number(row.oee);
+  const loss=Math.max(0,(100-oee)/100*12);
+
+  const level=
+    oee<=50
+      ?'🔴 PRIORIDADE MÁXIMA'
+      :'🟠 PRIORIDADE ALTA';
+
+  return `${index+1}. ${level} — ${row.machine} — OEE ${oee.toFixed(1).replace('.',',')}% — perda estimada ${loss.toFixed(1).replace('.',',')} h.
+   • Analisar e resolver no turno.
+   • Apontar tudo no SGMan.
+   • Evitar retrabalho.`;
+}
+
+function oee988PreviousShiftRef(scopeLabel=''){
+  const clean=String(scopeLabel||'')
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'');
+
+  const order=[
+    'SEGUNDA A','SEGUNDA B',
+    'TERCA A','TERCA B',
+    'QUARTA A','QUARTA B',
+    'QUINTA A','QUINTA B',
+    'SEXTA A','SEXTA B',
+    'SABADO A','SABADO B',
+    'DOMINGO A','DOMINGO B'
+  ];
+
+  const idx=order.indexOf(clean);
+
+  if(idx<=0)return '';
+  return order[idx-1];
+}
+
+function oee988ExtractShiftOeeFromHistory(label){
+  // Procura no histórico já carregado pelo TurnoSmart.
+  const pools=[
+    state.oeeShiftHistory,
+    state.oeeHistory,
+    state.boardHistory,
+    state.recentOee,
+    state.previousOee
+  ].filter(Boolean);
+
+  const target=String(label||'')
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'');
+
+  for(const pool of pools){
+    const arr=Array.isArray(pool)
+      ?pool
+      :Object.values(pool||{});
+
+    for(const item of arr){
+      const lbl=String(
+        item?.label||
+        item?.scope||
+        item?.shiftLabel||
+        item?.boardScope||
+        ''
+      )
+        .toUpperCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g,'');
+
+      const value=Number(
+        item?.oee ??
+        item?.oeeTurno ??
+        item?.value ??
+        item?.percentage
+      );
+
+      if(lbl===target && Number.isFinite(value)){
+        return value;
+      }
+    }
+  }
+
+  return null;
+}
+
+function oee988TrendText(currentOee,scopeLabel){
+  const current=Number(currentOee);
+
+  if(!Number.isFinite(current)){
+    return 'Tendência da eficiência: sem OEE atual confirmado.';
+  }
+
+  const previousLabel=oee988PreviousShiftRef(scopeLabel);
+  const previous=oee988ExtractShiftOeeFromHistory(previousLabel);
+
+  if(!previousLabel || !Number.isFinite(previous)){
+    return `Tendência da eficiência: turno anterior não disponível para comparação.`;
+  }
+
+  const delta=Math.round((current-previous)*10)/10;
+  const abs=Math.abs(delta).toFixed(1).replace(',','.').replace('.',',');
+
+  if(delta>0){
+    return `Tendência da eficiência: ⬆ melhora de ${abs} ponto(s) percentual(is) (${String(previous).replace('.',',')}% → ${String(current).replace('.',',')}%).`;
+  }
+
+  if(delta<0){
+    return `Tendência da eficiência: ⬇ piora de ${abs} ponto(s) percentual(is) (${String(previous).replace('.',',')}% → ${String(current).replace('.',',')}%).`;
+  }
+
+  return `Tendência da eficiência: ➜ estável (${String(previous).replace('.',',')}% → ${String(current).replace('.',',')}%).`;
+}
+
+function oee988CompactActions(selectedRows){
+  if(!selectedRows?.length){
+    return '*AÇÕES PARA CORREÇÃO*\nNenhuma prioridade selecionada.';
+  }
+
+  return '*AÇÕES PARA CORREÇÃO*\n'+
+    selectedRows
+      .slice(0,3)
+      .map(oee988PriorityActionText)
+      .join('\n');
+}
 async function processOeeColumnPhoto(){
   const file=$('oeeImageInput')?.files?.[0];
 
@@ -8467,7 +8642,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=98.7.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=98.8.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -15071,7 +15246,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=98.7.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=98.8.0');
         registration.update();
       } catch {}
     });
