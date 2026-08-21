@@ -1,6 +1,10 @@
-V99.7 PATCH
-Substitua os arquivos do patch mantendo a mesma estrutura.
-Novo arquivo obrigatório: api/oee-cell-vision.js
+PATCH V100
+Substitua:
+- app.js
+- index.html
+- style.css
+- sw.js
+- api/oee-cell-vision.js
+- api/health.js se existir
 
-Esta versão NÃO considera uma leitura "confirmada" só porque a IA encontrou um número.
-Ela exige confirmação na célula exata da MK e do turno.
+Depois faça redeploy e confira V100.0.0.

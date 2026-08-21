@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '99.7.0';
+const APP_VERSION = '100.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v99.7.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v100.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2577,23 +2577,26 @@ function renderOeeMachineEditor(rows=state.oeeMachineEditorData){
 }
 
 function machineOeeFromEditor(){
-  return (state.oeeMachineEditorData||[])
-    .map(row=>{
-      const value=Number(row.oee);
+  const rows=Array.isArray(state.oeeMachineEditorData)
+    ?state.oeeMachineEditorData
+    :[];
 
-      return {
-        machine:row.machine,
-        oee:value,
-        confidence:Number(row.confidence||0),
-        source:row.source||''
-      };
-    })
+  return rows
     .filter(row=>
-      Number.isFinite(row.oee) &&
-      row.oee>=0 &&
-      row.oee<=100 &&
-      row.confidence>=67
-    );
+      row.confirmed===true &&
+      row.oee!==null &&
+      row.oee!=='' &&
+      Number.isFinite(Number(row.oee)) &&
+      Number(row.oee)>=0 &&
+      Number(row.oee)<=100
+    )
+    .map(row=>({
+      machine:normalizeMachineCode(row.machine),
+      oee:Number(row.oee),
+      confidence:Number(row.confidence||100),
+      source:row.source||'v100_cell'
+    }))
+    .filter(row=>row.machine);
 }
 
 function editorOeeText() {
@@ -5324,12 +5327,7 @@ function oee986MergeVisionRows(visionRows){
 }
 
 function oee986ConfirmedRows(rows){
-  return (rows||[]).filter(row=>
-    row.exactCellConfirmed===true &&
-    Number.isFinite(Number(row.oee)) &&
-    Number(row.oee)>=0 &&
-    Number(row.oee)<=100
-  );
+  return v100OfficialRows(rows);
 }
 
 function oee986BlockUnsafeReport(rows){
@@ -5573,6 +5571,221 @@ function v997ConfirmedRows(rows){
     Number(r.oee)<=100
   );
 }
+
+// =====================================================
+// V100 — QUADRO FIXO: GEOMETRIA DETERMINÍSTICA + IA SÓ NA CÉLULA
+// =====================================================
+
+const V100_MACHINE_ORDER=[
+  'MK-138','MK-105','MK-108','MK-223','MK-192','MK-69','MK-172','MK-173',
+  'MK-178','MK-179','MK-212','MK-214','MK-217','MK-220','MK-159','MK-222',
+  'MK-170','MK-176','MK-188','MK-149'
+];
+
+const V100_BOARD_GEOMETRY={
+  left:0.088,
+  right:0.985,
+  headerY:0.285,
+  bottomY:0.925,
+  halfShiftColumns:14
+};
+
+function v100ScopeIndex(scope){
+  const label=String(scope?.label||'').toUpperCase().trim();
+  const normalized=label.normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+
+  const days=[
+    ['SEGUNDA',0],
+    ['TERCA',1],
+    ['QUARTA',2],
+    ['QUINTA',3],
+    ['SEXTA',4],
+    ['SABADO',5],
+    ['DOMINGO',6]
+  ];
+
+  let dayIndex=null;
+  for(const [name,index] of days){
+    if(normalized.includes(name)){
+      dayIndex=index;
+      break;
+    }
+  }
+
+  if(dayIndex===null)return null;
+
+  const part=/\bB\b/.test(normalized)?1:0;
+  return dayIndex*2+part;
+}
+
+function v100CropCanvas(sourceImage,sx,sy,sw,sh,scale=4){
+  const canvas=document.createElement('canvas');
+  canvas.width=Math.max(1,Math.round(sw*scale));
+  canvas.height=Math.max(1,Math.round(sh*scale));
+  const ctx=canvas.getContext('2d');
+
+  ctx.imageSmoothingEnabled=true;
+  ctx.imageSmoothingQuality='high';
+  ctx.drawImage(sourceImage,sx,sy,sw,sh,0,0,canvas.width,canvas.height);
+
+  const img=ctx.getImageData(0,0,canvas.width,canvas.height);
+  const d=img.data;
+  const contrast=1.14;
+  const intercept=128*(1-contrast);
+
+  for(let i=0;i<d.length;i+=4){
+    d[i]=Math.max(0,Math.min(255,d[i]*contrast+intercept));
+    d[i+1]=Math.max(0,Math.min(255,d[i+1]*contrast+intercept));
+    d[i+2]=Math.max(0,Math.min(255,d[i+2]*contrast+intercept));
+  }
+
+  ctx.putImageData(img,0,0);
+  return canvas.toDataURL('image/jpeg',0.95);
+}
+
+function v100BuildFixedCells(image,scope){
+  const g=V100_BOARD_GEOMETRY;
+  const colIndex=v100ScopeIndex(scope);
+
+  if(colIndex===null){
+    throw new Error(`Não consegui mapear a coluna ${scope?.label||''}.`);
+  }
+
+  const boardLeft=image.width*g.left;
+  const boardRight=image.width*g.right;
+  const boardTop=image.height*g.headerY;
+  const boardBottom=image.height*g.bottomY;
+
+  const boardWidth=boardRight-boardLeft;
+  const boardHeight=boardBottom-boardTop;
+
+  const colWidth=boardWidth/g.halfShiftColumns;
+  const rowHeight=boardHeight/V100_MACHINE_ORDER.length;
+
+  const xPad=colWidth*0.08;
+  const yPad=rowHeight*0.10;
+
+  return V100_MACHINE_ORDER.map((machine,rowIndex)=>{
+    const sx=boardLeft+colWidth*colIndex+xPad;
+    const sy=boardTop+rowHeight*rowIndex+yPad;
+    const sw=colWidth-xPad*2;
+    const sh=rowHeight-yPad*2;
+
+    return {
+      machine,
+      dataUrl:v100CropCanvas(image,sx,sy,sw,sh,4),
+      geometry:{sx,sy,sw,sh,rowIndex,colIndex}
+    };
+  });
+}
+
+async function v100ReadOneCell(cell,scope){
+  try{
+    const response=await fetch('/api/oee-cell-vision',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        cellDataUrl:cell.dataUrl,
+        machine:cell.machine,
+        scope
+      })
+    });
+
+    const data=await response.json().catch(()=>({}));
+
+    if(!response.ok || !data.ok){
+      return {
+        machine:cell.machine,
+        oee:null,
+        confirmed:false,
+        confidence:0,
+        source:'v100_cell',
+        reason:data.error||`HTTP ${response.status}`,
+        preview:cell.dataUrl
+      };
+    }
+
+    const raw=data.oee;
+    const hasValue=raw!==null && raw!==undefined && raw!=='';
+    const n=hasValue?Number(raw):null;
+
+    const zeroExplicit=
+      n===0 &&
+      data.confirmed===true &&
+      data.percentVisible===true &&
+      /\b0\s*%/.test(String(data.evidence||data.reason||''));
+
+    const valid=
+      data.confirmed===true &&
+      data.percentVisible===true &&
+      data.cellReadable===true &&
+      Number(data.confidence)>=92 &&
+      n!==null &&
+      Number.isFinite(n) &&
+      n>=0 &&
+      n<=100 &&
+      (n!==0 || zeroExplicit);
+
+    return {
+      machine:cell.machine,
+      oee:valid?n:null,
+      confirmed:valid,
+      confidence:Number(data.confidence||0),
+      source:'v100_cell',
+      reason:String(data.reason||''),
+      evidence:String(data.evidence||''),
+      preview:cell.dataUrl
+    };
+
+  }catch(error){
+    return {
+      machine:cell.machine,
+      oee:null,
+      confirmed:false,
+      confidence:0,
+      source:'v100_cell',
+      reason:String(error?.message||error),
+      preview:cell.dataUrl
+    };
+  }
+}
+
+async function v100ReadAllCells(cells,scope){
+  const out=[];
+  const batchSize=4;
+
+  for(let i=0;i<cells.length;i+=batchSize){
+    const batch=cells.slice(i,i+batchSize);
+    const result=await Promise.all(batch.map(cell=>v100ReadOneCell(cell,scope)));
+    out.push(...result);
+  }
+
+  return out;
+}
+
+function v100OfficialRows(rows){
+  return (rows||[])
+    .filter(row=>
+      row.confirmed===true &&
+      row.oee!==null &&
+      row.oee!=='' &&
+      Number.isFinite(Number(row.oee)) &&
+      Number(row.oee)>=0 &&
+      Number(row.oee)<=100
+    )
+    .map(row=>({
+      ...row,
+      oee:Number(row.oee),
+      exactCellConfirmed:true
+    }));
+}
+
+function v100Coverage(rows){
+  return Math.round(
+    v100OfficialRows(rows).length/
+    V100_MACHINE_ORDER.length*100
+  );
+}
 async function processOeeColumnPhoto(){
   const file=$('oeeImageInput')?.files?.[0];
 
@@ -5587,109 +5800,21 @@ async function processOeeColumnPhoto(){
   const scope=boardScopeForReport(operationalDate,shift);
 
   try{
-    statusEl.textContent=
-      `V99.6: IA lendo ${scope.label} no quadro completo...`;
+    statusEl.textContent=`V100: preparando ${scope.label}...`;
 
-    const fullDataUrl=
-      state.oeeImageDataUrl||
-      await dataUrlFromFile(file);
-
+    const fullDataUrl=state.oeeImageDataUrl||await dataUrlFromFile(file);
     state.oeeImageDataUrl=fullDataUrl;
 
     const image=await loadImageElement(fullDataUrl);
+    const cells=v100BuildFixedCells(image,scope);
 
-    const guide=oee986BuildGuideImage(
-      image,
-      operationalDate,
-      shift
-    );
+    state.oeeRowPreviews=cells.map(cell=>cell.dataUrl);
 
-    let cells=[];
+    statusEl.textContent=`V100: lendo 20 células exatas de ${scope.label}...`;
 
-    try{
-      cells=oee986BuildOriginalCells(
-        image,
-        operationalDate,
-        shift
-      );
-    }catch(_){
-      cells=[];
-    }
-
-    state.oeeRowPreviews=
-      cells.map(c=>c.dataUrl);
-
-    // PRIMEIRA LEITURA: lógica estável da V99.4.
-    const response=await fetch('/api/oee-vision',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        fullBoardDataUrl:guide.dataUrl,
-        imageDataUrl:guide.dataUrl,
-        date:operationalDate,
-        shift,
-        scope,
-        machineOrder:oee986MachineOrder(),
-        mode:'full_board_only_v987'
-      })
-    });
-
-    const data=await response.json().catch(()=>({}));
-
-    if(!response.ok || data.ok===false){
-      throw new Error(
-        data.error||
-        `Falha IA HTTP ${response.status}`
-      );
-    }
-
-    let rows=oee986MergeVisionRows(data.rows||[]);
-
-    // SEGUNDA CONFERÊNCIA:
-    // só pode CONFIRMAR ou CORRIGIR com confiança muito alta.
-    // Se falhar, a primeira leitura permanece intacta.
-    statusEl.textContent=
-      `Leitura principal concluída. Fazendo conferência de segurança...`;
-
-    try{
-      rows=await v996SafeSecondPass(
-        rows,
-        cells,
-        guide.dataUrl,
-        scope
-      );
-    }catch(error){
-      console.warn(
-        'Conferência de segurança indisponível:',
-        error
-      );
-    }
-
-    // V99.7: a leitura oficial agora vem da interseção exata
-    // máquina + coluna/turno + célula. Se não confirmar, fica vazio.
-    statusEl.textContent=
-      `Validando célula por célula em ${scope.label}...`;
-
-    try{
-      const exactRows=await v997ExactCellPass(cells,scope,rows);
-      if(exactRows.length){
-        rows=exactRows;
-      }
-    }catch(error){
-      console.warn('Validação exata indisponível:',error);
-      // Segurança: sem validação exata, não declarar como confirmado.
-      rows=(rows||[]).map(r=>({
-        ...r,
-        oee:null,
-        confirmed:false,
-        exactCellConfirmed:false,
-        firstPassOee:Number.isFinite(Number(r.oee))?Number(r.oee):null,
-        reason:'Validação da célula exata indisponível.'
-      }));
-    }
+    const rows=await v100ReadAllCells(cells,scope);
 
     state.oeeMachineEditorData=rows;
-
     renderOeeMachineEditor(rows);
 
     if($('oeeOcrText')){
@@ -5697,55 +5822,35 @@ async function processOeeColumnPhoto(){
       state.oeeOcrText=$('oeeOcrText').value;
     }
 
-    const confirmed=oee986ConfirmedRows(rows);
+    const official=v100OfficialRows(rows);
+    const coverage=v100Coverage(rows);
 
-    const corrected=rows.filter(
-      r=>r.secondCheck==='corrected'
-    ).length;
+    state.oeeReadingReady=official.length>0;
+    state.oeeConfirmedRows=official;
 
-    const confirmed2=rows.filter(
-      r=>r.secondCheck==='confirmed'
-    ).length;
-
-    const warned=rows.filter(
-      r=>r.secondCheck==='warning'
-    ).length;
-
-    const unavailable=rows.filter(
-      r=>r.secondCheck==='unavailable'
-    ).length;
-
-    const reliability=Math.round(
-      confirmed.length/
-      Math.max(1,oee986MachineOrder().length)*
-      100
-    );
-
-    const safe=oee986BlockUnsafeReport(rows);
+    const low=official.filter(r=>r.oee<65).length;
+    const doubtful=rows.filter(r=>!r.confirmed).length;
 
     statusEl.textContent=
-      `V99.6 ${scope.label}: ${confirmed.length}/20 OEE confirmados (${reliability}%). `+
-      `2ª conferência: ${confirmed2} confirmado(s), ${corrected} corrigido(s), `+
-      `${warned} com aviso, ${unavailable} sem conferência. `+
-      (
-        safe
-          ?'Leitura principal mantida.'
-          :'Prioridades por OEE bloqueadas pela regra de segurança original.'
+      `V100 ${scope.label}: ${official.length}/20 OEE confirmados (${coverage}%). `+
+      `${low} abaixo de 65%; ${doubtful} célula(s) sem leitura segura. `+
+      `Vazio/ilegível não vira 0%.`;
+
+    if(coverage<35){
+      showToast(
+        'Leitura insuficiente. Fotografe o quadro inteiro, o mais reto possível e sem cortar as bordas.'
       );
+    }
 
     return rows;
 
   }catch(error){
-    console.error('V99.6 falhou:',error);
-
+    console.error('V100 falhou:',error);
     state.oeeReadingReady=false;
     state.oeeMachineEditorData=[];
-
-    statusEl.textContent=
-      `Falha na leitura do quadro: ${error.message}.`;
-
+    state.oeeConfirmedRows=[];
+    statusEl.textContent=`Falha na leitura do quadro: ${error.message}.`;
     showToast(`Leitura OEE: ${error.message}`);
-
     return [];
   }
 }
@@ -8729,7 +8834,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=99.7.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=100.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -10055,11 +10160,13 @@ function supervisorFusionRanking(limit=10){
   const rows=[];
 
   for(const [machine,boardRow] of board.entries()){
-    const oee=smartNumeric(boardRow?.oee);
+    const rawOee=boardRow?.oee;
+    if(rawOee===null || rawOee===undefined || rawOee==='')continue;
+    const oee=smartNumeric(rawOee);
 
     // Mantém a regra original:
     // prioridade de manutenção somente abaixo de 65%.
-    if(oee===null || oee>=OEE_PRIORITY_LIMIT)continue;
+    if(oee===null || !Number.isFinite(oee) || oee<0 || oee>=OEE_PRIORITY_LIMIT)continue;
 
     const reportRow=report.get(machine);
     const issue=compactIssue(
@@ -15340,7 +15447,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=99.7.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=100.0.0');
         registration.update();
       } catch {}
     });
