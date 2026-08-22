@@ -1,6 +1,6 @@
 
 const $=id=>document.getElementById(id);
-const state={imageDataUrl:null,analysis:null,selected:new Set(),sgman:{ok:false,orders:[],summary:null,byMachine:{}}};
+const state={imageDataUrl:null,analysis:null,selected:new Set(),sgman:{ok:false,orders:[],summary:null,byMachine:{}},history:{production:[],powerbi:[]}};
 
 function todayISO(){
   const d=new Date(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');
@@ -28,6 +28,21 @@ async function compressImage(file){
   c.getContext('2d').drawImage(img,0,0,c.width,c.height);
   return c.toDataURL('image/jpeg',0.82);
 }
+
+$('powerBiFileInput')?.addEventListener('change',async e=>{
+  const f=e.target.files?.[0];
+  if(!f)return;
+  $('status').textContent='Importando histórico do Power BI...';
+  try{
+    const r=await importPowerBiFile(f);
+    await loadHistories();
+    renderHistorySummary();
+    $('status').textContent=`Power BI: ${r.count} registro(s) importado(s).`;
+  }catch(err){
+    $('status').textContent=`Erro ao importar Power BI: ${err.message}`;
+  }
+});
+
 $('oeeImageInput').addEventListener('change',async e=>{
   const f=e.target.files?.[0]; if(!f)return;
   $('status').textContent='Preparando foto...';
@@ -83,6 +98,172 @@ async function loadSgman(){
     return false;
   }
 }
+
+async function historyApi(action,payload={}){
+  try{
+    const r=await fetch('/api/history',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action,...payload})
+    });
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok||!d.ok)throw new Error(d.error||`HTTP ${r.status}`);
+    return d;
+  }catch(e){
+    console.warn('Histórico remoto indisponível:',e);
+    return {ok:false,error:String(e?.message||e)};
+  }
+}
+
+function localHistoryKey(type){
+  return `turnosmart_history_${type}_v3`;
+}
+function localHistoryRead(type){
+  try{return JSON.parse(localStorage.getItem(localHistoryKey(type))||'[]')}catch{return []}
+}
+function localHistoryWrite(type,rows){
+  try{localStorage.setItem(localHistoryKey(type),JSON.stringify(rows.slice(-3000)))}catch{}
+}
+function localHistoryAppend(type,row){
+  const rows=localHistoryRead(type);
+  rows.push(row);
+  localHistoryWrite(type,rows);
+}
+function productionMachineMentions(text=''){
+  const machines=[];
+  const seen=new Set();
+  const re=/\bMK\s*[-:]?\s*0*(\d{1,3})\b/gi;
+  let m;
+  while((m=re.exec(text))){
+    const mk=`MK-${Number(m[1])}`;
+    if(!seen.has(mk)){seen.add(mk);machines.push(mk);}
+  }
+  return machines;
+}
+async function saveProductionHistory(){
+  const text=String($('productionReportInput')?.value||'').trim();
+  if(!text)return {saved:false};
+
+  const row={
+    date:$('reportDate').value,
+    shift:$('reportShift').value,
+    scope:scopeLabel(),
+    report:text,
+    machines:productionMachineMentions(text),
+    savedAt:new Date().toISOString()
+  };
+
+  localHistoryAppend('production',row);
+  const remote=await historyApi('save_production',{row});
+  return {saved:true,remote:remote.ok};
+}
+function parseCsv(text){
+  const lines=String(text||'').split(/\r?\n/).filter(x=>x.trim());
+  if(!lines.length)return [];
+  const sep=lines[0].includes(';')?';':',';
+  const headers=lines[0].split(sep).map(x=>x.trim().replace(/^"|"$/g,''));
+  return lines.slice(1).map(line=>{
+    const vals=line.split(sep).map(x=>x.trim().replace(/^"|"$/g,''));
+    const obj={};
+    headers.forEach((h,i)=>obj[h]=vals[i]??'');
+    return obj;
+  });
+}
+function normalizePowerBiRow(raw){
+  const keys=Object.keys(raw||{});
+  const get=(cands)=>{
+    for(const c of cands){
+      const k=keys.find(k=>String(k).toLowerCase().replace(/[^a-z0-9]/g,'')===c);
+      if(k!==undefined)return raw[k];
+    }
+    return '';
+  };
+  const machine=normalizeMk(get(['maquina','machine','mk','equipamento']))||normalizeMk(JSON.stringify(raw));
+  const date=String(get(['data','date','dia'])||'').slice(0,10);
+  const shift=String(get(['turno','shift'])||'');
+  const product=String(get(['produto','product'])||'');
+  const rawOee=get(['oee','eficiencia','efficiency','percentual']);
+  const oee=Number(String(rawOee).replace('%','').replace(',','.'));
+  if(!machine||!Number.isFinite(oee))return null;
+  return {machine,date,shift,product,oee,savedAt:new Date().toISOString(),raw};
+}
+async function importPowerBiFile(file){
+  if(!file)return {count:0};
+  const text=await file.text();
+  let rawRows=[];
+  if(file.name.toLowerCase().endsWith('.json')){
+    const data=JSON.parse(text);
+    rawRows=Array.isArray(data)?data:(data.rows||data.data||[]);
+  }else{
+    rawRows=parseCsv(text);
+  }
+  const rows=rawRows.map(normalizePowerBiRow).filter(Boolean);
+  if(!rows.length)return {count:0};
+
+  const local=localHistoryRead('powerbi');
+  const map=new Map();
+  for(const row of [...local,...rows]){
+    const key=[row.date,row.shift,row.machine,row.product,row.oee].join('|');
+    map.set(key,row);
+  }
+  localHistoryWrite('powerbi',[...map.values()]);
+
+  // Send in chunks to avoid large payloads.
+  let remoteSaved=0;
+  for(let i=0;i<rows.length;i+=200){
+    const d=await historyApi('save_powerbi',{rows:rows.slice(i,i+200)});
+    if(d.ok)remoteSaved+=Number(d.saved||0);
+  }
+  return {count:rows.length,remoteSaved};
+}
+async function loadHistories(){
+  state.history.production=localHistoryRead('production');
+  state.history.powerbi=localHistoryRead('powerbi');
+
+  const remote=await historyApi('list',{
+    dateFrom:isoDaysAgo(365),
+    dateTo:todayISO()
+  });
+
+  if(remote.ok){
+    if(Array.isArray(remote.production))state.history.production=remote.production;
+    if(Array.isArray(remote.powerbi))state.history.powerbi=remote.powerbi;
+  }
+}
+function productionHistoryFor(machine){
+  const mk=normalizeMk(machine);
+  return (state.history.production||[])
+    .filter(r=>(r.machines||productionMachineMentions(r.report||'')).includes(mk))
+    .sort((a,b)=>String(b.savedAt||b.date).localeCompare(String(a.savedAt||a.date)));
+}
+function powerBiHistoryFor(machine){
+  const mk=normalizeMk(machine);
+  return (state.history.powerbi||[])
+    .filter(r=>normalizeMk(r.machine)===mk)
+    .sort((a,b)=>String(b.date||b.savedAt).localeCompare(String(a.date||a.savedAt)));
+}
+function historyInsight(machine){
+  const prod=productionHistoryFor(machine);
+  const pbi=powerBiHistoryFor(machine);
+  const oees=pbi.map(r=>Number(r.oee)).filter(Number.isFinite);
+  const avg=oees.length?oees.reduce((a,b)=>a+b,0)/oees.length:null;
+  return {
+    productionCount:prod.length,
+    powerBiCount:pbi.length,
+    powerBiAverage:avg,
+    lastProduction:prod[0]||null,
+    lastPowerBi:pbi[0]||null
+  };
+}
+function renderHistorySummary(){
+  const el=$('historySummary');
+  if(!el)return;
+  el.innerHTML=
+    `<b>Históricos salvos</b><br>`+
+    `Produção: ${state.history.production.length} relatório(s)<br>`+
+    `Power BI: ${state.history.powerbi.length} registro(s)<br>`+
+    `SGMan: ${state.sgman.ok?state.sgman.orders.length+' OS consultadas':'indisponível'}`;
+}
 function sgmanInsight(machine){
   const os=state.sgman.byMachine?.[machine]||[];
   const completed=os.filter(o=>o.statusKey==='completed').length;
@@ -104,8 +285,10 @@ $('analyzeBtn').addEventListener('click',async()=>{
         imageDataUrl:state.imageDataUrl,
         scope:{label:scopeLabel(),date:$('reportDate').value,shift:$('reportShift').value}
       })}),
-      loadSgman()
+      loadSgman(),
+      saveProductionHistory()
     ]);
+    await loadHistories();
     const d=await r.json();
     if(!r.ok||!d.ok)throw new Error(d.error||`HTTP ${r.status}`);
     state.analysis=d;
@@ -130,6 +313,7 @@ function renderAnalysis(){
     ?`Conectado • ${state.sgman.orders.length} OS consultadas nos últimos 90 dias${ss?` • abertas ${ss.open||0} • atrasadas ${ss.overdue||0}`:''}`
     :'Indisponível nesta análise';
   $('summary').innerHTML=`<b>Quadro:</b> ${d.scope}<br><b>Confirmadas:</b> ${d.confirmedCount}/20<br><b>OEE do turno:</b> ${d.currentTurnOee??'—'}%<br><b>Turno anterior:</b> ${trend}<br><b>SGMan:</b> ${sg}`;
+  renderHistorySummary();
   $('readings').innerHTML=d.rows.map(r=>`
     <div class="reading ${r.confirmed?'ok':'bad'}">
       <h3>${r.machine}</h3>
@@ -150,12 +334,14 @@ function renderTop10(){
     const max=Number(r.oee)<=50;
     const loss=((100-Number(r.oee))/100*12).toFixed(1).replace('.',',');
     const sg=sgmanInsight(r.machine);
+    const hi=historyInsight(r.machine);
     const sgText=state.sgman.ok
       ?`<div class="sgline">SGMan 90 dias: <b>${sg.count} OS</b> • ${sg.open} aberta(s)/atrasada(s)</div>`
       :`<div class="sgline muted">SGMan indisponível</div>`;
+    const histText=`<div class="sgline">Histórico: Produção <b>${hi.productionCount}</b> relatório(s) • Power BI <b>${hi.powerBiCount}</b> registro(s)${hi.powerBiAverage!=null?` • OEE médio ${hi.powerBiAverage.toFixed(1).replace('.',',')}%`:''}</div>`;
     return `<label class="priority ${max?'max':'high'}">
       <span class="rank">${i+1}</span>
-      <span><h3>${max?'🔴 PRIORIDADE MÁXIMA':'🟠 PRIORIDADE ALTA'} — ${r.machine}</h3><div class="pct">OEE ${Number(r.oee).toFixed(1).replace('.',',')}%</div><p>Perda estimada: ${loss} h</p>${sgText}</span>
+      <span><h3>${max?'🔴 PRIORIDADE MÁXIMA':'🟠 PRIORIDADE ALTA'} — ${r.machine}</h3><div class="pct">OEE ${Number(r.oee).toFixed(1).replace('.',',')}%</div><p>Perda estimada: ${loss} h</p>${sgText}${histText}</span>
       <input type="checkbox" data-machine="${r.machine}" ${state.selected.has(r.machine)?'checked':''}>
     </label>`;
   }).join(''):'<p>Nenhuma máquina abaixo de 65% com leitura confirmada.</p>';
@@ -192,6 +378,14 @@ function buildReport(){
       if(state.sgman.ok){
         t+=`   Histórico SGMan 90 dias: ${sg.count} OS • ${sg.open} aberta(s)/atrasada(s).${latest[0]?` Última referência: ${latest[0]}`:''}\n`;
       }
+      const hi=historyInsight(r.machine);
+      if(hi.productionCount){
+        const last=cleanProblemText(hi.lastProduction?.report||'');
+        t+=`   Histórico produção: ${hi.productionCount} ocorrência(s) registrada(s).${last?` Última: ${last}`:''}\n`;
+      }
+      if(hi.powerBiCount){
+        t+=`   Histórico Power BI: ${hi.powerBiCount} registro(s)${hi.powerBiAverage!=null?` • OEE médio ${hi.powerBiAverage.toFixed(1).replace('.',',')}%`:''}.\n`;
+      }
       t+=`   • Analisar e resolver no turno.\n   • Apontar tudo no SGMan.\n   • Evitar retrabalho.\n`;
     });
   }
@@ -201,4 +395,5 @@ $('copyBtn').addEventListener('click',async()=>{
   await navigator.clipboard.writeText($('reportText').value);
   $('copyBtn').textContent='Copiado ✓'; setTimeout(()=>$('copyBtn').textContent='Copiar relatório',1400);
 });
+loadHistories().then(renderHistorySummary);
 go('painel');

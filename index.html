@@ -11,7 +11,7 @@
   <header class="top">
     <div class="eyebrow">Indaiatuba • Manutenção</div>
     <div class="company">Ecopack Brasil</div>
-    <div class="brand">TurnoSmart <span class="version">Clean V2 + SGMan</span></div>
+    <div class="brand">TurnoSmart <span class="version">Clean V3 + Históricos</span></div>
   </header>
 
   <main>
@@ -47,6 +47,15 @@
 
         <img id="preview" class="preview hidden" alt="Prévia do quadro">
 
+        <label style="margin-top:22px">Relatório da produção
+          <textarea id="productionReportInput" rows="10" placeholder="Cole aqui o relatório do turno. Ele será salvo no histórico por data e turno."></textarea>
+        </label>
+
+        <label style="margin-top:22px">Power BI — importar histórico
+          <input id="powerBiFileInput" type="file" accept=".json,.csv,text/csv,application/json">
+        </label>
+        <div class="hint">Aceita JSON ou CSV. Os registros ficam salvos por data, turno e máquina.</div>
+
         <button id="analyzeBtn" class="primary">Analisar quadro</button>
         <div id="status" class="status"></div>
       </div>
@@ -57,6 +66,7 @@
         <div class="eyebrow orange">2. ANÁLISE OEE</div>
         <h2>Leitura confirmada</h2>
         <div id="summary" class="summary"></div>
+        <div id="historySummary" class="summary"></div>
         <div id="readings" class="readings"></div>
       </div>
     </section>
