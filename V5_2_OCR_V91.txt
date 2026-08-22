@@ -1,0 +1,17 @@
+V5.2 — OCR V91 restaurado
+
+Troque:
+- app.js
+- index.html
+
+O que mudou:
+- Tesseract.js local restaurado;
+- foto inteira tratada localmente;
+- colunas descobertas dinamicamente pelos números;
+- percentual encaixado pela posição vertical da linha da MK;
+- IA vira somente fallback;
+- Load failed da API não impede mais a leitura;
+- turno anterior null não vira 0%;
+- SGMan/PowerBI/produção continuam depois da leitura.
+
+Esta versão recupera a filosofia de leitura da V91 enviada pelo usuário.

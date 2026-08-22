@@ -23,39 +23,11 @@ function fileToDataUrl(file){
 }
 async function compressImage(file){
   const data=await fileToDataUrl(file);
-  const img=new Image();
-  img.src=data;
-  await img.decode();
-
-  let maxW=1700;
-  let quality=0.78;
-  let result='';
-
-  for(let attempt=0;attempt<5;attempt++){
-    const scale=Math.min(1,maxW/img.width);
-    const c=document.createElement('canvas');
-    c.width=Math.max(1,Math.round(img.width*scale));
-    c.height=Math.max(1,Math.round(img.height*scale));
-
-    const ctx=c.getContext('2d',{alpha:false});
-    ctx.fillStyle='#fff';
-    ctx.fillRect(0,0,c.width,c.height);
-    ctx.drawImage(img,0,0,c.width,c.height);
-
-    result=c.toDataURL('image/jpeg',quality);
-
-    // Mantém margem segura para o limite de payload da Vercel.
-    if(result.length<3_200_000)break;
-
-    maxW=Math.round(maxW*0.86);
-    quality=Math.max(0.60,quality-0.06);
-  }
-
-  if(!result || result.length>=4_000_000){
-    throw new Error('Foto muito grande. Tente novamente com o quadro mais próximo.');
-  }
-
-  return result;
+  const img=new Image(); img.src=data; await img.decode();
+  const maxW=1800, scale=Math.min(1,maxW/img.width);
+  const c=document.createElement('canvas'); c.width=Math.round(img.width*scale); c.height=Math.round(img.height*scale);
+  c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+  return c.toDataURL('image/jpeg',0.82);
 }
 
 $('powerBiFileInput')?.addEventListener('change',async e=>{
@@ -421,6 +393,309 @@ function cleanProblemText(v){
   return String(v||'').replace(/\s+/g,' ').trim().slice(0,150);
 }
 
+
+// =========================================================
+// V5.2 — MOTOR DE LEITURA RESTAURADO DA V91
+// OCR LOCAL + FOTO INTEIRA + COLUNA DINÂMICA + LINHA DA MK
+// =========================================================
+const V91_OEE_MACHINES=[
+  'MK-138','MK-105','MK-108','MK-223','MK-192','MK-69','MK-172','MK-173',
+  'MK-178','MK-179','MK-212','MK-214','MK-217','MK-220','MK-159','MK-222',
+  'MK-170','MK-176','MK-188','MK-149'
+];
+
+function v91ClampByte(value){
+  return Math.max(0,Math.min(255,Math.round(value)));
+}
+
+function v91NumericOeeFromWord(text=''){
+  const cleaned=String(text)
+    .replace(/[Oo]/g,'0')
+    .replace(/[^0-9.,%]/g,'');
+  const match=cleaned.match(/(\d{1,3})(?:[.,](\d))?/);
+  if(!match)return null;
+  const integer=Number(match[1]);
+  const value=Number(match[2]?`${integer}.${match[2]}`:integer);
+  if(!Number.isFinite(value)||value<10||value>100)return null;
+  return {value,hasPercent:cleaned.includes('%')};
+}
+
+function v91BoardColumnIndex(dateStr,shift){
+  const [y,m,d]=String(dateStr).split('-').map(Number);
+  const date=new Date(y,m-1,d,12,0,0,0);
+  const jsDay=date.getDay();
+  const mondayIndex=jsDay===0?6:jsDay-1;
+  const shiftOffset=String(shift||'A').toUpperCase()==='B'?1:0;
+  return mondayIndex*2+shiftOffset;
+}
+
+function v91Geometry(image,dateStr,shift){
+  return {
+    boardLeftRatio:0.035,
+    boardRightRatio:0.995,
+    rowsTopRatio:0.155,
+    rowsBottomRatio:0.97,
+    targetColumnIndex:v91BoardColumnIndex(dateStr,shift),
+    expectedColumnCount:14
+  };
+}
+
+async function v91LoadImage(dataUrl){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.onload=()=>resolve(img);
+    img.onerror=reject;
+    img.src=dataUrl;
+  });
+}
+
+function v91Preprocess(image,dateStr,shift){
+  const geometry=v91Geometry(image,dateStr,shift);
+  const naturalWidth=image.naturalWidth||image.width;
+  const naturalHeight=image.naturalHeight||image.height;
+
+  const desiredWidth=Math.max(1800,Math.min(2800,naturalWidth*1.35));
+  const scale=desiredWidth/Math.max(1,naturalWidth);
+  const width=Math.max(1,Math.round(naturalWidth*scale));
+  const height=Math.max(1,Math.round(naturalHeight*scale));
+
+  const canvas=document.createElement('canvas');
+  canvas.width=width; canvas.height=height;
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,width,height);
+  ctx.imageSmoothingEnabled=true;
+  ctx.imageSmoothingQuality='high';
+  ctx.drawImage(image,0,0,naturalWidth,naturalHeight,0,0,width,height);
+
+  const imageData=ctx.getImageData(0,0,width,height);
+  const px=imageData.data;
+
+  for(let i=0;i<px.length;i+=4){
+    const r=px[i],g=px[i+1],b=px[i+2];
+    const max=Math.max(r,g,b),min=Math.min(r,g,b);
+    const saturation=max-min;
+    const lum=.299*r+.587*g+.114*b;
+    let value;
+
+    if(saturation<15&&lum>155)value=255;
+    else if(saturation>=18)value=v91ClampByte(lum*.62-saturation*.48+38);
+    else value=v91ClampByte((lum-105)*1.5+105);
+
+    px[i]=value;px[i+1]=value;px[i+2]=value;px[i+3]=255;
+  }
+  ctx.putImageData(imageData,0,0);
+
+  return {canvas,geometry,ocrDataUrl:canvas.toDataURL('image/png')};
+}
+
+function v91MapWords(words=[],canvasHeight=1,canvasWidth=1,geometry){
+  const rowCount=V91_OEE_MACHINES.length;
+  const rowsTop=canvasHeight*geometry.rowsTopRatio;
+  const rowsBottom=canvasHeight*geometry.rowsBottomRatio;
+  const rowHeight=Math.max(1,rowsBottom-rowsTop)/rowCount;
+  const boardLeft=canvasWidth*geometry.boardLeftRatio;
+  const boardRight=canvasWidth*geometry.boardRightRatio;
+
+  const candidates=[];
+
+  for(const word of words){
+    const parsed=v91NumericOeeFromWord(word.text);
+    if(!parsed)continue;
+    const value=Number(parsed.value);
+    if(!Number.isFinite(value)||value<20||value>100)continue;
+
+    const box=word.bbox||{};
+    const x0=Number(box.x0??box.left??0),x1=Number(box.x1??box.right??x0);
+    const y0=Number(box.y0??box.top??0),y1=Number(box.y1??box.bottom??y0);
+    const x=(x0+x1)/2,y=(y0+y1)/2;
+
+    if(x<boardLeft||x>boardRight||y<rowsTop||y>rowsBottom)continue;
+
+    candidates.push({
+      value,
+      hasPercent:parsed.hasPercent,
+      confidence:Number(word.confidence||0),
+      x,y,
+      raw:String(word.text||'').trim()
+    });
+  }
+
+  // Igual à V91: descobre as colunas pelos próprios números reconhecidos.
+  const sorted=[...candidates].sort((a,b)=>a.x-b.x);
+  const tolerance=Math.max(20,canvasWidth*.032);
+  const clusters=[];
+
+  for(const item of sorted){
+    let cluster=clusters.find(c=>Math.abs(c.centerX-item.x)<=tolerance);
+    if(!cluster){
+      cluster={centerX:item.x,items:[]};
+      clusters.push(cluster);
+    }
+    cluster.items.push(item);
+    cluster.centerX=cluster.items.reduce((s,x)=>s+x.x,0)/cluster.items.length;
+  }
+
+  const useful=clusters
+    .filter(c=>c.items.length>=2)
+    .sort((a,b)=>a.centerX-b.centerX);
+
+  let target=null;
+  if(useful.length===1){
+    target=useful[0];
+  }else if(useful.length>1){
+    const expected=geometry.expectedColumnCount||14;
+    const idx=Math.max(0,Math.min(expected-1,geometry.targetColumnIndex||0));
+
+    if(useful.length>=10&&idx<useful.length){
+      target=useful[idx];
+    }else{
+      const ratio=idx/Math.max(1,expected-1);
+      const first=useful[0].centerX,last=useful[useful.length-1].centerX;
+      const expectedX=first+(last-first)*ratio;
+      target=[...useful].sort((a,b)=>
+        Math.abs(a.centerX-expectedX)-Math.abs(b.centerX-expectedX)
+      )[0];
+    }
+  }
+
+  let selected=candidates;
+  if(target){
+    const selectedTolerance=Math.max(32,canvasWidth*.047);
+    selected=candidates.filter(x=>Math.abs(x.x-target.centerX)<=selectedTolerance);
+  }
+
+  const buckets=Array.from({length:rowCount},()=>[]);
+  for(const item of selected){
+    const row=Math.floor((item.y-rowsTop)/rowHeight);
+    if(row<0||row>=rowCount)continue;
+    const rowTop=rowsTop+row*rowHeight;
+    const inside=(item.y-rowTop)/rowHeight;
+    if(inside<.03||inside>.97)continue;
+    buckets[row].push(item);
+  }
+
+  return V91_OEE_MACHINES.map((machine,index)=>{
+    const list=buckets[index];
+    if(!list.length){
+      return {machine,oee:null,confirmed:false,confidence:0,reason:'Não identificado pelo OCR local.'};
+    }
+
+    list.sort((a,b)=>{
+      if(a.hasPercent!==b.hasPercent)return a.hasPercent?-1:1;
+      if(a.confidence!==b.confidence)return b.confidence-a.confidence;
+      return b.x-a.x;
+    });
+
+    const chosen=list[0];
+    const conflict=list.some(x=>
+      Math.abs(Number(x.value)-Number(chosen.value))>5 &&
+      (x.hasPercent||x.confidence>=55)
+    );
+
+    // V91 mostrava o valor provável mesmo quando a confiança era moderada.
+    // Aqui confirmamos automaticamente somente leitura razoável,
+    // mas NÃO apagamos o valor provável.
+    const confirmed=!conflict && (
+      chosen.hasPercent ||
+      Number(chosen.confidence)>=42
+    );
+
+    return {
+      machine,
+      oee:Number(chosen.value),
+      confirmed,
+      confidence:Number(chosen.confidence||0),
+      candidate:true,
+      reason:confirmed
+        ?`${chosen.raw} lido pelo OCR local na coluna selecionada.`
+        :`${chosen.raw} provável — conferir.`
+    };
+  });
+}
+
+function v91DetectHeaderOee(words=[],canvasWidth=1,canvasHeight=1,geometry){
+  // Usa apenas região superior e a coluna alvo estimada.
+  const topLimit=canvasHeight*.17;
+  const numeric=[];
+
+  for(const word of words){
+    const p=v91NumericOeeFromWord(word.text);
+    if(!p)continue;
+    const box=word.bbox||{};
+    const x=(Number(box.x0??0)+Number(box.x1??box.x0??0))/2;
+    const y=(Number(box.y0??0)+Number(box.y1??box.y0??0))/2;
+    if(y>topLimit)continue;
+    if(p.value<20||p.value>100)continue;
+    numeric.push({x,y,value:Number(p.value),hasPercent:p.hasPercent,confidence:Number(word.confidence||0)});
+  }
+
+  if(!numeric.length)return null;
+
+  // Posição esperada da coluna dentro do quadro.
+  const left=canvasWidth*geometry.boardLeftRatio;
+  const right=canvasWidth*geometry.boardRightRatio;
+  const ratio=(geometry.targetColumnIndex+.5)/geometry.expectedColumnCount;
+  const expectedX=left+(right-left)*ratio;
+
+  const near=numeric
+    .filter(x=>Math.abs(x.x-expectedX)<canvasWidth*.055)
+    .sort((a,b)=>{
+      if(a.hasPercent!==b.hasPercent)return a.hasPercent?-1:1;
+      return b.confidence-a.confidence;
+    });
+
+  return near[0]?.value??null;
+}
+
+async function v91ReadOeeBoard(dataUrl,dateStr,shift,statusEl){
+  if(!window.Tesseract)throw new Error('OCR local não carregou.');
+
+  const image=await v91LoadImage(dataUrl);
+  const processed=v91Preprocess(image,dateStr,shift);
+
+  const result=await window.Tesseract.recognize(
+    processed.ocrDataUrl,
+    'eng',
+    {
+      logger:info=>{
+        if(info.status==='recognizing text'&&typeof info.progress==='number'){
+          statusEl.textContent=`Lendo quadro localmente... ${Math.round(info.progress*100)}%`;
+        }
+      }
+    },
+    {
+      tessedit_char_whitelist:'0123456789%.,',
+      tessedit_pageseg_mode:'11',
+      preserve_interword_spaces:'1'
+    }
+  );
+
+  const words=result?.data?.words||[];
+  const rows=v91MapWords(
+    words,
+    processed.canvas.height,
+    processed.canvas.width,
+    processed.geometry
+  );
+
+  const currentTurnOee=v91DetectHeaderOee(
+    words,
+    processed.canvas.width,
+    processed.canvas.height,
+    processed.geometry
+  );
+
+  return {
+    ok:true,
+    scope:scopeLabel(),
+    rows,
+    confirmedCount:rows.filter(r=>r.confirmed).length,
+    currentTurnOee,
+    previousTurnOee:null,
+    source:'ocr_local_v91'
+  };
+}
+
 $('analyzeBtn').addEventListener('click',async()=>{
   renderTeamScale();
 
@@ -431,44 +706,48 @@ $('analyzeBtn').addEventListener('click',async()=>{
 
   const btn=$('analyzeBtn');
   btn.disabled=true;
-  $('status').textContent=`Analisando ${scopeLabel()}...`;
-
-  const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),55000);
+  $('status').textContent=`Lendo ${scopeLabel()} com OCR local...`;
 
   try{
-    // IMPORTANTE: primeiro resolve o OEE.
-    // SGMan e históricos não podem impedir a análise da foto.
-    const response=await fetch('/api/oee-analyze',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      signal:controller.signal,
-      body:JSON.stringify({
-        imageDataUrl:state.imageDataUrl,
-        scope:{
-          label:scopeLabel(),
-          date:$('reportDate').value,
-          shift:$('reportShift').value
+    // 1) MOTOR V91 LOCAL — não depende da API.
+    let data=await v91ReadOeeBoard(
+      state.imageDataUrl,
+      $('reportDate').value,
+      $('reportShift').value,
+      $('status')
+    );
+
+    // 2) Se o OCR local leu menos de 3 MKs, tenta IA apenas como reserva.
+    if(data.confirmedCount<3){
+      $('status').textContent='OCR local encontrou poucos valores. Tentando IA como reserva...';
+
+      try{
+        const r=await fetch('/api/oee-analyze',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({
+            imageDataUrl:state.imageDataUrl,
+            scope:{
+              label:scopeLabel(),
+              date:$('reportDate').value,
+              shift:$('reportShift').value
+            }
+          })
+        });
+        const ai=await r.json().catch(()=>null);
+
+        if(r.ok&&ai?.ok&&Number(ai.confirmedCount||0)>data.confirmedCount){
+          data=ai;
         }
-      })
-    });
-
-    const raw=await response.text();
-    let data={};
-    try{
-      data=raw?JSON.parse(raw):{};
-    }catch{
-      throw new Error(`API respondeu conteúdo inválido (HTTP ${response.status}).`);
-    }
-
-    if(!response.ok || !data.ok){
-      throw new Error(data.error||`Falha na API OEE (HTTP ${response.status}).`);
+      }catch(e){
+        console.warn('IA reserva indisponível; mantendo OCR V91.',e);
+      }
     }
 
     state.analysis=data;
     state.selected.clear();
 
-    // Atualiza dados auxiliares só DEPOIS da leitura do quadro.
+    // Dados auxiliares nunca bloqueiam a leitura.
     await Promise.allSettled([
       loadSgman(),
       saveProductionHistory(),
@@ -480,32 +759,25 @@ $('analyzeBtn').addEventListener('click',async()=>{
     buildReport();
 
     $('status').textContent=
-      `Leitura concluída: ${data.confirmedCount}/20 MK confirmadas.`;
+      `Leitura concluída: ${data.confirmedCount}/20 MK identificadas.`;
 
     go('analise');
 
   }catch(e){
-    console.error('Erro análise OEE:',e);
-
-    if(e?.name==='AbortError'){
-      $('status').textContent='Erro: a análise demorou demais. Tente novamente.';
-    }else if(String(e?.message||'').toLowerCase().includes('load failed')){
-      $('status').textContent=
-        'Erro de comunicação com a API. Atualize a página e tente novamente.';
-    }else{
-      $('status').textContent=`Erro: ${e?.message||e}`;
-    }
+    console.error(e);
+    $('status').textContent=`Erro na leitura local: ${e.message||e}`;
   }finally{
-    clearTimeout(timer);
     btn.disabled=false;
   }
 });
 
 function renderAnalysis(){
   const d=state.analysis;
-  const trend=d.currentTurnOee!=null&&d.previousTurnOee!=null
-    ? `${d.previousTurnOee}% → ${d.currentTurnOee}% (${(d.currentTurnOee-d.previousTurnOee)>=0?'+':''}${(d.currentTurnOee-d.previousTurnOee).toFixed(1)} p.p.)`
-    : 'comparação não disponível';
+  const trend=Number.isFinite(Number(d.currentTurnOee))&&
+    d.previousTurnOee!==null&&d.previousTurnOee!==undefined&&d.previousTurnOee!==''&&
+    Number.isFinite(Number(d.previousTurnOee))
+    ? `${Number(d.previousTurnOee)}% → ${Number(d.currentTurnOee)}% (${(Number(d.currentTurnOee)-Number(d.previousTurnOee))>=0?'+':''}${(Number(d.currentTurnOee)-Number(d.previousTurnOee)).toFixed(1)} p.p.)`
+    : 'turno anterior não confirmado';
   const ss=state.sgman.summary;
   const sg=state.sgman.ok
     ?`Conectado • ${state.sgman.orders.length} OS consultadas nos últimos 90 dias${ss?` • abertas ${ss.open||0} • atrasadas ${ss.overdue||0}`:''}`
@@ -556,7 +828,11 @@ function buildReport(){
   const d=state.analysis;
   if(!d){$('reportText').value='';return;}
   const selected=[...state.selected].map(m=>d.rows.find(r=>r.machine===m)).filter(Boolean);
-  const diff=(d.currentTurnOee!=null&&d.previousTurnOee!=null)?d.currentTurnOee-d.previousTurnOee:null;
+  const diff=(
+    d.currentTurnOee!==null&&d.currentTurnOee!==undefined&&d.currentTurnOee!==''&&
+    d.previousTurnOee!==null&&d.previousTurnOee!==undefined&&d.previousTurnOee!==''&&
+    Number.isFinite(Number(d.currentTurnOee))&&Number.isFinite(Number(d.previousTurnOee))
+  )?Number(d.currentTurnOee)-Number(d.previousTurnOee):null;
   const trend=diff==null?'Turno anterior ainda não disponível para comparação.'
     :diff>0?`Melhora de ${diff.toFixed(1).replace('.',',')} p.p. (${d.previousTurnOee}% → ${d.currentTurnOee}%).`
     :diff<0?`Queda de ${Math.abs(diff).toFixed(1).replace('.',',')} p.p. (${d.previousTurnOee}% → ${d.currentTurnOee}%).`
