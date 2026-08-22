@@ -11,7 +11,7 @@
   <header class="top">
     <div class="eyebrow">Indaiatuba • Manutenção</div>
     <div class="company">Ecopack Brasil</div>
-    <div class="brand">TurnoSmart <span class="version">Clean V3 + Históricos</span></div>
+    <div class="brand">TurnoSmart <span class="version">Clean V5 + Escala Real</span></div>
   </header>
 
   <main>
@@ -40,10 +40,22 @@
           </label>
         </div>
 
-        <label class="upload">
-          <input id="oeeImageInput" type="file" accept="image/*" capture="environment">
-          <span>📷 Escolher ou tirar foto</span>
-        </label>
+        <div class="staff-card">
+          <div class="eyebrow orange">ESCALA DO DIA</div>
+          <div id="teamScaleSummary" class="summary"></div>
+          <div id="teamMembers" class="team-members"></div>
+        </div>
+
+        <div class="photo-actions">
+          <label class="upload">
+            <input id="oeeGalleryInput" type="file" accept="image/*">
+            <span>🖼️ Escolher da galeria</span>
+          </label>
+          <label class="upload">
+            <input id="oeeCameraInput" type="file" accept="image/*" capture="environment">
+            <span>📷 Tirar foto agora</span>
+          </label>
+        </div>
 
         <img id="preview" class="preview hidden" alt="Prévia do quadro">
 

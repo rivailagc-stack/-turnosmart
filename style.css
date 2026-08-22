@@ -48,3 +48,14 @@ textarea{font-family:inherit;line-height:1.45}
 .sgline{margin-top:10px;padding:9px 11px;border-radius:12px;background:#eef6ff;font-size:14px;color:#334155}.muted{color:#667085}
 
 .hint{font-size:14px;color:#667085;margin-top:7px}
+
+.photo-actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}
+.photo-actions .upload{margin-top:0}
+.staff-card{margin-top:20px;padding:18px;border:2px solid #e6ebf2;border-radius:20px;background:#f8fafc}
+.team-members{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.team-person{display:flex;align-items:center;gap:10px;border:1px solid #d5dce5;border-radius:14px;padding:11px;background:white}
+.team-person input{width:22px;height:22px;margin:0}
+.team-person span{font-size:15px}
+@media(max-width:640px){.photo-actions,.team-members{grid-template-columns:1fr}}
+
+.roster-config{grid-column:1/-1;margin-top:10px;padding:12px;border:1px dashed #cbd5e1;border-radius:14px}.roster-options{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:10px 0}.roster-options label{font-size:14px}.muted{color:#64748b;font-size:13px}@media(max-width:640px){.roster-options{grid-template-columns:1fr}}

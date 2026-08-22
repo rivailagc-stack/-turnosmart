@@ -28,3 +28,12 @@ PERSISTÊNCIA:
   GEMINI_API_KEY
 
 Se Supabase não estiver configurado, o app continua funcionando com histórico local no aparelho.
+
+
+V4 — GALERIA + ESCALA
+- Dois botões separados: escolher foto da galeria / tirar foto agora.
+- Escala 12x36 automática pela data.
+- Referência: 20/07/2026 = A1 (dia) e A2 (noite); dia seguinte = B1/B2.
+- Presença da equipe pode ser marcada no próprio turno.
+- A presença fica salva localmente por data/equipe e entra no relatório.
+- Edite TEAM_MEMBERS em app.js para colocar os nomes exatos da equipe.

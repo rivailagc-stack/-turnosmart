@@ -1,12 +1,13 @@
 
 const $=id=>document.getElementById(id);
-const state={imageDataUrl:null,analysis:null,selected:new Set(),sgman:{ok:false,orders:[],summary:null,byMachine:{}},history:{production:[],powerbi:[]}};
+const state={imageDataUrl:null,analysis:null,selected:new Set(),sgman:{ok:false,orders:[],summary:null,byMachine:{}},history:{production:[],powerbi:[]},staff:{team:'',members:[],present:[]}};
 
 function todayISO(){
   const d=new Date(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');
   return `${d.getFullYear()}-${m}-${day}`;
 }
 $('reportDate').value=todayISO();
+setTimeout(renderTeamScale,0);
 
 function go(id){
   document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
@@ -43,20 +44,135 @@ $('powerBiFileInput')?.addEventListener('change',async e=>{
   }
 });
 
-$('oeeImageInput').addEventListener('change',async e=>{
-  const f=e.target.files?.[0]; if(!f)return;
+async function handleOeeImageFile(file){
+  if(!file)return;
   $('status').textContent='Preparando foto...';
-  state.imageDataUrl=await compressImage(f);
-  $('preview').src=state.imageDataUrl; $('preview').classList.remove('hidden');
+  state.imageDataUrl=await compressImage(file);
+  $('preview').src=state.imageDataUrl;
+  $('preview').classList.remove('hidden');
   $('status').textContent='Foto pronta para análise.';
-});
+}
+$('oeeGalleryInput')?.addEventListener('change',e=>handleOeeImageFile(e.target.files?.[0]));
+$('oeeCameraInput')?.addEventListener('change',e=>handleOeeImageFile(e.target.files?.[0]));
 
+
+const SCALE_REFERENCE_DATE='2026-07-20'; // A1/A2 working day reference.
+
+const LEGACY_SGMAN_USERS=[
+  {username:'aleilson.almeida',name:'Aleilson Almeida',role:'Mantenedor'},
+  {username:'allan.teodorak',name:'Allan Teodorak',role:'Líder Mantenedor'},
+  {username:'CAIO.AUGUSTO',name:'Caio Augusto',role:'Mecânico'},
+  {username:'carlos.silva',name:'Carlos Matos',role:'Mantenedor'},
+  {username:'Danilo',name:'Danilo Nepomuceno',role:'Líder Mantenedor'},
+  {username:'emerson.nunes',name:'Emerson Nunes',role:'Líder Mantenedor'},
+  {username:'ezequielSantos',name:'Ezequiel Santos',role:'Mecânico'},
+  {username:'fiderlânio.reis',name:'Fiderlânio Reis',role:'Líder Mantenedor'},
+  {username:'gabriel.henrique',name:'Gabriel Bretas',role:'Ferramenteiro'},
+  {username:'gustavo.yano',name:'Gustavo Yano',role:'Aprendiz de manutenção'},
+  {username:'igor.henrique',name:'Igor Henrique',role:'Manutenção'},
+  {username:'jean.mendes',name:'Jean Mendes',role:'Usuário SGMan'},
+  {username:'jeanderson.costa',name:'Jeanderson Costa',role:'Mantenedor'},
+  {username:'JOÃO.SOUZA',name:'João Aparecido de Souza',role:'Mecânico'},
+  {username:'Lucas.eletricista',name:'Lucas Eletricista',role:'Eletricista'},
+  {username:'luiz.afonso',name:'Luiz Afonso',role:'Líder Mantenedor'},
+  {username:'marcelo.souza',name:'Marcelo Souza',role:'Mantenedor'},
+  {username:'marcos.roberto',name:'Marcos Roberto',role:'Mantenedor'},
+  {username:'ricardo.serafim',name:'Ricardo Serafim',role:'Líder Mantenedor'},
+  {username:'Rosental.Lima',name:'Rosental Lima',role:'Líder Mantenedor'},
+  {username:'roberto.beraldo',name:'Roberto Beraldo',role:'Mantenedor'},
+  {username:'rogger.sampaio',name:'Rogger Sampaio',role:'Mantenedor'},
+  {username:'thiago.nascimento',name:'Thiago Nascimento',role:'Mantenedor'}
+];
+const DEFAULT_CREW_LEADERS={A1:'Ricardo Serafim',A2:'Luiz Afonso',B1:'Danilo Nepomuceno',B2:'Fiderlânio Reis'};
+
+function crewRosterKey(crew){return `turnosmart_roster_${crew}`;}
+function getCrewRoster(crew){
+  let saved=[];
+  try{saved=JSON.parse(localStorage.getItem(crewRosterKey(crew))||'[]')}catch{}
+  const leader=DEFAULT_CREW_LEADERS[crew];
+  if(Array.isArray(saved)&&saved.length)return [...new Set([leader,...saved].filter(Boolean))];
+  return leader?[leader]:[];
+}
+function saveCrewRoster(crew,names){
+  localStorage.setItem(crewRosterKey(crew),JSON.stringify([...new Set(names.filter(Boolean))]));
+}
+
+
+function daysBetween(a,b){
+  const [ya,ma,da]=a.split('-').map(Number),[yb,mb,db]=b.split('-').map(Number);
+  const A=Date.UTC(ya,ma-1,da),B=Date.UTC(yb,mb-1,db);
+  return Math.floor((B-A)/86400000);
+}
+function activeScaleTeams(dateStr){
+  const d=daysBetween(SCALE_REFERENCE_DATE,dateStr);
+  const even=((d%2)+2)%2===0;
+  return even?['A1','A2']:['B1','B2'];
+}
+function teamForSelectedShift(dateStr,shift){
+  const teams=activeScaleTeams(dateStr);
+  return shift==='A'?teams[0]:teams[1];
+}
+function renderTeamScale(){
+  const date=$('reportDate').value||todayISO();
+  const shift=$('reportShift').value||'A';
+  const team=teamForSelectedShift(date,shift);
+  let members=getCrewRoster(team);
+  const allNames=LEGACY_SGMAN_USERS.map(x=>x.name);
+  const leader=DEFAULT_CREW_LEADERS[team]||'';
+  if(!members.length && leader) members=[leader];
+  state.staff.team=team;
+  state.staff.members=members;
+
+  const storedKey=`turnosmart_staff_${date}_${team}`;
+  let present;
+  try{present=JSON.parse(localStorage.getItem(storedKey)||'null')}catch{present=null}
+  if(!Array.isArray(present))present=[...members];
+  state.staff.present=present;
+
+  $('teamScaleSummary').innerHTML=
+    `<b>Equipe ${team}</b> • ${shift==='A'?'06:00–18:00':'18:00–06:00'}<br>`+
+    `Previstos: ${members.length} • Presentes marcados: ${present.length}`;
+
+  $('teamMembers').innerHTML=
+    members.map(name=>{
+      const checked=present.includes(name);
+      return `<label class="team-person"><input type="checkbox" data-name="${name.replace(/"/g,'&quot;')}" ${checked?'checked':''}><span>${name}</span></label>`;
+    }).join('')+
+    `<details class="roster-config"><summary>⚙️ Configurar equipe ${team}</summary>
+      <p class="muted">Marque quem pertence a esta equipe. O TurnoSmart salva a configuração e reutiliza nos próximos dias desta escala.</p>
+      <div class="roster-options">${allNames.map(name=>`<label><input type="checkbox" class="roster-member" data-roster-name="${name.replace(/"/g,'&quot;')}" ${members.includes(name)?'checked':''}> ${name}</label>`).join('')}</div>
+      <button type="button" id="saveRosterBtn" class="secondary">Salvar equipe ${team}</button>
+    </details>`;
+
+  document.querySelectorAll('#teamMembers .team-person input[type=checkbox]').forEach(cb=>{
+    cb.addEventListener('change',()=>{
+      const name=cb.dataset.name;
+      if(cb.checked){
+        if(!state.staff.present.includes(name))state.staff.present.push(name);
+      }else{
+        state.staff.present=state.staff.present.filter(x=>x!==name);
+      }
+      localStorage.setItem(storedKey,JSON.stringify(state.staff.present));
+      $('teamScaleSummary').innerHTML=
+        `<b>Equipe ${team}</b> • ${shift==='A'?'06:00–18:00':'18:00–06:00'}<br>`+
+        `Previstos: ${members.length} • Presentes marcados: ${state.staff.present.length}`;
+    });
+  });
+  $('saveRosterBtn')?.addEventListener('click',()=>{
+    const chosen=[...document.querySelectorAll('.roster-member:checked')].map(x=>x.dataset.rosterName);
+    const leader=DEFAULT_CREW_LEADERS[team];
+    saveCrewRoster(team,[leader,...chosen].filter(Boolean));
+    renderTeamScale();
+  });
+}
 function weekdayPt(dateStr){
   const [y,m,d]=dateStr.split('-').map(Number);
   const names=['DOMINGO','SEGUNDA','TERÇA','QUARTA','QUINTA','SEXTA','SÁBADO'];
   return names[new Date(y,m-1,d).getDay()];
 }
 function scopeLabel(){return `${weekdayPt($('reportDate').value)} ${$('reportShift').value}`;}
+$('reportDate')?.addEventListener('change',renderTeamScale);
+$('reportShift')?.addEventListener('change',renderTeamScale);
 
 function isoDaysAgo(days){
   const d=new Date(); d.setDate(d.getDate()-days);
@@ -148,6 +264,8 @@ async function saveProductionHistory(){
     date:$('reportDate').value,
     shift:$('reportShift').value,
     scope:scopeLabel(),
+    team:state.staff.team,
+    present:state.staff.present,
     report:text,
     machines:productionMachineMentions(text),
     savedAt:new Date().toISOString()
@@ -276,6 +394,7 @@ function cleanProblemText(v){
 }
 
 $('analyzeBtn').addEventListener('click',async()=>{
+  renderTeamScale();
   if(!state.imageDataUrl){$('status').textContent='Escolha a foto primeiro.';return;}
   $('status').textContent=`Analisando ${scopeLabel()}...`;
   $('analyzeBtn').disabled=true;
