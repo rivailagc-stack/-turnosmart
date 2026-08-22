@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '101.0.0';
+const APP_VERSION = '101.1.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v101.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v101.1.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -5778,7 +5778,7 @@ async function v101GroupPass(fullBoardDataUrl,scope){
   for(let i=0;i<V101_MACHINES.length;i+=size){
     const machines=V101_MACHINES.slice(i,i+size);
     try{
-      const response=await fetch('/api/oee-group-verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fullBoardDataUrl,scope,machines})});
+      const response=await fetch('/api/oee-verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'group',fullBoardDataUrl,scope,machines})});
       const data=await response.json().catch(()=>({}));
       if(response.ok&&data.ok)all.push(...(data.rows||[]));
       else all.push(...machines.map(machine=>({machine,oee:null,confirmed:false,reason:data.error||'2ª leitura indisponível'})));
@@ -5796,7 +5796,7 @@ async function v101ThirdPass(fullBoardDataUrl,scope,machines){
     const batch=machines.slice(i,i+batchSize);
     const got=await Promise.all(batch.map(async machine=>{
       try{
-        const response=await fetch('/api/oee-machine-verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fullBoardDataUrl,scope,machine})});
+        const response=await fetch('/api/oee-verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'machine',fullBoardDataUrl,scope,machine})});
         const data=await response.json().catch(()=>({}));
         return response.ok&&data.ok?data:{machine,oee:null,confirmed:false};
       }catch(_){return {machine,oee:null,confirmed:false};}
@@ -8884,7 +8884,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=101.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=101.1.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -15497,7 +15497,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=101.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=101.1.0');
         registration.update();
       } catch {}
     });

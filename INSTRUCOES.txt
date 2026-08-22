@@ -1,13 +1,15 @@
-PATCH V101
+PATCH V101.1
 
-Substitua:
-- app.js
-- index.html
-- style.css
-- sw.js
-- api/oee-group-verify.js (NOVO)
-- api/oee-machine-verify.js (NOVO)
-- api/health.js se existir
+1. Substitua:
+   app.js
+   index.html
+   sw.js
+   api/oee-verify.js
 
-Mantenha api/oee-vision.js atual.
-A V101 volta a usar a FOTO INTEIRA como referência e exige consenso entre duas leituras.
+2. EXCLUA do projeto:
+   api/oee-group-verify.js
+   api/oee-machine-verify.js
+
+3. Faça novo deploy.
+
+A lógica de leitura V101 continua igual, mas com menos Serverless Functions.
