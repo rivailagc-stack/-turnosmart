@@ -1,5 +1,0 @@
-V98.5 — LEITOR INTELIGENTE DO QUADRO OEE
-
-Fluxo: foto original -> recorte da coluna -> linha real da MK -> 4 melhorias visuais -> Gemini servidor -> OCR local -> consenso -> relatório.
-
-Regra de segurança: valor duvidoso nunca vira prioridade automática.
