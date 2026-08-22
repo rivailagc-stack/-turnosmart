@@ -1,10 +1,13 @@
-PATCH V100
+PATCH V101
+
 Substitua:
 - app.js
 - index.html
 - style.css
 - sw.js
-- api/oee-cell-vision.js
+- api/oee-group-verify.js (NOVO)
+- api/oee-machine-verify.js (NOVO)
 - api/health.js se existir
 
-Depois faça redeploy e confira V100.0.0.
+Mantenha api/oee-vision.js atual.
+A V101 volta a usar a FOTO INTEIRA como referência e exige consenso entre duas leituras.

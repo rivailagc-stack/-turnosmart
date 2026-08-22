@@ -198,14 +198,14 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '100.0.0';
+const APP_VERSION = '101.0.0';
 
 async function forceCurrentAppVersion() {
   try {
     const cacheNames = await caches.keys();
     await Promise.all(
       cacheNames
-        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v100.0.0')
+        .filter(name => name.startsWith('turnosmart-') && name !== 'turnosmart-v101.0.0')
         .map(name => caches.delete(name))
     );
   } catch {
@@ -2577,26 +2577,7 @@ function renderOeeMachineEditor(rows=state.oeeMachineEditorData){
 }
 
 function machineOeeFromEditor(){
-  const rows=Array.isArray(state.oeeMachineEditorData)
-    ?state.oeeMachineEditorData
-    :[];
-
-  return rows
-    .filter(row=>
-      row.confirmed===true &&
-      row.oee!==null &&
-      row.oee!=='' &&
-      Number.isFinite(Number(row.oee)) &&
-      Number(row.oee)>=0 &&
-      Number(row.oee)<=100
-    )
-    .map(row=>({
-      machine:normalizeMachineCode(row.machine),
-      oee:Number(row.oee),
-      confidence:Number(row.confidence||100),
-      source:row.source||'v100_cell'
-    }))
-    .filter(row=>row.machine);
+  return v101OfficialRows(state.oeeMachineEditorData||[]).map(row=>({machine:normalizeMachineCode(row.machine),oee:Number(row.oee),confidence:Number(row.confidence||100),source:row.source||'V101 consenso'})).filter(row=>row.machine);
 }
 
 function editorOeeText() {
@@ -5326,24 +5307,13 @@ function oee986MergeVisionRows(visionRows){
   });
 }
 
-function oee986ConfirmedRows(rows){
-  return v100OfficialRows(rows);
-}
+function oee986ConfirmedRows(rows){return v101OfficialRows(rows);}
 
 function oee986BlockUnsafeReport(rows){
-  const confirmed=v997ConfirmedRows(rows);
-  const ratio=confirmed.length/Math.max(1,oee986MachineOrder().length);
-
-  state.oeeReadReliability={
-    confirmed:confirmed.length,
-    total:oee986MachineOrder().length,
-    ratio
-  };
-
-  state.oeeReadingReady=
-    confirmed.length>=5 &&
-    ratio>=0.25;
-
+  const confirmed=v101OfficialRows(rows);
+  const ratio=confirmed.length/Math.max(1,V101_MACHINES.length);
+  state.oeeReadReliability={confirmed:confirmed.length,total:V101_MACHINES.length,ratio};
+  state.oeeReadingReady=confirmed.length>=3;
   return state.oeeReadingReady;
 }
 
@@ -5786,13 +5756,112 @@ function v100Coverage(rows){
     V100_MACHINE_ORDER.length*100
   );
 }
+
+// =====================================================
+// V101 — CONSENSO VISUAL USANDO SEMPRE A FOTO INTEIRA
+// =====================================================
+const V101_MACHINES=['MK-138','MK-105','MK-108','MK-223','MK-192','MK-69','MK-172','MK-173','MK-178','MK-179','MK-212','MK-214','MK-217','MK-220','MK-159','MK-222','MK-170','MK-176','MK-188','MK-149'];
+
+function v101ValidOee(value){
+  if(value===null||value===undefined||value==='')return null;
+  const n=Number(value);
+  return Number.isFinite(n)&&n>=0&&n<=100?n:null;
+}
+
+function v101FirstPassMap(rows){
+  return new Map((rows||[]).map(r=>[r.machine,{...r,oee:v101ValidOee(r.oee)}]));
+}
+
+async function v101GroupPass(fullBoardDataUrl,scope){
+  const all=[];
+  const size=4;
+  for(let i=0;i<V101_MACHINES.length;i+=size){
+    const machines=V101_MACHINES.slice(i,i+size);
+    try{
+      const response=await fetch('/api/oee-group-verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fullBoardDataUrl,scope,machines})});
+      const data=await response.json().catch(()=>({}));
+      if(response.ok&&data.ok)all.push(...(data.rows||[]));
+      else all.push(...machines.map(machine=>({machine,oee:null,confirmed:false,reason:data.error||'2ª leitura indisponível'})));
+    }catch(error){
+      all.push(...machines.map(machine=>({machine,oee:null,confirmed:false,reason:String(error?.message||error)})));
+    }
+  }
+  return new Map(all.map(r=>[r.machine,r]));
+}
+
+async function v101ThirdPass(fullBoardDataUrl,scope,machines){
+  const result=new Map();
+  const batchSize=3;
+  for(let i=0;i<machines.length;i+=batchSize){
+    const batch=machines.slice(i,i+batchSize);
+    const got=await Promise.all(batch.map(async machine=>{
+      try{
+        const response=await fetch('/api/oee-machine-verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fullBoardDataUrl,scope,machine})});
+        const data=await response.json().catch(()=>({}));
+        return response.ok&&data.ok?data:{machine,oee:null,confirmed:false};
+      }catch(_){return {machine,oee:null,confirmed:false};}
+    }));
+    got.forEach(r=>result.set(r.machine,r));
+  }
+  return result;
+}
+
+function v101Same(a,b){
+  const x=v101ValidOee(a),y=v101ValidOee(b);
+  return x!==null&&y!==null&&Math.abs(x-y)<=1;
+}
+
+async function v101BuildConsensus(firstRows,fullBoardDataUrl,scope){
+  const first=v101FirstPassMap(firstRows);
+  const second=await v101GroupPass(fullBoardDataUrl,scope);
+  const disputes=[];
+
+  for(const machine of V101_MACHINES){
+    const a=first.get(machine),b=second.get(machine);
+    if(!(a?.columnConfirmed&&a?.rowConfirmed&&a?.percentVisible&&a?.confidence>=80&&b?.confirmed&&v101Same(a.oee,b.oee))){
+      if(v101ValidOee(a?.oee)!==null||v101ValidOee(b?.oee)!==null)disputes.push(machine);
+    }
+  }
+
+  const third=await v101ThirdPass(fullBoardDataUrl,scope,disputes);
+
+  return V101_MACHINES.map(machine=>{
+    const a=first.get(machine)||{};const b=second.get(machine)||{};const c=third.get(machine)||{};
+    const av=v101ValidOee(a.oee),bv=v101ValidOee(b.oee),cv=v101ValidOee(c.oee);
+    let final=null;let votes=0;let source='';
+
+    if(v101Same(av,bv)){final=Math.round((av+bv)/2);votes=2;source='1ª+2ª leitura';}
+    else if(v101Same(av,cv)){final=Math.round((av+cv)/2);votes=2;source='1ª+3ª leitura';}
+    else if(v101Same(bv,cv)){final=Math.round((bv+cv)/2);votes=2;source='2ª+3ª leitura';}
+
+    // 0% precisa estar explicitamente evidenciado por pelo menos duas leituras.
+    if(final===0){
+      const evidence=[a.evidence,b.evidence,c.evidence].filter(Boolean).filter(x=>/\b0\s*%/.test(String(x))).length;
+      if(evidence<2)final=null;
+    }
+
+    return {
+      machine,
+      oee:final,
+      confirmed:final!==null&&votes>=2,
+      exactCellConfirmed:final!==null&&votes>=2,
+      confidence:final!==null?Math.max(Number(a.confidence||0),Number(b.confidence||0),Number(c.confidence||0)):0,
+      source:final!==null?`V101 consenso: ${source}`:'V101 sem consenso',
+      description:final!==null?`${final}% confirmado por duas leituras independentes na foto completa.`:'Sem consenso suficiente. Não entra no relatório.',
+      evidence:[a.evidence,b.evidence,c.evidence].filter(Boolean).join(' | '),
+      firstPassOee:av,
+      secondPassOee:bv,
+      thirdPassOee:cv
+    };
+  });
+}
+
+function v101OfficialRows(rows){
+  return (rows||[]).filter(r=>r.confirmed===true&&r.oee!==null&&r.oee!==''&&Number.isFinite(Number(r.oee))&&Number(r.oee)>=0&&Number(r.oee)<=100).map(r=>({...r,oee:Number(r.oee),exactCellConfirmed:true}));
+}
 async function processOeeColumnPhoto(){
   const file=$('oeeImageInput')?.files?.[0];
-
-  if(!file){
-    showToast('Escolha a foto do quadro primeiro.');
-    return [];
-  }
+  if(!file){showToast('Escolha a foto do quadro primeiro.');return [];}
 
   const statusEl=$('oeeStatus');
   const operationalDate=$('reportDate').value||todayISO();
@@ -5800,56 +5869,37 @@ async function processOeeColumnPhoto(){
   const scope=boardScopeForReport(operationalDate,shift);
 
   try{
-    statusEl.textContent=`V100: preparando ${scope.label}...`;
-
     const fullDataUrl=state.oeeImageDataUrl||await dataUrlFromFile(file);
     state.oeeImageDataUrl=fullDataUrl;
 
-    const image=await loadImageElement(fullDataUrl);
-    const cells=v100BuildFixedCells(image,scope);
+    statusEl.textContent=`V101: 1ª leitura da foto inteira — ${scope.label}...`;
 
-    state.oeeRowPreviews=cells.map(cell=>cell.dataUrl);
+    const response=await fetch('/api/oee-vision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fullBoardDataUrl:fullDataUrl,imageDataUrl:fullDataUrl,date:operationalDate,shift,scope,machineOrder:V101_MACHINES,mode:'v101_full_board'})});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok||data.ok===false)throw new Error(data.error||`Falha IA HTTP ${response.status}`);
 
-    statusEl.textContent=`V100: lendo 20 células exatas de ${scope.label}...`;
-
-    const rows=await v100ReadAllCells(cells,scope);
+    statusEl.textContent=`V101: conferindo a mesma coluna com leituras independentes...`;
+    const rows=await v101BuildConsensus(data.rows||[],fullDataUrl,scope);
 
     state.oeeMachineEditorData=rows;
+    state.oeeConfirmedRows=v101OfficialRows(rows);
+    state.oeeReadingReady=state.oeeConfirmedRows.length>=3;
+    state.oeeRowPreviews=[];
+
     renderOeeMachineEditor(rows);
+    if($('oeeOcrText')){$('oeeOcrText').value=editorOeeText();state.oeeOcrText=$('oeeOcrText').value;}
 
-    if($('oeeOcrText')){
-      $('oeeOcrText').value=editorOeeText();
-      state.oeeOcrText=$('oeeOcrText').value;
-    }
+    const confirmed=state.oeeConfirmedRows.length;
+    const low=state.oeeConfirmedRows.filter(r=>r.oee<65).length;
+    const doubtful=20-confirmed;
+    statusEl.textContent=`V101 ${scope.label}: ${confirmed}/20 confirmados por consenso. ${low} abaixo de 65%. ${doubtful} sem consenso e fora do relatório.`;
 
-    const official=v100OfficialRows(rows);
-    const coverage=v100Coverage(rows);
-
-    state.oeeReadingReady=official.length>0;
-    state.oeeConfirmedRows=official;
-
-    const low=official.filter(r=>r.oee<65).length;
-    const doubtful=rows.filter(r=>!r.confirmed).length;
-
-    statusEl.textContent=
-      `V100 ${scope.label}: ${official.length}/20 OEE confirmados (${coverage}%). `+
-      `${low} abaixo de 65%; ${doubtful} célula(s) sem leitura segura. `+
-      `Vazio/ilegível não vira 0%.`;
-
-    if(coverage<35){
-      showToast(
-        'Leitura insuficiente. Fotografe o quadro inteiro, o mais reto possível e sem cortar as bordas.'
-      );
-    }
-
+    if(confirmed<5)showToast('Poucos valores tiveram consenso. Use a foto inteira, nítida e sem cortar o quadro.');
     return rows;
-
   }catch(error){
-    console.error('V100 falhou:',error);
-    state.oeeReadingReady=false;
-    state.oeeMachineEditorData=[];
-    state.oeeConfirmedRows=[];
-    statusEl.textContent=`Falha na leitura do quadro: ${error.message}.`;
+    console.error('V101 falhou:',error);
+    state.oeeReadingReady=false;state.oeeMachineEditorData=[];state.oeeConfirmedRows=[];
+    statusEl.textContent=`Falha na leitura: ${error.message}.`;
     showToast(`Leitura OEE: ${error.message}`);
     return [];
   }
@@ -8834,7 +8884,7 @@ async function loadEmbeddedPowerBiOee(force=false){
   if(status)status.textContent='Carregando histórico OEE do Power BI...';
 
   try{
-    const response=await fetch('/oee-powerbi-2026.json?v=100.0.0',{cache:force?'reload':'default'});
+    const response=await fetch('/oee-powerbi-2026.json?v=101.0.0',{cache:force?'reload':'default'});
     if(!response.ok)throw new Error(`HTTP ${response.status}`);
 
     const data=await response.json();
@@ -15447,7 +15497,7 @@ function init() {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', async () => {
       try {
-        const registration = await navigator.serviceWorker.register('/sw.js?v=100.0.0');
+        const registration = await navigator.serviceWorker.register('/sw.js?v=101.0.0');
         registration.update();
       } catch {}
     });
