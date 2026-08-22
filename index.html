@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111c33">
+  <title>TurnoSmart</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="eyebrow">Indaiatuba • Manutenção</div>
+    <div class="company">Ecopack Brasil</div>
+    <div class="brand">TurnoSmart <span class="version">Clean V2 + SGMan</span></div>
+  </header>
+
+  <main>
+    <section id="painel" class="page active">
+      <div class="card hero">
+        <div class="eyebrow orange">FOCO DO SUPERVISOR</div>
+        <h1>Foto → OEE → Top 10 → 3 prioridades</h1>
+        <p>Aplicativo enxuto. O SGMan trabalha por trás da análise, sem criar uma aba extra.</p>
+        <button class="primary" data-go="novo">Nova análise</button>
+      </div>
+    </section>
+
+    <section id="novo" class="page">
+      <div class="card">
+        <div class="eyebrow orange">1. FOTO DO QUADRO</div>
+        <h2>Enviar quadro de OEE</h2>
+        <div class="grid2">
+          <label>Data do relatório
+            <input id="reportDate" type="date">
+          </label>
+          <label>Turno/coluna
+            <select id="reportShift">
+              <option value="A">A</option>
+              <option value="B">B</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="upload">
+          <input id="oeeImageInput" type="file" accept="image/*" capture="environment">
+          <span>📷 Escolher ou tirar foto</span>
+        </label>
+
+        <img id="preview" class="preview hidden" alt="Prévia do quadro">
+
+        <button id="analyzeBtn" class="primary">Analisar quadro</button>
+        <div id="status" class="status"></div>
+      </div>
+    </section>
+
+    <section id="analise" class="page">
+      <div class="card">
+        <div class="eyebrow orange">2. ANÁLISE OEE</div>
+        <h2>Leitura confirmada</h2>
+        <div id="summary" class="summary"></div>
+        <div id="readings" class="readings"></div>
+      </div>
+    </section>
+
+    <section id="acoes" class="page">
+      <div class="card">
+        <div class="eyebrow orange">3. INTELIGÊNCIA DO SUPERVISOR</div>
+        <h2>Top 10 — escolha 3 prioridades</h2>
+        <p>Somente OEE confirmado entra aqui. Selecione exatamente 3 máquinas.</p>
+        <div id="counter" class="counter">0/3 selecionada(s)</div>
+        <div id="top10"></div>
+      </div>
+
+      <div class="card">
+        <div class="eyebrow orange">4. RELATÓRIO</div>
+        <h2>Ações da manutenção</h2>
+        <textarea id="reportText" rows="20" readonly></textarea>
+        <button id="copyBtn" class="primary">Copiar relatório</button>
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottom">
+    <button data-go="painel">🏠<span>Painel</span></button>
+    <button data-go="novo">＋<span>Novo</span></button>
+    <button data-go="analise">▦<span>Análise</span></button>
+    <button data-go="acoes">✓<span>Ações</span></button>
+  </nav>
+
+  <script src="/app.js"></script>
+</body>
+</html>
