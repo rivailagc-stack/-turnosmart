@@ -1,212 +1,43 @@
-const MODEL=process.env.GEMINI_MODEL||'gemini-3.6-flash';
+const MACHINES=['MK-02','MK-08','MK-138','MK-105','MK-108','MK-223','MK-192','MK-69','MK-172','MK-173','MK-178','MK-179','MK-212','MK-214','MK-217','MK-220','MK-159','MK-222','MK-170','MK-176','MK-188','MK-149'];
 
-const MACHINES=[
-  'MK-138','MK-105','MK-108','MK-223','MK-192','MK-69','MK-172','MK-173',
-  'MK-178','MK-179','MK-212','MK-214','MK-217','MK-220','MK-159','MK-222',
-  'MK-170','MK-176','MK-188','MK-149'
-];
-
-function parseDataUrl(v){
-  const m=String(v||'').match(/^data:(image\/[^;]+);base64,(.+)$/s);
-  return m?{mimeType:m[1],data:m[2]}:null;
+function extractText(data){
+  if(typeof data?.output_text==='string') return data.output_text;
+  for(const item of data?.output||[]) for(const c of item?.content||[]) if(c?.type==='output_text'&&c?.text) return c.text;
+  return '';
+}
+function parseJson(text){
+  const clean=String(text||'').replace(/^```json\s*/i,'').replace(/```$/,'').trim();
+  return JSON.parse(clean);
 }
 
-function normalizeMachine(v){
-  const n=String(v||'').match(/\d{1,3}/)?.[0];
-  return n?`MK-${Number(n)}`:'';
-}
+module.exports=async function handler(req,res){
+  if(req.method!=='POST') return res.status(405).json({ok:false,error:'Use POST.'});
+  const key=process.env.OPENAI_API_KEY||process.env.OPENAI_KEY;
+  if(!key) return res.status(500).json({ok:false,error:'OPENAI_API_KEY não está configurada no Vercel.'});
+  const {imageDataUrl,scope={}}=req.body||{};
+  if(!imageDataUrl||!String(imageDataUrl).startsWith('data:image/')) return res.status(400).json({ok:false,error:'Imagem não recebida.'});
 
-function parseJsonText(text){
-  const clean=String(text||'')
-    .trim()
-    .replace(/^```json\s*/i,'')
-    .replace(/^```\s*/,'')
-    .replace(/\s*```$/,'')
-    .trim();
+  const prompt=`Você é o leitor visual do quadro semanal de OEE da Ecopack. Leia a FOTO ORIGINAL inteira, usando a geometria da tabela, não OCR cego.\n\nCOLUNA ALVO: ${scope.label||''}. Data: ${scope.date||''}. Turno: ${scope.shift||''}.\nA tabela tem dias SEGUNDA a DOMINGO e, em cada dia, subcolunas A e B. Leia SOMENTE a coluna alvo. Não pegue números da coluna vizinha.\nAs linhas, de cima para baixo, são EXATAMENTE: ${MACHINES.join(', ')}.\nEm cada célula há anotações como nome, quantidade produzida e OEE. O OEE é o percentual escrito na célula. NÃO transforme produção em percentual. NÃO invente 0. Se a célula estiver vazia ou ilegível, use null.\nTambém leia no cabeçalho da MESMA coluna o OEE geral do turno, quando existir. Se não estiver legível, null. previousTurnOee só deve ser preenchido se você conseguir ler com segurança o OEE geral da coluna cronologicamente anterior; senão null.\nResponda APENAS JSON válido neste formato: {"ok":true,"currentTurnOee":55,"previousTurnOee":54,"rows":[{"machine":"MK-02","oee":null,"confidence":0,"evidence":"","reason":"vazio"},{"machine":"MK-08","oee":63,"confidence":95,"evidence":"63%","reason":"percentual visível na célula"}]}.\nInclua as 22 máquinas, exatamente uma vez cada.`;
 
   try{
-    return JSON.parse(clean);
-  }catch{}
-
-  const a=clean.indexOf('{');
-  const b=clean.lastIndexOf('}');
-  if(a>=0 && b>a){
-    return JSON.parse(clean.slice(a,b+1));
-  }
-
-  throw new Error('A IA não retornou JSON válido.');
-}
-
-function responseText(body){
-  const parts=body?.candidates?.[0]?.content?.parts||[];
-  return parts.map(p=>p?.text||'').join('').trim();
-}
-
-module.exports=async(req,res)=>{
-  if(req.method!=='POST'){
-    return res.status(405).json({ok:false,error:'Use POST.'});
-  }
-
-  const key=process.env.GEMINI_API_KEY;
-  if(!key){
-    return res.status(200).json({
-      ok:false,
-      error:'GEMINI_API_KEY não está disponível na Vercel.'
+    const r=await fetch('https://api.openai.com/v1/responses',{
+      method:'POST',headers:{'Authorization':`Bearer ${key}`,'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:process.env.OPENAI_VISION_MODEL||'gpt-5.6-luna',
+        input:[{role:'user',content:[
+          {type:'input_text',text:prompt},
+          {type:'input_image',image_url:imageDataUrl,detail:'high'}
+        ]}],
+        max_output_tokens:3500
+      })
     });
-  }
-
-  try{
-    const body=typeof req.body==='string'?JSON.parse(req.body):req.body||{};
-    const image=parseDataUrl(body.imageDataUrl);
-    const label=String(body.scope?.label||'').trim();
-
-    if(!image){
-      return res.status(400).json({ok:false,error:'Foto inválida ou não recebida.'});
-    }
-
-    // Proteção adicional contra payload exagerado.
-    if(image.data.length>3_500_000){
-      return res.status(413).json({
-        ok:false,
-        error:'A foto ficou grande demais para análise. Tire a foto mais próxima do quadro.'
-      });
-    }
-
-    const prompt=`
-Você está analisando uma fotografia do QUADRO DE ACOMPANHAMENTO DE OEE SEMANAL.
-
-Leia SOMENTE a coluna/turno: ${label}.
-
-A ordem das máquinas no quadro é:
-${MACHINES.join(', ')}
-
-REGRAS OBRIGATÓRIAS:
-1. Primeiro localize visualmente o cabeçalho ${label}.
-2. Depois localize cada MK na coluna da esquerda.
-3. Siga horizontalmente a linha da MK até a coluna ${label}.
-4. Leia SOMENTE o percentual de OEE escrito naquela célula.
-5. Ignore produção, nome de operador, horário, quantidade de peças, comentários e células vizinhas.
-6. Célula vazia = null.
-7. Ilegível ou duvidosa = null.
-8. Nunca invente um número.
-9. Nunca converta célula vazia em 0.
-10. 0% só é válido se "0%" estiver explicitamente escrito.
-11. Confirme visualmente linha + coluna antes de aceitar.
-12. confirmed=true apenas se confidence >= 90.
-13. Leia também, se estiver claramente visível no topo:
-    - OEE geral do turno ${label};
-    - OEE geral do turno imediatamente anterior.
-
-Retorne SOMENTE JSON:
-{
-  "scope":"${label}",
-  "currentTurnOee":55,
-  "previousTurnOee":62,
-  "rows":[
-    {
-      "machine":"MK-138",
-      "oee":64,
-      "confirmed":true,
-      "confidence":96,
-      "rowConfirmed":true,
-      "columnConfirmed":true,
-      "percentVisible":true,
-      "evidence":"64%",
-      "reason":"64% visível na célula correta"
-    }
-  ]
-}`;
-
-    const gemini=await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(MODEL)}:generateContent`,
-      {
-        method:'POST',
-        headers:{
-          'Content-Type':'application/json',
-          'x-goog-api-key':key
-        },
-        body:JSON.stringify({
-          contents:[{
-            role:'user',
-            parts:[
-              {text:prompt},
-              {
-                inlineData:{
-                  mimeType:image.mimeType,
-                  data:image.data
-                }
-              }
-            ]
-          }],
-          generationConfig:{
-            responseMimeType:'application/json'
-          }
-        })
-      }
-    );
-
-    const geminiBody=await gemini.json().catch(()=>({}));
-
-    if(!gemini.ok){
-      const msg=
-        geminiBody?.error?.message||
-        `Gemini HTTP ${gemini.status}`;
-      throw new Error(msg);
-    }
-
-    const parsed=parseJsonText(responseText(geminiBody));
-    const map=new Map(
-      (parsed.rows||[]).map(r=>[normalizeMachine(r.machine),r])
-    );
-
-    const rows=MACHINES.map(machine=>{
-      const r=map.get(machine)||{};
-      const raw=r.oee;
-      const has=raw!==null && raw!==undefined && raw!=='';
-      const oee=has?Number(raw):null;
-      const confidence=Number(r.confidence||0);
-      const evidence=String(r.evidence||'');
-
-      const valid=
-        r.confirmed===true &&
-        r.rowConfirmed===true &&
-        r.columnConfirmed===true &&
-        r.percentVisible===true &&
-        confidence>=90 &&
-        oee!==null &&
-        Number.isFinite(oee) &&
-        oee>=0 &&
-        oee<=100 &&
-        (oee!==0 || /\b0\s*%/.test(evidence));
-
-      return {
-        machine,
-        oee:valid?oee:null,
-        confirmed:valid,
-        confidence,
-        evidence,
-        reason:String(r.reason||'')
-      };
-    });
-
-    const current=Number(parsed.currentTurnOee);
-    const previous=Number(parsed.previousTurnOee);
-
-    return res.status(200).json({
-      ok:true,
-      scope:label,
-      rows,
-      confirmedCount:rows.filter(r=>r.confirmed).length,
-      currentTurnOee:Number.isFinite(current)?current:null,
-      previousTurnOee:Number.isFinite(previous)?previous:null,
-      model:MODEL
-    });
-
-  }catch(error){
-    console.error('OEE analyze error:',error);
-    return res.status(200).json({
-      ok:false,
-      error:String(error?.message||error)
-    });
+    const raw=await r.json();
+    if(!r.ok) return res.status(r.status).json({ok:false,error:raw?.error?.message||'Erro OpenAI.'});
+    const parsed=parseJson(extractText(raw));
+    const allowed=new Set(MACHINES);
+    const rows=(Array.isArray(parsed.rows)?parsed.rows:[]).filter(x=>allowed.has(x.machine));
+    return res.status(200).json({ok:true,currentTurnOee:parsed.currentTurnOee??null,previousTurnOee:parsed.previousTurnOee??null,rows});
+  }catch(e){
+    return res.status(500).json({ok:false,error:`Falha IA visual: ${e.message||e}`});
   }
 };
