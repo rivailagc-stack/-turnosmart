@@ -660,95 +660,70 @@ async function v70ReadBoard(dataUrl,dateStr,shiftLetter,statusEl){
     source:'ocr_v70_column_crop'
   };
 }
+async function callVisionReader(){
+  const response=await fetch('/api/oee-analyze',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      imageDataUrl:state.imageDataUrl,
+      scope:{label:scopeLabel(),date:$('reportDate').value,shift:$('reportShift').value}
+    })
+  });
+  const payload=await response.json().catch(()=>({}));
+  if(!response.ok||!payload?.ok)throw new Error(payload?.error||`IA HTTP ${response.status}`);
+  return payload;
+}
+
+function normalizeVisionRows(ai){
+  const map=new Map((ai?.rows||[]).map(r=>[String(r.machine||'').toUpperCase(),r]));
+  return V70_OEE_BOARD_MACHINES.map(machine=>{
+    const r=map.get(machine);
+    const n=Number(r?.oee);
+    const valid=Number.isFinite(n)&&n>=10&&n<=100;
+    return valid?{
+      machine,oee:n,confirmed:true,
+      confidence:Number(r?.confidence||95),
+      evidence:String(r?.evidence||''),
+      reason:String(r?.reason||'IA visual — célula da coluna selecionada.')
+    }:{machine,oee:null,confirmed:false,confidence:0,reason:'Sem OEE legível nesta célula.'};
+  });
+}
+
 $('analyzeBtn').addEventListener('click',async()=>{
   renderTeamScale();
-
-  if(!state.imageDataUrl){
-    $('status').textContent='Escolha a foto primeiro.';
-    return;
-  }
-
-  const btn=$('analyzeBtn');
-  btn.disabled=true;
-
+  if(!state.imageDataUrl){$('status').textContent='Escolha a foto primeiro.';return;}
+  const btn=$('analyzeBtn'); btn.disabled=true;
   try{
-    $('status').textContent=`Recortando somente ${scopeLabel()}...`;
-
-    // MOTOR V70 PRIMEIRO.
-    const local=await v70ReadBoard(
-      state.imageDataUrl,
-      $('reportDate').value,
-      $('reportShift').value,
-      $('status')
-    );
-
-    // IA é usada SOMENTE para o OEE geral / comparação e como complemento,
-    // nunca para apagar a leitura das MKs feita pela V70.
-    let ai=null;
+    $('status').textContent=`IA visual lendo o quadro inteiro e isolando ${scopeLabel()}...`;
+    let data=null, aiError=null;
     try{
-      const r=await fetch('/api/oee-analyze',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          imageDataUrl:state.imageDataUrl,
-          scope:{
-            label:scopeLabel(),
-            date:$('reportDate').value,
-            shift:$('reportShift').value
-          }
-        })
-      });
-      ai=await r.json().catch(()=>null);
+      const ai=await callVisionReader();
+      const rows=normalizeVisionRows(ai);
+      const count=rows.filter(r=>r.confirmed).length;
+      if(count<1)throw new Error('A IA respondeu, mas não confirmou nenhuma MK.');
+      data={
+        ok:true,scope:scopeLabel(),rows,confirmedCount:count,
+        currentTurnOee:Number.isFinite(Number(ai.currentTurnOee))?Number(ai.currentTurnOee):null,
+        previousTurnOee:Number.isFinite(Number(ai.previousTurnOee))?Number(ai.previousTurnOee):null,
+        source:'openai_vision_primary'
+      };
     }catch(e){
-      console.warn('IA complementar indisponível:',e);
+      aiError=e;
+      console.warn('IA visual falhou; iniciando OCR V70:',e);
+      $('status').textContent=`IA indisponível (${e.message||e}). Tentando OCR V70 em ${scopeLabel()}...`;
+      data=await v70ReadBoard(state.imageDataUrl,$('reportDate').value,$('reportShift').value,$('status'));
+      data.source='ocr_v70_fallback';
     }
 
-    const data={
-      ...local,
-      currentTurnOee:
-        ai?.ok && ai.currentTurnOee!==null && ai.currentTurnOee!==undefined
-          ?Number(ai.currentTurnOee):null,
-      previousTurnOee:
-        ai?.ok && ai.previousTurnOee!==null && ai.previousTurnOee!==undefined
-          ?Number(ai.previousTurnOee):null
-    };
-
-    // Se a IA encontrou uma MK que o OCR V70 deixou vazia,
-    // ela pode preencher, mas nunca substituir uma leitura V70 existente.
-    if(ai?.ok&&Array.isArray(ai.rows)){
-      const aiMap=new Map(ai.rows.filter(r=>r.confirmed&&r.oee!==null).map(r=>[r.machine,r]));
-      data.rows=data.rows.map(row=>{
-        if(row.oee!==null)return row;
-        const extra=aiMap.get(row.machine);
-        return extra?{...extra,reason:`IA complementar: ${extra.reason||''}`} : row;
-      });
-      data.confirmedCount=data.rows.filter(r=>r.confirmed&&r.oee!==null).length;
-    }
-
-    state.analysis=data;
-    state.selected.clear();
-
-    await Promise.allSettled([
-      loadSgman(),
-      saveProductionHistory(),
-      loadHistories()
-    ]);
-
-    renderAnalysis();
-    renderTop10();
-    buildReport();
-
-    $('status').textContent=
-      `Leitura ${scopeLabel()}: ${data.confirmedCount}/22 MK com valor.`;
-
+    state.analysis=data; state.selected.clear();
+    await Promise.allSettled([loadSgman(),saveProductionHistory(),loadHistories()]);
+    renderAnalysis(); renderTop10(); buildReport();
+    $('status').textContent=`${data.source==='openai_vision_primary'?'IA visual':'OCR reserva'}: ${data.confirmedCount}/22 MK lidas em ${scopeLabel()}${aiError?' • IA: '+(aiError.message||aiError):''}.`;
     go('analise');
-
   }catch(e){
     console.error(e);
-    $('status').textContent=`Erro no OCR da coluna: ${e.message||e}`;
-  }finally{
-    btn.disabled=false;
-  }
+    $('status').textContent=`Falha na leitura: ${e.message||e}`;
+  }finally{btn.disabled=false;}
 });
 
 function renderAnalysis(){
