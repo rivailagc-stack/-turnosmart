@@ -1,6 +1,0 @@
-IMPORTANTE:
-Remova estes dois arquivos do projeto antes do novo deploy, se eles estiverem lá:
-- api/oee-group-verify.js
-- api/oee-machine-verify.js
-
-Eles foram incorporados ao api/oee-verify.js.
