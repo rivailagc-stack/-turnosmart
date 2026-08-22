@@ -1,9 +1,0 @@
-TurnoSmart V98.5.0 — OEE VISION CONFIÁVEL
-
-- Pré-processa cada célula em 4 versões: natural, contraste, realce de cor e limiar.
-- Gemini recebe as 4 versões juntas pelo endpoint seguro /api/oee-vision.
-- OCR local funciona como segunda opinião.
-- OEE só é confirmado com concordância ou IA >=92% de confiança.
-- Divergência fica para conferência e NÃO entra no relatório/prioridades.
-- Produção, número da MK e valores sem % são proibidos como OEE.
-- Máquina/célula sem percentual legível permanece sem OEE.
