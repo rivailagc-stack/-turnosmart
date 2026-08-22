@@ -23,11 +23,39 @@ function fileToDataUrl(file){
 }
 async function compressImage(file){
   const data=await fileToDataUrl(file);
-  const img=new Image(); img.src=data; await img.decode();
-  const maxW=1800, scale=Math.min(1,maxW/img.width);
-  const c=document.createElement('canvas'); c.width=Math.round(img.width*scale); c.height=Math.round(img.height*scale);
-  c.getContext('2d').drawImage(img,0,0,c.width,c.height);
-  return c.toDataURL('image/jpeg',0.82);
+  const img=new Image();
+  img.src=data;
+  await img.decode();
+
+  let maxW=1700;
+  let quality=0.78;
+  let result='';
+
+  for(let attempt=0;attempt<5;attempt++){
+    const scale=Math.min(1,maxW/img.width);
+    const c=document.createElement('canvas');
+    c.width=Math.max(1,Math.round(img.width*scale));
+    c.height=Math.max(1,Math.round(img.height*scale));
+
+    const ctx=c.getContext('2d',{alpha:false});
+    ctx.fillStyle='#fff';
+    ctx.fillRect(0,0,c.width,c.height);
+    ctx.drawImage(img,0,0,c.width,c.height);
+
+    result=c.toDataURL('image/jpeg',quality);
+
+    // Mantém margem segura para o limite de payload da Vercel.
+    if(result.length<3_200_000)break;
+
+    maxW=Math.round(maxW*0.86);
+    quality=Math.max(0.60,quality-0.06);
+  }
+
+  if(!result || result.length>=4_000_000){
+    throw new Error('Foto muito grande. Tente novamente com o quadro mais próximo.');
+  }
+
+  return result;
 }
 
 $('powerBiFileInput')?.addEventListener('change',async e=>{
@@ -395,31 +423,82 @@ function cleanProblemText(v){
 
 $('analyzeBtn').addEventListener('click',async()=>{
   renderTeamScale();
-  if(!state.imageDataUrl){$('status').textContent='Escolha a foto primeiro.';return;}
+
+  if(!state.imageDataUrl){
+    $('status').textContent='Escolha a foto primeiro.';
+    return;
+  }
+
+  const btn=$('analyzeBtn');
+  btn.disabled=true;
   $('status').textContent=`Analisando ${scopeLabel()}...`;
-  $('analyzeBtn').disabled=true;
+
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),55000);
+
   try{
-    const [r]=await Promise.all([
-      fetch('/api/oee-analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    // IMPORTANTE: primeiro resolve o OEE.
+    // SGMan e históricos não podem impedir a análise da foto.
+    const response=await fetch('/api/oee-analyze',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      signal:controller.signal,
+      body:JSON.stringify({
         imageDataUrl:state.imageDataUrl,
-        scope:{label:scopeLabel(),date:$('reportDate').value,shift:$('reportShift').value}
-      })}),
-      loadSgman(),
-      saveProductionHistory()
-    ]);
-    await loadHistories();
-    const d=await r.json();
-    if(!r.ok||!d.ok)throw new Error(d.error||`HTTP ${r.status}`);
-    state.analysis=d;
+        scope:{
+          label:scopeLabel(),
+          date:$('reportDate').value,
+          shift:$('reportShift').value
+        }
+      })
+    });
+
+    const raw=await response.text();
+    let data={};
+    try{
+      data=raw?JSON.parse(raw):{};
+    }catch{
+      throw new Error(`API respondeu conteúdo inválido (HTTP ${response.status}).`);
+    }
+
+    if(!response.ok || !data.ok){
+      throw new Error(data.error||`Falha na API OEE (HTTP ${response.status}).`);
+    }
+
+    state.analysis=data;
     state.selected.clear();
+
+    // Atualiza dados auxiliares só DEPOIS da leitura do quadro.
+    await Promise.allSettled([
+      loadSgman(),
+      saveProductionHistory(),
+      loadHistories()
+    ]);
+
     renderAnalysis();
     renderTop10();
     buildReport();
-    $('status').textContent=`Leitura concluída: ${d.confirmedCount}/20 MK confirmadas.`;
+
+    $('status').textContent=
+      `Leitura concluída: ${data.confirmedCount}/20 MK confirmadas.`;
+
     go('analise');
+
   }catch(e){
-    $('status').textContent=`Erro: ${e.message}`;
-  }finally{$('analyzeBtn').disabled=false;}
+    console.error('Erro análise OEE:',e);
+
+    if(e?.name==='AbortError'){
+      $('status').textContent='Erro: a análise demorou demais. Tente novamente.';
+    }else if(String(e?.message||'').toLowerCase().includes('load failed')){
+      $('status').textContent=
+        'Erro de comunicação com a API. Atualize a página e tente novamente.';
+    }else{
+      $('status').textContent=`Erro: ${e?.message||e}`;
+    }
+  }finally{
+    clearTimeout(timer);
+    btn.disabled=false;
+  }
 });
 
 function renderAnalysis(){
