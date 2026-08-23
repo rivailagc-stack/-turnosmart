@@ -452,26 +452,6 @@ function normalizeOrder(order) {
     'machine_stopped', 'machinestopped'
   ]);
 
-  const totalCost = pickValue(order, [
-    'custo_total', 'custototal', 'valor_total', 'valortotal',
-    'custo_os', 'custoos', 'valor_os', 'valoros',
-    'total_custo', 'totalcusto', 'custo', 'valor'
-  ]);
-  const materialCost = pickValue(order, [
-    'custo_material', 'customaterial', 'valor_material', 'valormaterial',
-    'custo_pecas', 'custopecas', 'valor_pecas', 'valorpecas',
-    'pecas_custo', 'pecascusto', 'materiais_custo', 'materiaiscusto'
-  ]);
-  const laborCost = pickValue(order, [
-    'custo_mao_obra', 'customaoobra', 'valor_mao_obra', 'valormaoobra',
-    'custo_mo', 'customo', 'valor_mo', 'valormo',
-    'mao_obra_custo', 'maoobracusto'
-  ]);
-  const thirdPartyCost = pickValue(order, [
-    'custo_terceiros', 'custoterceiros', 'valor_terceiros', 'valorterceiros',
-    'terceiros_custo', 'terceiroscusto'
-  ]);
-
   const combined = `${tag} ${local} ${description} ${comment}`;
 
   return {
@@ -490,10 +470,6 @@ function normalizeOrder(order) {
     endDateSource: completionDate.source || '',
     duration: String(duration || ''),
     machineStopped,
-    totalCost: String(totalCost || ''),
-    materialCost: String(materialCost || ''),
-    laborCost: String(laborCost || ''),
-    thirdPartyCost: String(thirdPartyCost || ''),
     executante: String(pickValue(order, [
       'executante', 'executante_nome', 'executantenome',
       'usuario', 'usuario_nome', 'usuarionome', 'responsavel'
