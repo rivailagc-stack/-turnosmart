@@ -200,7 +200,7 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '57.2.0';
+const APP_VERSION = '57.3.0';
 
 async function forceCurrentAppVersion() {
   try {
@@ -2513,8 +2513,8 @@ async function readOeeWithGemini(){
     state.oeeImageDataUrl=fullDataUrl;
 
     // Mostra a foto inteira, porque agora o Gemini usa contexto do quadro completo.
-    $('oeeImagePreview').src=fullDataUrl;
-    $('oeeImagePreview').classList.remove('hidden');
+    const preview=$('oeeImagePreview'); if(preview) preview.src=fullDataUrl;
+    if(preview) preview.classList.remove('hidden');
 
     const compactCurrent=await resizeDataUrlForExample(fullDataUrl,1400,.74);
 
