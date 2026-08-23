@@ -1,1 +1,10 @@
-Substitua app.js, index.html e sw.js. Depois faça Redeploy na Vercel.
+PATCH V57.5
+Substitua:
+app.js
+index.html
+style.css
+sw.js
+api/oee-gemini.js
+
+Depois Redeploy.
+Confirme na Vercel: GEMINI_MODEL=gemini-3.6-flash

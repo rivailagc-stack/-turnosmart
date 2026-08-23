@@ -1593,3 +1593,10 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
 .oee-machine-row input:focus{
   outline:3px solid rgba(255,152,0,.22);
 }
+
+/* V57.5: não mostrar recortes de linha antigos; Gemini usa foto inteira + coluna ampliada */
+.oee-machine-row img,
+.oee-machine-card img,
+.oee-row-preview,
+.oee-machine-thumb,
+.oee-row-thumb { display:none !important; }

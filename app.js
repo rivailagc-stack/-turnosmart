@@ -2,11 +2,11 @@
 
 function normalizeMachineCode(value) {
   if (value === null || value === undefined) return "";
-  const raw = String(value).trim().toUpperCase();
-  if (!raw) return "";
-  const digits = raw.replace(/[^0-9]/g, "");
+  const digits = String(value).toUpperCase().replace(/[^0-9]/g, "");
   if (!digits) return "";
-  return `MK-${digits.padStart(2, "0")}`;
+  const n = Number(digits);
+  if (!Number.isFinite(n)) return "";
+  return `MK-${n < 10 ? String(n).padStart(2, "0") : String(n)}`;
 }
 
 
@@ -210,7 +210,7 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '57.4.0';
+const APP_VERSION = '57.5.0';
 
 async function forceCurrentAppVersion() {
   try {
@@ -2505,6 +2505,50 @@ function normalizeGeminiOeeRows(rows=[]){
   });
 }
 
+
+async function buildGeminiVisionImages(fullDataUrl, operationalDate, shift){
+  const image=await loadImageElement(fullDataUrl);
+
+  // Full board: context only, still reasonably large.
+  const fullContext=await resizeDataUrlForExample(fullDataUrl,1900,.80);
+
+  // High resolution target column.
+  let columnDataUrl='';
+  try{
+    const processed=preprocessOeeColumn(image,operationalDate,shift);
+    const source=processed?.previewCanvas || processed?.canvas;
+
+    if(source){
+      const targetWidth=1250;
+      const scale=targetWidth/Math.max(1,source.width);
+      const canvas=document.createElement('canvas');
+      canvas.width=targetWidth;
+      canvas.height=Math.max(1,Math.round(source.height*scale));
+
+      const ctx=canvas.getContext('2d');
+      ctx.fillStyle='#fff';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.imageSmoothingEnabled=true;
+      ctx.imageSmoothingQuality='high';
+      ctx.drawImage(source,0,0,canvas.width,canvas.height);
+
+      columnDataUrl=canvas.toDataURL('image/jpeg',.90);
+      state.oeeCropDataUrl=columnDataUrl;
+
+      const cropPreview=$('oeeCropPreview');
+      if(cropPreview)cropPreview.src=columnDataUrl;
+      $('oeeCropPreviewWrap')?.classList.remove('hidden');
+    }
+  }catch(error){
+    console.warn('Não consegui gerar recorte da coluna:',error);
+  }
+
+  return {
+    fullContext,
+    columnDataUrl
+  };
+}
+
 async function readOeeWithGemini(){
   const status=$('oeeStatus');
   const teach=$('geminiTeachBox');
@@ -2517,16 +2561,18 @@ async function readOeeWithGemini(){
     const shift=$('reportShift').value||'1';
     const scope=boardScopeForReport(operationalDate,shift);
 
-    status.textContent=`Gemini olhando o quadro inteiro e procurando ${scope.label}...`;
+    status.textContent=`Preparando visão completa + coluna ${scope.label} em alta resolução...`;
 
     const fullDataUrl=state.oeeImageDataUrl||await dataUrlFromFile(file);
     state.oeeImageDataUrl=fullDataUrl;
 
-    // Mostra a foto inteira, porque agora o Gemini usa contexto do quadro completo.
-    const preview=$('oeeImagePreview'); if(preview) preview.src=fullDataUrl;
-    if(preview) preview.classList.remove('hidden');
+    const preview=$('oeeImagePreview');
+    if(preview){
+      preview.src=fullDataUrl;
+      preview.classList.remove('hidden');
+    }
 
-    const compactCurrent=await resizeDataUrlForExample(fullDataUrl,1400,.74);
+    const vision=await buildGeminiVisionImages(fullDataUrl,operationalDate,shift);
 
     const examples=geminiOeeExamples()
       .filter(example=>example?.imageDataUrl&&Array.isArray(example.rows))
@@ -2534,14 +2580,15 @@ async function readOeeWithGemini(){
 
     status.textContent=
       examples.length
-        ?`Gemini lendo ${scope.label} com ${examples.length} leitura(s) já confirmada(s)...`
-        :`Gemini lendo ${scope.label}. Depois você só corrige os erros e confirma.`;
+        ?`Gemini lendo ${scope.label} com visão dupla e ${examples.length} leitura(s) confirmada(s)...`
+        :`Gemini lendo ${scope.label}: foto inteira para localizar + coluna ampliada para ler.`;
 
     const response=await fetch('/api/oee-gemini',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        imageDataUrl:compactCurrent,
+        imageDataUrl:vision.fullContext,
+        columnImageDataUrl:vision.columnDataUrl,
         scope,
         machines:OEE_BOARD_MACHINES,
         examples,
@@ -2559,9 +2606,14 @@ async function readOeeWithGemini(){
     state.oeeMachineEditorData=rows;
     state.lastGeminiRawRows=JSON.parse(JSON.stringify(rows));
     state.lastGeminiScope=scope;
-    state.lastGeminiImageDataUrl=compactCurrent;
+    state.lastGeminiImageDataUrl=vision.fullContext;
 
     renderOeeMachineEditor(rows);
+
+    // Hide old row preview strips: they were geometry-based and could mislead.
+    document.querySelectorAll('.oee-row-preview,.oee-machine-thumb,.oee-row-thumb').forEach(el=>{
+      el.style.display='none';
+    });
 
     $('oeeOcrText').value=editorOeeText();
     state.oeeOcrText=$('oeeOcrText').value;
@@ -2571,7 +2623,7 @@ async function readOeeWithGemini(){
 
     status.textContent=
       `${detected} OEE encontrado(s) em ${scope.label}. `+
-      `${good} com boa confiança. Corrija somente o que estiver errado e confirme.`;
+      `${good} com boa confiança. Corrija somente os números errados e confirme.`;
 
     teach?.classList.remove('hidden');
     updateGeminiExampleCount();
@@ -2580,7 +2632,7 @@ async function readOeeWithGemini(){
   }catch(error){
     console.error('Gemini OEE:',error);
     status.textContent=
-      `Gemini não conseguiu concluir: ${error.message}. Use “OCR local — reserva” somente se necessário.`;
+      `Gemini não conseguiu concluir: ${error.message}. Use OCR local somente como reserva.`;
     showToast('Gemini não concluiu a leitura.');
     return [];
   }
