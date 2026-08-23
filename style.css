@@ -1454,3 +1454,41 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
     min-height: 88px;
   }
 }
+
+
+/* V57 — modo guiado e ensino do Gemini */
+.oee-guide-card,
+.oee-legend-card,
+.gemini-training-status,
+.gemini-teach-box{
+  border:1px solid #dbe3ee;
+  border-radius:18px;
+  padding:16px;
+  margin:14px 0;
+  background:#f8fafc;
+}
+.oee-guide-card h3{margin:4px 0 12px}
+.oee-guide-steps{display:grid;gap:10px}
+.oee-guide-steps>div{display:grid;grid-template-columns:34px 1fr;gap:10px;align-items:start}
+.oee-guide-steps>div>b{
+  width:30px;height:30px;border-radius:50%;display:grid;place-items:center;
+  background:#ff9800;color:#fff
+}
+.oee-guide-steps span{display:grid;gap:2px}
+.oee-guide-steps small,.field-example,.example-line{color:#667085;line-height:1.4}
+.oee-legend{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.oee-legend span{font-size:.9rem}
+.legend-dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px}
+.legend-dot.green{background:#12b76a}.legend-dot.yellow{background:#f79009}
+.legend-dot.gray{background:#98a2b3}.legend-dot.red{background:#d92d20}
+.oee-main-actions .primary{min-width:190px}
+.gemini-training-status>div{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.gemini-training-status p{margin:7px 0 0;color:#667085}
+.gemini-teach-box{background:#fff7ed;border-color:#fed7aa}
+.gemini-teach-box p{margin:5px 0}
+.gemini-teach-box button{margin-top:10px}
+.oee-editor-head .field-example{display:block;margin-top:6px}
+@media(max-width:640px){
+  .oee-legend{grid-template-columns:1fr}
+  .oee-main-actions{display:grid}
+}

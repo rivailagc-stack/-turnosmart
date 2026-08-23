@@ -16,6 +16,8 @@ const STORAGE = {
 };
 
 
+const GEMINI_OEE_EXAMPLES_KEY = 'turnosmart_gemini_oee_examples_v57';
+const GEMINI_OEE_MAX_EXAMPLES = 5;
 const STORAGE_HISTORY_LIMIT = 25;
 const MAX_MAINTENANCE_ACTIONS = 5;
 const MAX_PRODUCTION_ACTIONS = 3;
@@ -198,7 +200,7 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '56.0.0';
+const APP_VERSION = '57.0.0';
 
 async function forceCurrentAppVersion() {
   try {
@@ -2190,8 +2192,9 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
 
   wrap.innerHTML = `
     <div class="oee-editor-head">
-      <strong>Confirme os valores antes de analisar</strong>
-      <span class="muted">Deixe vazio quando a máquina não trabalhou.</span>
+      <strong>Confira a leitura</strong>
+      <span class="muted">Verde = normalmente pode manter. Amarelo = confira na imagem. Vazio = não invente valor.</span>
+      <small class="field-example"><b>Exemplo:</b> se MK-149 mostra 62%, deixe 62. Se a máquina não rodou e a célula está vazia, deixe em branco.</small>
     </div>
     <div class="oee-editor-grid">
       ${state.oeeMachineEditorData.map((row, index) => {
@@ -2220,7 +2223,13 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
               value="${row.oee === '' ? '' : escapeHtml(String(row.oee))}"
               placeholder="-"
             />
-            <small>${row.oee === '' ? 'Confira a linha e digite o OEE' : `${Math.round(row.confidence || 0)}% confiança — confirme`}</small>
+            <small>${
+              row.oee === ''
+                ? 'Sem leitura — deixe vazio se não houver OEE'
+                : row.confidence >= 80
+                  ? `${Math.round(row.confidence || 0)}% confiança — leitura boa`
+                  : `${Math.round(row.confidence || 0)}% confiança — confira na foto`
+            }</small>
           </label>`;
       }).join('')}
     </div>
@@ -2241,6 +2250,7 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
   });
 
   wrap.classList.remove('hidden');
+  $('geminiTeachBox')?.classList.remove('hidden');
 }
 
 function machineOeeFromEditor() {
@@ -2259,6 +2269,228 @@ function editorOeeText() {
     .join('\n');
 }
 
+
+// ======================================================
+// V57 — GEMINI COM EXEMPLOS CORRIGIDOS PELO SUPERVISOR
+// ======================================================
+function geminiOeeExamples(){
+  try{
+    const value=JSON.parse(localStorage.getItem(GEMINI_OEE_EXAMPLES_KEY)||'[]');
+    return Array.isArray(value)?value:[];
+  }catch{
+    return [];
+  }
+}
+
+function updateGeminiExampleCount(){
+  const target=$('geminiExampleCount');
+  if(!target)return;
+  const count=geminiOeeExamples().length;
+  target.textContent=`${count} exemplo(s) salvo(s)`;
+}
+
+async function resizeDataUrlForExample(dataUrl,maxWidth=520,quality=.58){
+  if(!dataUrl)return '';
+  const image=await loadImageElement(dataUrl);
+  const naturalWidth=image.naturalWidth||image.width;
+  const naturalHeight=image.naturalHeight||image.height;
+  const scale=Math.min(1,maxWidth/Math.max(1,naturalWidth));
+
+  const canvas=document.createElement('canvas');
+  canvas.width=Math.max(1,Math.round(naturalWidth*scale));
+  canvas.height=Math.max(1,Math.round(naturalHeight*scale));
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#fff';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.imageSmoothingEnabled=true;
+  ctx.imageSmoothingQuality='high';
+  ctx.drawImage(image,0,0,canvas.width,canvas.height);
+  return canvas.toDataURL('image/jpeg',quality);
+}
+
+async function ensureCurrentOeeCrop(){
+  const file=$('oeeImageInput')?.files?.[0];
+  if(!file)throw new Error('Escolha a foto do quadro primeiro.');
+
+  const operationalDate=$('reportDate').value||todayISO();
+  const shift=$('reportShift').value||'1';
+  const scope=boardScopeForReport(operationalDate,shift);
+
+  const fullDataUrl=state.oeeImageDataUrl||await dataUrlFromFile(file);
+  state.oeeImageDataUrl=fullDataUrl;
+
+  const image=await loadImageElement(fullDataUrl);
+  const processed=preprocessOeeColumn(image,operationalDate,shift);
+
+  state.oeeCropDataUrl=processed.previewDataUrl;
+  state.oeeRowPreviews=processed.rowPreviews||[];
+
+  $('oeeCropPreview').src=processed.previewDataUrl;
+  $('oeeOcrPreview').src=processed.ocrDataUrl;
+  $('oeeCropPreviewWrap').classList.remove('hidden');
+
+  return {scope,processed};
+}
+
+function normalizeGeminiOeeRows(rows=[]){
+  const byMachine=new Map(
+    (rows||[])
+      .map(row=>({
+        ...row,
+        machine:normalizeMachineCode(row.machine||'')
+      }))
+      .filter(row=>row.machine)
+      .map(row=>[row.machine,row])
+  );
+
+  return OEE_BOARD_MACHINES.map(machine=>{
+    const row=byMachine.get(machine)||{};
+    const raw=row.oee;
+    const has=raw!==null&&raw!==undefined&&raw!=='';
+    const value=has?Number(raw):'';
+    const valid=has&&Number.isFinite(value)&&value>=0&&value<=100;
+
+    return {
+      machine,
+      oee:valid?value:'',
+      confidence:valid?Math.max(0,Math.min(100,Number(row.confidence||75))):0,
+      source:valid
+        ?`Gemini: ${String(row.evidence||row.reason||'valor sugerido')}`
+        :'Gemini: sem leitura segura'
+    };
+  });
+}
+
+async function readOeeWithGemini(){
+  const status=$('oeeStatus');
+  const teach=$('geminiTeachBox');
+
+  try{
+    status.textContent='Preparando a coluna correta para o Gemini...';
+    const {scope,processed}=await ensureCurrentOeeCrop();
+
+    const examples=geminiOeeExamples()
+      .filter(example=>example?.imageDataUrl&&Array.isArray(example.rows))
+      .slice(-3);
+
+    status.textContent=
+      examples.length
+        ?`Gemini lendo ${scope.label} com ${examples.length} exemplo(s) que você ensinou...`
+        :`Gemini lendo ${scope.label}. Ainda não há exemplos ensinados.`;
+
+    const response=await fetch('/api/oee-gemini',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        imageDataUrl:processed.previewDataUrl,
+        scope,
+        machines:OEE_BOARD_MACHINES,
+        examples
+      })
+    });
+
+    const data=await response.json().catch(()=>({}));
+
+    if(!response.ok||!data.ok){
+      throw new Error(data.error||`Falha Gemini HTTP ${response.status}`);
+    }
+
+    const rows=normalizeGeminiOeeRows(data.rows||[]);
+    state.oeeMachineEditorData=rows;
+    renderOeeMachineEditor(rows);
+
+    $('oeeOcrText').value=editorOeeText();
+    state.oeeOcrText=$('oeeOcrText').value;
+
+    const detected=rows.filter(row=>row.oee!=='').length;
+    const good=rows.filter(row=>row.oee!==''&&Number(row.confidence)>=80).length;
+
+    status.textContent=
+      `${detected} valor(es) sugerido(s) pelo Gemini em ${scope.label}. `+
+      `${good} com boa confiança. Confira os amarelos e depois ensine o Gemini.`;
+
+    teach?.classList.remove('hidden');
+    updateGeminiExampleCount();
+    return rows;
+
+  }catch(error){
+    console.error('Gemini OEE:',error);
+    status.textContent=
+      `Gemini não conseguiu concluir: ${error.message}. Use “OCR local — reserva” ou preencha manualmente.`;
+    showToast('Gemini indisponível. O OCR local continua disponível.');
+    return [];
+  }
+}
+
+async function saveCurrentGeminiExample(){
+  try{
+    const rows=machineOeeFromEditor();
+    if(rows.length<3){
+      showToast('Confirme pelo menos 3 máquinas antes de salvar o exemplo.');
+      return;
+    }
+
+    if(!state.oeeCropDataUrl){
+      await ensureCurrentOeeCrop();
+    }
+
+    const imageDataUrl=await resizeDataUrlForExample(state.oeeCropDataUrl);
+    const operationalDate=$('reportDate').value||todayISO();
+    const shift=$('reportShift').value||'1';
+    const scope=boardScopeForReport(operationalDate,shift);
+
+    const example={
+      id:`ex-${Date.now()}`,
+      savedAt:new Date().toISOString(),
+      scope:scope.label,
+      column:scope.column,
+      imageDataUrl,
+      rows:rows.map(row=>({
+        machine:row.machine,
+        oee:Number(row.oee)
+      }))
+    };
+
+    const examples=geminiOeeExamples();
+    examples.push(example);
+
+    localStorage.setItem(
+      GEMINI_OEE_EXAMPLES_KEY,
+      JSON.stringify(examples.slice(-GEMINI_OEE_MAX_EXAMPLES))
+    );
+
+    updateGeminiExampleCount();
+
+    $('oeeStatus').textContent=
+      `Exemplo salvo. O Gemini receberá esta leitura corrigida nas próximas fotos.`;
+
+    showToast('Exemplo ensinado ao Gemini.');
+
+  }catch(error){
+    console.error(error);
+    showToast(`Não consegui salvar o exemplo: ${error.message}`);
+  }
+}
+
+function clearGeminiOeeExamples(){
+  localStorage.removeItem(GEMINI_OEE_EXAMPLES_KEY);
+  updateGeminiExampleCount();
+  if($('oeeStatus')){
+    $('oeeStatus').textContent='Exemplos do Gemini apagados.';
+  }
+  showToast('Exemplos apagados.');
+}
+
+function updateOeeScopeExample(){
+  const date=$('reportDate')?.value||todayISO();
+  const shift=$('reportShift')?.value||'1';
+  const scope=boardScopeForReport(date,shift);
+  const target=$('oeeScopeExample');
+  if(target){
+    target.textContent=
+      `Exemplo atual: ${scope.weekday} + turno ${shift} = coluna ${scope.label}.`;
+  }
+}
 async function processOeeColumnPhoto() {
   const file = $('oeeImageInput')?.files?.[0];
   if (!file) {
@@ -6482,9 +6714,15 @@ async function analyzeCurrentReport() {
     const file = $('oeeImageInput')?.files?.[0];
 
     if (!editorValues.length && file) {
-      setAnalysisRunStatus('Lendo a foto do quadro de OEE...', 'loading');
-      await processOeeColumnPhoto();
+      setAnalysisRunStatus('Lendo a foto do quadro com Gemini...', 'loading');
+      await readOeeWithGemini();
       editorValues = machineOeeFromEditor();
+
+      if (!editorValues.length) {
+        setAnalysisRunStatus('Gemini sem leitura suficiente. Tentando OCR local...', 'loading');
+        await processOeeColumnPhoto();
+        editorValues = machineOeeFromEditor();
+      }
     }
 
     const oeeText = editorValues.length
@@ -7916,6 +8154,7 @@ function init() {
     $('oeeCropPreviewWrap').classList.add('hidden');
     $('oeeMachineEditor').innerHTML = '';
     $('oeeMachineEditor').classList.add('hidden');
+    $('geminiTeachBox')?.classList.add('hidden');
     state.oeeMachineEditorData = [];
     state.oeeRowPreviews = [];
     state.oeeImageDataUrl = '';
@@ -7943,6 +8182,14 @@ function init() {
     $('oeeMachineEditor').classList.add('hidden');
     $('oeeStatus').textContent = 'Foto carregada. Toque em “Recortar e ler coluna”.';
   });
+  $('geminiOeeBtn')?.addEventListener('click', readOeeWithGemini);
+  $('saveGeminiExampleBtn')?.addEventListener('click', saveCurrentGeminiExample);
+  $('clearGeminiExamplesBtn')?.addEventListener('click', clearGeminiOeeExamples);
+  $('reportDate')?.addEventListener('change', updateOeeScopeExample);
+  $('reportShift')?.addEventListener('change', updateOeeScopeExample);
+  updateGeminiExampleCount();
+  updateOeeScopeExample();
+
   $('processOeePhotoBtn').addEventListener('click', processOeeColumnPhoto);
   $('emptyOeeTableBtn').addEventListener('click', () => {
     renderOeeMachineEditor([]);

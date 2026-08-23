@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=56.0.0" />
+  <link rel="stylesheet" href="style.css?v=57.0.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -20,7 +20,7 @@
       <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V56.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V57.0.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -205,13 +205,38 @@
         </label>
 
         <div class="oee-upload">
+          <div class="oee-guide-card">
+            <span class="eyebrow">PASSO A PASSO</span>
+            <h3>Como analisar o quadro</h3>
+            <div class="oee-guide-steps">
+              <div><b>1</b><span><strong>Envie a foto inteira</strong><small>Exemplo: foto mostrando cabeçalho, MKs e a semana completa.</small></span></div>
+              <div><b>2</b><span><strong>Confira a coluna</strong><small id="oeeScopeExample">Exemplo: Domingo + turno 1 = DOMINGO A.</small></span></div>
+              <div><b>3</b><span><strong>Toque em “Ler com Gemini”</strong><small>O Gemini recebe exemplos que você já corrigiu antes.</small></span></div>
+              <div><b>4</b><span><strong>Confira só o que estiver amarelo</strong><small>Verde = leitura boa. Amarelo = vale conferir. Vazio = máquina sem leitura.</small></span></div>
+              <div><b>5</b><span><strong>Salve como exemplo</strong><small>Depois de corrigir, toque em “Ensinar Gemini”. Essa leitura vira referência para as próximas fotos.</small></span></div>
+            </div>
+          </div>
+
+          <div class="oee-legend-card">
+            <strong>Legenda fácil</strong>
+            <div class="oee-legend">
+              <span><i class="legend-dot green"></i><b>Verde</b> — leitura com boa confiança</span>
+              <span><i class="legend-dot yellow"></i><b>Amarelo</b> — conferir o número</span>
+              <span><i class="legend-dot gray"></i><b>Vazio</b> — não inventar OEE</span>
+              <span><i class="legend-dot red"></i><b>Abaixo de 50%</b> — prioridade máxima</span>
+            </div>
+            <p class="example-line"><b>Exemplo:</b> MK-149 = 62% → perda estimada de 4,6 h em 12 horas. Se a célula estiver vazia, deixe em branco.</p>
+          </div>
+
           <label>Foto do quadro semanal de OEE
             <input id="oeeImageInput" type="file" accept="image/*" />
+            <small class="field-example">Exemplo: escolha uma foto da galeria com o quadro inteiro, sem cortar as bordas.</small>
           </label>
 
           <div class="reference-box">
             <strong>Leitura das últimas 12 horas</strong>
             <p id="oeeScopeHint" class="muted">O aplicativo vai indicar e recortar somente a coluna correta.</p>
+            <small class="field-example">Exemplo: relatório de domingo de manhã → coluna DOMINGO A.</small>
           </div>
 
           <div id="oeePreviewWrap" class="hidden image-preview-wrap">
@@ -219,9 +244,18 @@
             <img id="oeePreview" alt="Prévia do quadro de OEE" class="image-preview" />
           </div>
 
-          <div class="button-row compact-row">
-            <button id="processOeePhotoBtn" class="secondary" type="button">Recortar e ler coluna</button>
+          <div class="button-row compact-row oee-main-actions">
+            <button id="geminiOeeBtn" class="primary" type="button">✨ Ler com Gemini</button>
+            <button id="processOeePhotoBtn" class="secondary" type="button">OCR local — reserva</button>
             <button id="emptyOeeTableBtn" class="ghost" type="button">Preencher manualmente</button>
+          </div>
+
+          <div class="gemini-training-status">
+            <div>
+              <strong>🧠 Exemplos ensinados ao Gemini</strong>
+              <span id="geminiExampleCount">0 exemplo(s)</span>
+            </div>
+            <p>Quanto mais fotos corretas você salvar, mais contexto o Gemini recebe para entender sua lousa.</p>
           </div>
 
           <small id="oeeStatus" class="muted"></small>
@@ -239,6 +273,16 @@
           </div>
 
           <div id="oeeMachineEditor" class="hidden oee-machine-editor"></div>
+
+          <div id="geminiTeachBox" class="gemini-teach-box hidden">
+            <div>
+              <strong>Está certo agora?</strong>
+              <p>Corrija os números que estiverem errados e depois salve esta leitura como exemplo.</p>
+              <small><b>Exemplo:</b> Gemini leu MK-173 = 34, mas no quadro está 54 → troque para 54 e toque em “Ensinar Gemini”.</small>
+            </div>
+            <button id="saveGeminiExampleBtn" class="secondary" type="button">🧠 Ensinar Gemini com esta leitura</button>
+            <button id="clearGeminiExamplesBtn" class="ghost" type="button">Limpar exemplos</button>
+          </div>
 
           <details class="advanced-oee">
             <summary>Texto técnico da leitura</summary>

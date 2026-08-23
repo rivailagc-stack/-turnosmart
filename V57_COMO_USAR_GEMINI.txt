@@ -1,0 +1,36 @@
+TURNOSMART V57 — GEMINI GUIADO
+
+O que o operador/supervisor vê:
+
+1. Enviar foto inteira.
+   Exemplo: não cortar o cabeçalho nem as MKs.
+
+2. Conferir coluna.
+   Exemplo: Domingo + turno 1 = DOMINGO A.
+
+3. Ler com Gemini.
+   O app recorta a coluna antes de mandar para o Gemini.
+
+4. Legenda:
+   Verde = leitura com boa confiança.
+   Amarelo = conferir.
+   Vazio = não inventar OEE.
+   Abaixo de 50% = prioridade máxima.
+
+5. Ensinar Gemini.
+   Exemplo:
+   Gemini leu MK-173 = 34.
+   Na foto é 54.
+   Troque 34 por 54 e toque em "Ensinar Gemini com esta leitura".
+
+O app guarda até 5 exemplos no navegador.
+Nas próximas fotos, envia os 3 exemplos mais recentes junto da imagem atual.
+Isso é few-shot/context learning: não altera o modelo do Google, mas faz o Gemini receber exemplos reais do seu quadro.
+
+Variável necessária na Vercel:
+GEMINI_API_KEY
+
+Opcional:
+GEMINI_MODEL=gemini-2.5-flash
+
+Se o Gemini falhar, o botão "OCR local — reserva" continua disponível.
