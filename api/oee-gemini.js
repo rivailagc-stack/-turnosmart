@@ -58,6 +58,7 @@ module.exports=async function handler(req,res){
       :(req.body||{});
 
     const image=parseDataUrl(body.imageDataUrl);
+    const columnImage=parseDataUrl(body.columnImageDataUrl);
     if(!image){
       return res.status(400).json({ok:false,error:'Imagem da coluna não recebida.'});
     }
@@ -121,6 +122,14 @@ Use esses exemplos somente para aprender:
 
 NÃO copie números antigos para a foto nova.
 
+
+ATENÇÃO À IMAGEM DA COLUNA AMPLIADA:
+- ela contém as linhas na MESMA ordem da lista de máquinas;
+- percorra verticalmente de cima para baixo;
+- não use o cabeçalho como MK-02;
+- comece a associar máquinas apenas na primeira linha de dados após o cabeçalho;
+- confirme o percentual usando também a posição correspondente na imagem do quadro inteiro.
+
 Retorne SOMENTE JSON:
 {
   "rows":[
@@ -169,16 +178,16 @@ Se não houver leitura segura para uma máquina, retorne oee:null.
     }
 
     parts.push({
-      text:
-        `AGORA ANALISE A FOTO ATUAL da coluna ${scope.label||''}. `+
-        `Não copie os valores dos exemplos.`
+      text:`AGORA ANALISE A FOTO ATUAL.
+A primeira imagem é o QUADRO INTEIRO: use para localizar exatamente ${scope.label||''} e conferir a linha de cada MK.
+A segunda imagem, quando presente, é a COLUNA ${scope.label||''} AMPLIADA: use principalmente para ler a escrita e o símbolo %.
+Cruze as duas imagens. Não copie valores dos exemplos.`
     });
-    parts.push({
-      inlineData:{
-        mimeType:image.mimeType,
-        data:image.data
-      }
-    });
+    parts.push({inlineData:{mimeType:image.mimeType,data:image.data}});
+    if(columnImage){
+      parts.push({text:`COLUNA ${scope.label||''} AMPLIADA EM ALTA RESOLUÇÃO:`});
+      parts.push({inlineData:{mimeType:columnImage.mimeType,data:columnImage.data}});
+    }
 
     const model=process.env.GEMINI_MODEL||DEFAULT_MODEL;
 
