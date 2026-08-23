@@ -1,5 +1,15 @@
 'use strict';
 
+function normalizeMachineCode(value) {
+  if (value === null || value === undefined) return "";
+  const raw = String(value).trim().toUpperCase();
+  if (!raw) return "";
+  const digits = raw.replace(/[^0-9]/g, "");
+  if (!digits) return "";
+  return `MK-${digits.padStart(2, "0")}`;
+}
+
+
 const STORAGE = {
   history: 'turnosmart_history_v1',
   scale: 'turnosmart_scale_v1',
@@ -200,7 +210,7 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '57.3.0';
+const APP_VERSION = '57.4.0';
 
 async function forceCurrentAppVersion() {
   try {

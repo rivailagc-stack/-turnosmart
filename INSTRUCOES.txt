@@ -1,3 +1,1 @@
-Substitua somente app.js, index.html e sw.js pelos arquivos deste PATCH.
-Depois faça Redeploy na Vercel.
-Não precisa alterar API nem variáveis do Gemini.
+Substitua app.js, index.html e sw.js. Depois faça Redeploy na Vercel.
