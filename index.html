@@ -1,114 +1,929 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#111c33">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="TurnoSmart" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="style.css?v=56.0.0" />
   <title>TurnoSmart</title>
-  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header class="top">
-    <div class="eyebrow">Indaiatuba • Manutenção</div>
-    <div class="company">Ecopack Brasil</div>
-    <div class="brand">TurnoSmart <span class="version">Clean V5.4 + IA Visual</span></div>
+  <header class="topbar">
+    <div>
+      <div id="organizationBrandContext" class="eyebrow">Indaiatuba • Manutenção</div>
+      <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
+      <div class="app-title-row">
+        <h1>TurnoSmart</h1>
+        <span id="appVersionBadge" class="app-version-badge">V56.0.0</span>
+      </div>
+    </div>
+    <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
   </header>
 
-  <main>
-    <section id="painel" class="page active">
-      <div class="card hero">
-        <div class="eyebrow orange">FOCO DO SUPERVISOR</div>
-        <h1>Foto → OEE → Top 10 → 3 prioridades</h1>
-        <p>Aplicativo enxuto. O SGMan trabalha por trás da análise, sem criar uma aba extra.</p>
-        <button class="primary" data-go="novo">Nova análise</button>
+  <main class="app-shell">
+
+    <section id="view-painel" class="view active">
+      <div class="hero card manager-home-hero"><div><span class="badge">GESTOR DE MANUTENÇÃO</span><h2>Visão diária da operação</h2><p>Indicadores, prioridades, metas, preventivas e acompanhamento da equipe em uma única página.</p></div><div class="button-row manager-home-actions"><button id="refreshManagerHomeBtn" class="secondary" type="button">Atualizar painel</button><button id="copyDailyReportHomeBtn" class="primary" type="button">Copiar relatório diário</button></div></div>
+      <div class="card"><div class="manager-shortcuts"><button class="manager-shortcut" data-view="osrapida" type="button"><span>📷</span><strong>Abrir OS</strong><small>Foto, áudio ou texto</small></button><button class="manager-shortcut" data-view="analise" type="button"><span>▦</span><strong>Análise</strong><small>Indicadores e cobranças</small></button><button class="manager-shortcut" data-view="treinamentos" type="button"><span>🎓</span><strong>Treinamentos</strong><small>Procedimentos e capacitação</small></button><button class="manager-shortcut" data-view="inteligencia" type="button"><span>📈</span><strong>Inteligência</strong><small>OEE, grupo e SGMan</small></button></div></div>
+      <div id="managerHomeContent"></div>
+    </section>
+
+
+    <section id="view-inteligencia" class="view focused-management-page">
+      <div class="hero card focused-hero">
+        <div>
+          <span class="badge">GESTÃO DE MANUTENÇÃO</span>
+          <h2>Preventiva e desenvolvimento da equipe</h2>
+          <p>Cole as conversas do grupo, analise o SGMan e filtre os planos por máquina ou por mecânico da escala.</p>
+        </div>
+        <button id="focusedRefreshBtn" class="secondary" type="button">Atualizar SGMan</button>
+      </div>
+
+      <div class="card intelligence-upload-card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">QUADRO DE OEE</span>
+            <h2>Registrar foto e leitura diária</h2>
+          </div>
+        </div>
+
+        <div class="grid three">
+          <label>Data
+            <input id="intelligenceDate" type="date" />
+          </label>
+
+          <label>Turno
+            <select id="intelligenceShift">
+              <option value="1">Turno A / diurno</option>
+              <option value="2">Turno B / noturno</option>
+            </select>
+          </label>
+
+          <label>OEE geral do turno
+            <input id="intelligenceGeneralOee" type="number" min="0" max="100" step="0.1" placeholder="Ex.: 65" />
+          </label>
+        </div>
+
+        <label class="file-action intelligence-file-action">
+          Escolher foto do quadro
+          <input id="intelligenceOeePhotos" type="file" accept="image/*" capture="environment" />
+        </label>
+
+        <div class="button-row">
+          <button id="intelligenceReadPhotoBtn" class="secondary" type="button">Ler foto do quadro</button>
+          <button id="intelligenceSaveBtn" class="primary" type="button">Salvar leitura diária</button>
+        </div>
+
+        <p id="intelligencePhotoStatus" class="muted"></p>
+
+        <div id="intelligencePhotoPreviewWrap" class="hidden image-preview-wrap">
+          <img id="intelligencePhotoPreview" class="image-preview" alt="Recorte do quadro de OEE" />
+        </div>
+
+        <div id="intelligenceOeeEditor"></div>
+      </div>
+
+      <div class="card">
+        <span class="eyebrow">HISTÓRICO ENVIADO</span>
+        <h2>Base do grupo Team Leaders</h2>
+        <div id="intelligenceHistoricSummary"></div>
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">INTELIGÊNCIA DO TURNO</span>
+            <h2>Relatório cruzando OEE, grupo e SGMan</h2>
+          </div>
+          <button id="intelligenceGenerateReportBtn" class="primary" type="button">Gerar relatório inteligente</button>
+        </div>
+        <div id="intelligenceReport"></div>
+      </div>
+
+      <div class="card">
+        <span class="eyebrow">HISTÓRICO DIÁRIO</span>
+        <h2>Leituras salvas no aplicativo</h2>
+        <div id="intelligenceDailyHistory" class="intelligence-history-list"></div>
+      </div>
+
+      <div class="card form-card">
+        <label>Conversas do grupo / passagem do turno
+          <textarea id="focusedGroupConversation" rows="11" placeholder="Cole aqui as mensagens do WhatsApp ou Telegram..."></textarea>
+        </label>
+
+        <div class="button-row">
+          <button id="focusedAnalyzeBtn" class="primary" type="button">Analisar e atualizar planos</button>
+        </div>
+
+        <p id="focusedPlanStatus" class="integration-status">
+          Cole as conversas do grupo ou atualize o SGMan.
+        </p>
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">FILTROS</span>
+            <h2>Escolha o foco</h2>
+          </div>
+        </div>
+
+        <div class="grid two">
+          <label>Máquina
+            <select id="focusedMachineFilter">
+              <option value="">Todas as máquinas</option>
+            </select>
+          </label>
+
+          <label>Mecânico da escala
+            <select id="focusedMechanicFilter">
+              <option value="">Todos os mecânicos da escala</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="card">
+        <span class="eyebrow">CONVERSAS DO GRUPO</span>
+        <h2>Ocorrências identificadas</h2>
+        <div id="focusedConversationAnalysis" class="focused-conversation-list"></div>
+      </div>
+
+      <div class="card">
+        <span class="eyebrow">PLANO PREVENTIVO</span>
+        <h2>Máquinas e inspeções sugeridas</h2>
+        <div id="focusedPreventiveList" class="focused-plan-list"></div>
+      </div>
+
+      <div class="card">
+        <span class="eyebrow">PLANO DE MELHORIA</span>
+        <h2>Mecânicos que estão na escala</h2>
+        <p class="muted">O objetivo é orientar treinamento e acompanhamento, não punir.</p>
+        <div id="focusedMechanicPlan" class="focused-mechanic-list"></div>
       </div>
     </section>
 
-    <section id="novo" class="page">
-      <div class="card">
-        <div class="eyebrow orange">1. FOTO DO QUADRO</div>
-        <h2>Enviar quadro de OEE</h2>
-        <div class="grid2">
-          <label>Data do relatório
-            <input id="reportDate" type="date">
+    <section id="view-novo" class="view">
+      <div class="hero card">
+        <div>
+          <span class="badge">V33 • Análise corrigida</span>
+          <h2>Análise rápida sem travar no SGMan</h2>
+          <p>O relatório abre imediatamente e o histórico do SGMan é atualizado em segundo plano.</p>
+          <div class="button-row">
+            <button id="openQuickOsBtn" class="primary" type="button">📷 🎙 Abrir OS rápida</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card form-card">
+        <label>Mensagem recebida em
+          <input id="reportReceivedAt" type="datetime-local" />
+        </label>
+        <div id="autoDetection" class="detection-card" aria-live="polite"></div>
+        <div class="button-row compact-row">
+          <button id="manualToggleBtn" class="ghost" type="button">Corrigir data ou turno</button>
+        </div>
+        <div id="manualFields" class="grid two hidden">
+          <label>Data operacional
+            <input id="reportDate" type="date" />
           </label>
-          <label>Turno/coluna
+          <label>Turno operacional
             <select id="reportShift">
-              <option value="A">A</option>
-              <option value="B">B</option>
+              <option value="1">1 — 06:00 às 18:00</option>
+              <option value="2">2 — 18:00 às 06:00</option>
+            </select>
+          </label>
+        </div>
+        <label>Mensagem do relatório
+          <textarea id="reportText" rows="20" placeholder="Cole aqui o relatório completo do grupo..."></textarea>
+        </label>
+
+        <div class="oee-upload">
+          <label>Foto do quadro semanal de OEE
+            <input id="oeeImageInput" type="file" accept="image/*" />
+          </label>
+
+          <div class="reference-box">
+            <strong>Leitura das últimas 12 horas</strong>
+            <p id="oeeScopeHint" class="muted">O aplicativo vai indicar e recortar somente a coluna correta.</p>
+          </div>
+
+          <div id="oeePreviewWrap" class="hidden image-preview-wrap">
+            <span class="preview-label">Foto completa</span>
+            <img id="oeePreview" alt="Prévia do quadro de OEE" class="image-preview" />
+          </div>
+
+          <div class="button-row compact-row">
+            <button id="processOeePhotoBtn" class="secondary" type="button">Recortar e ler coluna</button>
+            <button id="emptyOeeTableBtn" class="ghost" type="button">Preencher manualmente</button>
+          </div>
+
+          <small id="oeeStatus" class="muted"></small>
+
+          <div id="oeeCropPreviewWrap" class="hidden image-preview-wrap crop-preview-wrap">
+            <span class="preview-label">Coluna original usada pelo aplicativo</span>
+            <p class="muted">Esta imagem permanece colorida para você conseguir conferir a escrita.</p>
+            <img id="oeeCropPreview" alt="Coluna original recortada do quadro" class="image-preview crop-preview" />
+
+            <details class="ocr-debug-preview">
+              <summary>Ver imagem interna usada pelo OCR</summary>
+              <p class="muted">Esta versão em preto e branco serve apenas para a leitura automática.</p>
+              <img id="oeeOcrPreview" alt="Imagem interna usada pelo OCR" class="image-preview ocr-preview" />
+            </details>
+          </div>
+
+          <div id="oeeMachineEditor" class="hidden oee-machine-editor"></div>
+
+          <details class="advanced-oee">
+            <summary>Texto técnico da leitura</summary>
+            <label>Texto usado no histórico
+              <textarea id="oeeOcrText" rows="6" placeholder="Os valores confirmados aparecem aqui automaticamente."></textarea>
+            </label>
+          </details>
+        </div>
+        <div class="button-row">
+          <button id="analyzeBtn" class="primary" type="button">Analisar relatório</button>
+          <button id="sampleBtn" class="secondary" type="button">Carregar exemplo</button>
+          <button id="clearBtn" class="ghost" type="button">Limpar</button>
+        </div>
+        <p id="analysisRunStatus" class="analysis-run-status" aria-live="polite"></p>
+      </div>
+    </section>
+
+
+    <section id="view-osrapida" class="view">
+      <div class="hero card quick-os-hero">
+        <div>
+          <span class="badge">FOTO + ÁUDIO + SGMAN</span>
+          <h2>Abrir ordem de serviço</h2>
+          <p>Fale em uma única frase a máquina, o local de aplicação, o problema e para quem enviar. O aplicativo preenche tudo automaticamente.</p>
+        </div>
+      </div>
+
+      <div class="card form-card">
+        <label>Data e horário da ocorrência
+          <input id="quickOsDateTime" type="datetime-local" />
+        </label>
+
+        <div id="quickOsDetection" class="detection-card" aria-live="polite"></div>
+
+        <div class="grid two">
+          <label>Máquina
+            <select id="quickOsMachine">
+              <option value="">Selecione a máquina</option>
+            </select>
+          </label>
+
+          <label>Local de aplicação / conjunto
+            <input id="quickOsLocation" type="text" placeholder="Ex.: alimentação faixa, camme, prensa 2" />
+          </label>
+
+          <label>Responsável no SGMan
+            <select id="quickOsExecutante">
+              <option value="">Líder automático</option>
+            </select>
+          </label>
+
+          <label>Prioridade
+            <select id="quickOsPriority">
+              <option value="Alta">Alta</option>
+              <option value="Média" selected>Média</option>
+              <option value="Baixa">Baixa</option>
+            </select>
+          </label>
+
+          <label class="check-field">
+            <input id="quickOsMachineStopped" type="checkbox" />
+            Máquina parada
+          </label>
+        </div>
+
+        <p id="quickOsTagStatus" class="integration-status"></p>
+
+        <div class="quick-os-capture-grid">
+          <div class="capture-card">
+            <strong>📷 Tirar foto</strong>
+            <p>A foto será comprimida e anexada à ordem no SGMan.</p>
+            <label class="file-action">
+              Abrir câmera
+              <input id="quickOsPhotoInput" type="file" accept="image/*" capture="environment" />
+            </label>
+            <small id="quickOsPhotoStatus" class="muted"></small>
+          </div>
+
+          <div class="capture-card">
+            <strong>🎙 Falar o problema</strong>
+            <p>Exemplo: “MK 179, aplicação no camme, problema variando altura, mandar para Roberto”.</p>
+            <button id="quickOsSpeechBtn" class="secondary" type="button">Falar ordem completa</button>
+            <small id="quickOsSpeechStatus" class="muted"></small>
+          </div>
+
+          <div id="quickOsVoiceReview" class="voice-review-card"></div>
+        </div>
+
+        <div id="quickOsPhotoWrap" class="hidden image-preview-wrap quick-photo-wrap">
+          <span class="preview-label">Foto que será anexada</span>
+          <img id="quickOsPhotoPreview" class="image-preview" alt="Foto da ocorrência" />
+          <button id="quickOsRemovePhotoBtn" class="ghost" type="button">Remover foto</button>
+        </div>
+
+        <label>Problema encontrado
+          <textarea id="quickOsProblem" rows="6" placeholder="Ex.: MK 172 com variação de altura e faca fora de posição."></textarea>
+        </label>
+
+        <label>Possível resolução — opcional
+          <textarea id="quickOsResolution" rows="4" placeholder="Deixe vazio para o aplicativo sugerir uma ação."></textarea>
+        </label>
+
+        <div class="reference-box">
+          <strong>Como será aberta</strong>
+          <p><strong>Descrição:</strong> máquina e problema encontrado. <strong>Comentário:</strong> até três lembretes curtos de possíveis soluções.</p>
+        </div>
+
+        <div class="button-row">
+          <button id="quickOsSendBtn" class="primary" type="button">Criar OS no SGMan</button>
+          <button id="quickOsClearBtn" class="ghost" type="button">Limpar</button>
+        </div>
+
+        <div id="quickOsResult" class="integration-result quick-os-result"></div>
+      </div>
+    </section>
+
+    <section id="view-mecanico" class="view">
+      <div class="hero card"><div><span class="badge">MECÂNICO VIRTUAL</span><h2>Diagnóstico pelo SGMan</h2><p>Consulta até 100 OS da árvore completa da máquina.</p></div></div>
+      <div class="card form-card"><div class="grid two"><label>Máquina<select id="virtualMechanicMachine"><option value="">Selecione a máquina</option></select></label><label>Problema encontrado<input id="virtualMechanicProblem" type="text" placeholder="Ex.: MK 179 variando altura" /></label></div><div class="button-row"><button id="virtualMechanicRunBtn" class="primary" type="button">Analisar problema</button></div><p id="virtualMechanicStatus" class="muted"></p><div id="virtualMechanicResult" class="virtual-mechanic-result"></div></div>
+    </section>
+
+    <section id="view-analise" class="view">
+      <div id="emptyAnalysis" class="card empty-state">
+        <h2>Nenhuma análise ainda</h2>
+        <p>Cole um relatório e toque em “Analisar relatório”.</p>
+      </div>
+      <div id="analysisContent" class="hidden">
+
+        <div class="card maintenance-accountability-card">
+          <div class="section-head">
+            <div><span class="eyebrow">RELATÓRIO DIÁRIO</span><h2>Gestão e eficiência do turno</h2></div>
+            <div class="button-row compact-buttons">
+              <button id="refreshMaintenanceAccountabilityBtn" class="secondary" type="button">Atualizar gestão</button>
+              <button id="copyMaintenanceAccountabilityBtn" class="primary" type="button">Copiar relatório</button>
+            </div>
+          </div>
+          <p class="muted">O relatório mostra indicadores, metas, prioridades e cobranças para manter alto nível de eficiência.</p>
+          <div id="maintenanceAccountabilityPanel"></div>
+        </div>
+        <div class="card manager-panel-card">
+          <span class="eyebrow">PAINEL DO GESTOR</span><h2>Decisão do turno</h2>
+          <div id="managerDashboard" class="manager-dashboard"></div>
+          <div class="manager-guidance-box"><strong>Orientação para o líder</strong><p id="managerGuidance">Atualize os dados para receber a orientação.</p></div>
+          <h3>Distribuição das três prioridades</h3><div id="managerPlan" class="manager-plan"></div>
+        </div>
+
+        <div id="efficiencyTrendCard" class="efficiency-trend-card trend-unknown"></div>
+
+        <div class="card"><div class="section-head"><div><span class="eyebrow">DESEMPENHO DA EQUIPE</span><h2>Quem resolve mais rápido</h2></div></div><p class="muted">Use os dados para desenvolvimento, não para punição.</p><div id="teamPerformanceList" class="people-performance-list"></div><h3>Treinamentos recomendados</h3><div id="trainingRecommendations" class="training-list"></div></div>
+        <div class="card"><div class="section-head"><div><span class="eyebrow">PLANO PREVENTIVO INTELIGENTE</span><h2>Preventivas sugeridas</h2></div></div><div id="preventivePlanList" class="preventive-plan-list"></div></div>
+        <div class="card"><div class="section-head"><div><span class="eyebrow">PLANO DE MELHORIA</span><h2>Três prioridades de confiabilidade</h2></div></div><div id="improvementPlanList" class="improvement-plan-list"></div></div>
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">PLANO DO DIA</span>
+              <h2>Três máquinas prioritárias</h2>
+            </div>
+          </div>
+          <p class="muted">Ranking baseado em falhas com máquina parada, reincidência, MTTR alto e MTBF baixo.</p>
+          <div id="dailyPlanList" class="daily-plan-list"></div>
+        </div>
+
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">HISTÓRICO TÉCNICO DO SGMAN</span>
+              <h2>Análise por máquina e problema</h2>
+            </div>
+            <button id="refreshMachineHistoryBtn" class="secondary" type="button">Atualizar análise</button>
+          </div>
+
+          <p id="sgmanMachineAnalysisStatus" class="muted">
+            A referência usa somente OS da máquina apontada no relatório.
+          </p>
+
+          <div id="sgmanMachineAnalysisList" class="machine-history-list"></div>
+        </div>
+
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">SGMAN DIÁRIO</span>
+              <h2>Ordens de serviço</h2>
+            </div>
+            <button id="refreshSgmanHistoryBtn" class="secondary" type="button">Atualizar SGMan</button>
+          </div>
+          <p id="sgmanHistoryStatus" class="muted">Aguardando consulta...</p>
+          <div id="sgmanDailyCards" class="summary-grid"></div>
+          <div id="sgmanHistoryDetail" class="prose"></div>
+        </div>
+
+
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">SGMAN — PARADAS REAIS NAS ÚLTIMAS 72 HORAS</span>
+              <h2>MTTR, MTBF, confiabilidade e OS do turno</h2>
+            </div>
+            <button id="refreshReliabilityBtn" class="secondary" type="button">Atualizar dados</button>
+          </div>
+          <div id="reliabilityCards" class="summary-grid"></div>
+          <p id="reliabilityNote" class="muted"></p>
+          <div id="reliabilityTable" class="table-wrap"></div>
+        </div>
+
+        <div class="summary-grid" id="summaryCards"></div>
+
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">RESUMO DO TURNO</span>
+              <h2 id="analysisTitle">Análise</h2>
+            </div>
+            <button id="copySummaryBtn" class="secondary" type="button">Copiar resumo</button>
+          </div>
+          <div id="managementSummary" class="prose"></div>
+        </div>
+
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">MÁQUINAS</span>
+              <h2>Impactos registrados</h2>
+            </div>
+          </div>
+          <div id="machineTableWrap" class="table-wrap"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-acoes" class="view">
+      <div id="emptyActions" class="card empty-state">
+        <h2>Nenhum relatório gerado</h2>
+        <p>Os relatórios da manutenção e da produção aparecem depois da análise.</p>
+      </div>
+      <div id="actionsContent" class="hidden">
+        <div class="card report-card maintenance-report">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">RELATÓRIO 1</span>
+              <h2>Ações da manutenção</h2>
+            </div>
+            <span id="responsibleBadge" class="badge neutral">Responsável não definido</span>
+          </div>
+          <p class="muted">Ações técnicas com foco na coluna correta do quadro, OEE abaixo de 65, reincidência e SGMan.</p>
+          <div id="maintenanceActionsList" class="actions-list"></div>
+          <div class="button-row sticky-actions">
+            <button id="shareMaintenanceBtn" class="primary" type="button">Compartilhar manutenção</button>
+            <button id="copyMaintenanceBtn" class="secondary" type="button">Copiar manutenção</button>
+            <button id="sgmanPreviewBtn" class="ghost" type="button">Revisar OS do SGMan</button>
+          </div>
+        </div>
+
+        <div class="card report-card production-report">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">RELATÓRIO 2</span>
+              <h2>Ações da produção</h2>
+            </div>
+            <span id="productionResponsibleBadge" class="badge neutral">Líder não definido</span>
+          </div>
+          <p class="muted">Ações operacionais com foco em OEE, retrabalho e abertura de solicitação no SGMan.</p>
+          <div id="productionActionsList" class="actions-list"></div>
+          <div class="button-row sticky-actions">
+            <button id="shareProductionBtn" class="primary" type="button">Compartilhar produção</button>
+            <button id="copyProductionBtn" class="secondary" type="button">Copiar produção</button>
+          </div>
+        </div>
+
+        <div id="sgmanPreview" class="card hidden">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">SGMAN</span>
+              <h2>Revisão das ordens reais</h2>
+            </div>
+            <button id="downloadPayloadBtn" class="secondary" type="button">Baixar JSON</button>
+          </div>
+          <div class="reference-box">
+            <strong>Limite da API protegido</strong>
+            <p>O SGMan permite no máximo duas requisições por segundo. O TurnoSmart envia uma por vez, aguarda 900 ms e repete automaticamente quando necessário.</p>
+          </div>
+          <p class="muted">“Requisição enviada” não significa mais “OS aberta”. A confirmação depende da resposta real do SGMan.</p>
+          <pre id="sgmanJson"></pre>
+          <div class="button-row">
+            <button id="testOneSgmanBtn" class="secondary" type="button">Enviar 1 OS de teste</button>
+            <button id="sendSgmanBtn" class="primary" type="button" disabled>Enviar as OS restantes</button>
+          </div>
+          <pre id="sgmanSendResult" class="integration-result"></pre>
+        </div>
+      </div>
+    </section>
+
+
+    <section id="view-oee" class="view">
+      <div id="emptyOeeDashboard" class="card empty-state">
+        <h2>Sem dados suficientes</h2>
+        <p>Analise os relatórios com o OEE das máquinas. O painel usará os últimos três dias salvos neste aparelho.</p>
+      </div>
+
+      <div id="oeeDashboardContent" class="hidden">
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">EMPRESA</span>
+              <h2>OEE geral dos últimos 3 dias</h2>
+            </div>
+          </div>
+          <div id="oeeDashboardCards" class="summary-grid"></div>
+        </div>
+
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">PRIORIDADE</span>
+              <h2>Máquinas que precisam de ação</h2>
+            </div>
+          </div>
+          <p class="muted">Prioridade quando a média fica abaixo de 65%, quando há duas ou mais leituras abaixo de 65% ou quando a tendência está caindo.</p>
+          <div id="oeePriorityList" class="priority-oee-list"></div>
+        </div>
+
+        <div class="card">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">MÁQUINA POR MÁQUINA</span>
+              <h2>OEE das últimas 72 horas</h2>
+            </div>
+          </div>
+          <p class="muted">Quando existem os turnos A e B no mesmo dia, o aplicativo mostra a média diária e os dois resultados abaixo.</p>
+          <div id="oeeMachineTable" class="table-wrap"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-escala" class="view">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">RESPONSABILIDADE</span>
+            <h2>Escala dos líderes</h2>
+          </div>
+        </div>
+        <p class="muted">Cadastre os três mecânicos de cada equipe. O app distribui as OS em rodízio: líder, mecânico 1, mecânico 2, mecânico 3 e repete.</p>
+        <div class="reference-box">
+          <strong>Referência da escala</strong>
+          <div class="grid two">
+            <label>Data em que trabalhou a equipe de referência
+              <input id="referenceDate" type="date" />
+            </label>
+            <label>Equipe nessa data
+              <select id="referenceLetter">
+                <option value="A">A1 durante o dia e A2 à noite</option>
+                <option value="B">B1 durante o dia e B2 à noite</option>
+              </select>
+            </label>
+          </div>
+          <button id="saveReferenceBtn" class="secondary" type="button">Salvar referência</button>
+        </div>
+        <div class="reference-box">
+          <strong>Distribuição automática</strong>
+          <p>A primeira OS de maior prioridade vai para o líder. As seguintes são divididas entre os três mecânicos e depois o rodízio recomeça.</p>
+        </div>
+
+        <div class="grid two">
+          <label>Equipe fixa
+            <select id="scaleCrew">
+              <option value="A1">A1 — 06:00 às 18:00</option>
+              <option value="A2">A2 — 18:00 às 06:00</option>
+              <option value="B1">B1 — 06:00 às 18:00</option>
+              <option value="B2">B2 — 18:00 às 06:00</option>
+            </select>
+          </label>
+          <label>Líder da manutenção
+            <input id="scaleMaintenanceLeader" type="text" placeholder="Ex.: Emerson" />
+          </label>
+          <label>Login/nome exato do líder no SGMan
+            <input id="scaleSgmanExecutante" type="text" placeholder="Copie exatamente do cadastro de usuários do SGMan" />
+          </label>
+
+          <label>Mecânico 1 no SGMan
+            <select id="scaleSgmanMechanic1">
+              <option value="">Não definido</option>
+            </select>
+          </label>
+
+          <label>Mecânico 2 no SGMan
+            <select id="scaleSgmanMechanic2">
+              <option value="">Não definido</option>
+            </select>
+          </label>
+
+          <label>Mecânico 3 no SGMan
+            <select id="scaleSgmanMechanic3">
+              <option value="">Não definido</option>
+            </select>
+          </label>
+
+          <label>Líder da produção
+            <input id="scaleProductionLeader" type="text" placeholder="Ex.: Maria" />
+          </label>
+
+          <label>Equipe da manutenção / observação
+            <input id="scaleTeam" type="text" placeholder="Ex.: Carlos, Roberto e Thiago" />
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="saveScaleBtn" class="primary" type="button">Salvar escala</button>
+        </div>
+      </div>
+      <div class="card">
+        <div id="scaleList" class="list-stack"></div>
+      </div>
+    </section>
+
+    <section id="view-historico" class="view">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">ACOMPANHAMENTO</span>
+            <h2>Histórico de relatórios</h2>
+          </div>
+          <button id="exportHistoryBtn" class="secondary" type="button">Exportar histórico</button>
+        </div>
+        <div id="historyList" class="list-stack"></div>
+      </div>
+    </section>
+
+
+    <section id="view-treinamentos" class="view">
+      <div class="hero card training-hero"><div><span class="badge">TREINAMENTOS E PROCEDIMENTOS</span><h2>Conhecimento da manutenção</h2><p>Cadastre padrões, checklists e treinamentos. Funciona localmente e pode sincronizar com Supabase.</p></div><button id="refreshTrainingBtn" class="secondary" type="button">Atualizar nuvem</button></div>
+      <div id="trainingDashboard" class="training-dashboard"></div>
+      <div class="card visual-builder"><div class="section-head"><div><span class="eyebrow">FOTO OU VÍDEO</span><h2>Criar treinamento visual</h2></div></div><p class="muted">Envie uma foto ou vídeo, informe o assunto e o aplicativo cria uma explicação organizada para você revisar e salvar.</p><div class="grid two"><label>Título<input id="visualTrainingTitle" placeholder="Ex.: Como funciona a válvula 5/3"></label><label>Máquina<select id="visualTrainingMachine"><option value="">Geral / todas</option></select></label><label>Categoria<input id="visualTrainingCategory" placeholder="Pneumática, elétrica, faca..."></label><div class="span-two visual-media-source">
+  <span class="field-label">Adicionar foto ou vídeo</span>
+  <div class="visual-media-source-buttons">
+    <label class="visual-source-button">
+      <span>📷</span>
+      <strong>Tirar foto</strong>
+      <small>Abrir a câmera traseira</small>
+      <input id="visualTrainingCameraFile" type="file" accept="image/*" capture="environment">
+    </label>
+
+    <label class="visual-source-button">
+      <span>🖼️</span>
+      <strong>Biblioteca</strong>
+      <small>Escolher foto ou vídeo já salvo</small>
+      <input id="visualTrainingFile" type="file" accept="image/*,video/*">
+    </label>
+
+    <label class="visual-source-button">
+      <span>🎥</span>
+      <strong>Gravar vídeo</strong>
+      <small>Abrir a câmera em modo vídeo</small>
+      <input id="visualTrainingVideoFile" type="file" accept="video/*" capture="environment">
+    </label>
+  </div>
+  <div id="visualTrainingSelectedFile" class="visual-selected-file">
+    Nenhum arquivo selecionado.
+  </div>
+</div><label class="span-two">Observações<textarea id="visualTrainingNotes" rows="3" placeholder="Explique o que aparece e os cuidados importantes..."></textarea></label></div><button id="createVisualTrainingBtn" class="primary">Criar explicação</button><div id="visualTrainingDraft" class="visual-draft hidden"></div></div>
+      <div class="card"><div class="section-head"><div><span class="eyebrow">PESQUISA VISUAL</span><h2>Fotos e vídeos explicativos</h2></div></div><div class="training-filters"><input id="visualTrainingSearch" type="search" placeholder="Pesquisar válvula, sensor, motor..."><select id="visualTrainingFilterMachine"><option value="">Todas as máquinas</option></select><select id="visualTrainingFilterType"><option value="">Foto e vídeo</option><option value="image">Fotos</option><option value="video">Vídeos</option></select></div><div id="visualTrainingLibrary" class="visual-library"></div></div>
+      <div id="trainingFormCard" class="card form-card"><div class="section-head"><div><span class="eyebrow">CADASTRO</span><h2>Novo conteúdo técnico</h2></div><span id="trainingCloudStatus" class="training-cloud-status local">Modo local</span></div>
+        <div class="grid two"><label>Tipo<select id="trainingType"><option value="training">Treinamento</option><option value="procedure">Procedimento</option><option value="checklist">Checklist</option></select></label><label>Status<select id="trainingStatus"><option value="active">Ativo</option><option value="draft">Rascunho</option><option value="review">Em revisão</option><option value="archived">Arquivado</option></select></label><label>Título<input id="trainingTitle" type="text" placeholder="Ex.: Regulagem da faca da MK-173"></label><label>Máquina<select id="trainingMachine"><option value="">Geral / todas as máquinas</option></select></label><label>Categoria<input id="trainingCategory" type="text" placeholder="Faca, elétrica, pneumática..."></label><label>Público<select id="trainingAudience"><option>Todos da manutenção</option><option>Líderes</option><option>Mecânicos</option><option>Eletricistas</option><option>Preventiva</option><option>Lubrificação</option></select></label><label>Periodicidade<input id="trainingFrequency" type="text" placeholder="Admissional, anual..."></label><label>Responsável<input id="trainingResponsible" type="text" placeholder="Rivail Cardoso"></label><label class="span-two">Descrição<textarea id="trainingDescription" rows="4"></textarea></label><label class="span-two">Passos do procedimento<textarea id="trainingSteps" rows="8" placeholder="1. Bloquear a máquina&#10;2. Confirmar ausência de energia&#10;3. Verificar..."></textarea></label><label class="span-two">Link de vídeo ou documento<input id="trainingMaterialUrl" type="url" placeholder="https://..."></label></div>
+        <div class="button-row"><button id="saveTrainingBtn" class="primary" type="button">Salvar conteúdo</button><button id="cancelTrainingEditBtn" class="secondary hidden" type="button">Cancelar edição</button></div>
+      </div>
+      <div id="trainingCompletionPanel" class="card hidden"><span class="eyebrow">REGISTRAR CONCLUSÃO</span><h2 id="trainingCompletionTitle">Treinamento</h2><input id="trainingCompletionId" type="hidden"><div class="grid two"><label>Colaborador<select id="trainingProgressMechanic"><option value="">Selecione o colaborador</option></select></label><label>Nota<input id="trainingProgressScore" type="number" min="0" max="100"></label><label class="span-two">Observações<textarea id="trainingProgressNotes" rows="3"></textarea></label></div><div class="button-row"><button id="saveTrainingCompletionBtn" class="primary" type="button">Confirmar conclusão</button><button id="cancelTrainingCompletionBtn" class="secondary" type="button">Cancelar</button></div></div>
+      <div class="card"><div class="section-head"><div><span class="eyebrow">BANCO DE CONHECIMENTO</span><h2>Treinamentos e procedimentos</h2></div><span id="trainingCount" class="muted">0 conteúdos</span></div><div class="training-filters"><input id="trainingSearch" type="search" placeholder="Pesquisar..."><select id="trainingFilterType"><option value="">Todos os tipos</option><option value="training">Treinamentos</option><option value="procedure">Procedimentos</option><option value="checklist">Checklists</option></select><select id="trainingFilterMachine"><option value="">Todas as máquinas</option></select><select id="trainingFilterStatus"><option value="">Todos os status</option><option value="active">Ativos</option><option value="draft">Rascunhos</option><option value="review">Em revisão</option><option value="archived">Arquivados</option></select></div><div id="trainingList" class="training-list"></div></div>
+    </section>
+
+    <section id="view-aovivo" class="view"><div class="hero card live-hero"><div><span class="badge">SGMAN AO VIVO</span><h2>Painel operacional</h2><p>Ordens, MTTR, MTBF, disponibilidade, confiabilidade e máquinas críticas.</p></div><div class="button-row"><select id="liveInterval"><option value="30">30 segundos</option><option value="60" selected>1 minuto</option><option value="300">5 minutos</option></select><button id="startLiveSgmanBtn" class="primary">Iniciar</button><button id="stopLiveSgmanBtn" class="secondary">Pausar</button><button id="refreshLiveSgmanBtn" class="secondary">Atualizar agora</button></div></div><div id="liveSgmanContent"></div><div class="card reference-box"><strong>Disponibilidade estimada</strong><p>Calculada pelas paradas registradas no SGMan. Quando as horas reais do Power BI forem integradas, o cálculo usará o tempo real de operação.</p></div></section>
+
+    <section id="view-config" class="view">
+
+      <div class="card organization-config-card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">EMPRESA E PRODUTO</span>
+            <h2>Ecopack agora, outras empresas depois</h2>
+          </div>
+        </div>
+
+        <p class="muted">
+          O aplicativo continua configurado para a Ecopack. Estes campos deixam a estrutura preparada para copiar a configuração para outra indústria sem alterar o código.
+        </p>
+
+        <div class="grid two">
+          <label>Empresa
+            <input id="organizationCompanyName" type="text" value="Ecopack Brasil" />
+          </label>
+
+          <label>Unidade
+            <input id="organizationUnitName" type="text" value="Indaiatuba" />
+          </label>
+
+          <label>Departamento
+            <input id="organizationDepartmentName" type="text" value="Manutenção" />
+          </label>
+
+          <label>Setor principal
+            <input id="organizationSectorName" type="text" value="Produção" />
+          </label>
+
+          <label>Fuso horário
+            <select id="organizationTimezone">
+              <option value="America/Sao_Paulo">São Paulo / Brasília</option>
             </select>
           </label>
         </div>
 
-        <div class="staff-card">
-          <div class="eyebrow orange">ESCALA DO DIA</div>
-          <div id="teamScaleSummary" class="summary"></div>
-          <div id="teamMembers" class="team-members"></div>
+        <h3>Metas da manutenção</h3>
+
+        <div class="grid three">
+          <label>Meta de OEE (%)
+            <input id="targetOee" type="number" min="0" max="100" step="0.1" value="70" />
+          </label>
+
+          <label>Meta de MTTR (min)
+            <input id="targetMttrMinutes" type="number" min="1" value="60" />
+          </label>
+
+          <label>Meta de MTBF (horas)
+            <input id="targetMtbfHours" type="number" min="1" step="0.5" value="12" />
+          </label>
+
+          <label>Meta de confiabilidade (%)
+            <input id="targetReliability" type="number" min="0" max="100" step="0.1" value="55" />
+          </label>
+
+          <label>Máximo de OS atrasadas
+            <input id="targetMaxOverdue" type="number" min="0" value="20" />
+          </label>
+
+          <label>Máximo de máquinas reincidentes
+            <input id="targetMaxRecurrence" type="number" min="0" value="2" />
+          </label>
         </div>
 
-        <div class="photo-actions">
-          <label class="upload">
-            <input id="oeeGalleryInput" type="file" accept="image/*">
-            <span>🖼️ Escolher da galeria</span>
+        <h3>Conteúdo dos relatórios</h3>
+
+        <div class="report-module-grid">
+          <label><input id="reportModule-efficiencyTrend" type="checkbox" checked /> Tendência da eficiência</label>
+          <label><input id="reportModule-sgmanSummary" type="checkbox" checked /> Resumo do SGMan</label>
+          <label><input id="reportModule-reliability" type="checkbox" checked /> MTTR, MTBF e confiabilidade</label>
+          <label><input id="reportModule-priorities" type="checkbox" checked /> Máquinas prioritárias</label>
+          <label><input id="reportModule-accountability" type="checkbox" checked /> Cobranças obrigatórias</label>
+          <label><input id="reportModule-people" type="checkbox" checked /> Gestão das pessoas</label>
+          <label><input id="reportModule-preventive" type="checkbox" checked /> Plano preventivo</label>
+          <label><input id="reportModule-oeeSupport" type="checkbox" checked /> OEE como apoio</label>
+        </div>
+
+        <div class="button-row">
+          <button id="saveOrganizationBtn" class="primary" type="button">Salvar empresa e metas</button>
+          <button id="exportOrganizationBtn" class="secondary" type="button">Exportar configuração</button>
+          <label class="file-action">
+            Importar configuração
+            <input id="importOrganizationInput" type="file" accept="application/json,.json" />
           </label>
-          <label class="upload">
-            <input id="oeeCameraInput" type="file" accept="image/*" capture="environment">
-            <span>📷 Tirar foto agora</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <span class="eyebrow">INTEGRAÇÕES</span>
+        <h2>Configuração da versão 56</h2>
+        <div class="integration-grid">
+          <div class="integration-item done">
+            <strong>Análise local</strong>
+            <span>Ativa</span>
+            <p>Funciona diretamente no celular, sem chave de API.</p>
+          </div>
+          <div class="integration-item done">
+            <strong>Compartilhamento</strong>
+            <span>Ativo</span>
+            <p>Usa o menu de compartilhamento do iPhone, incluindo WhatsApp.</p>
+          </div>
+          <div class="integration-item waiting">
+            <strong>WhatsApp automático</strong>
+            <span>Próxima etapa</span>
+            <p>Será conectado por número oficial e webhook.</p>
+          </div>
+          <div class="integration-item done">
+            <strong>SGMan</strong>
+            <span>Integração preparada</span>
+            <p>Cria ordens e consulta OS abertas, atrasadas e concluídas pela API oficial.</p>
+          </div>
+        </div>
+      </div>
+
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">API SGMAN</span>
+            <h2>Configuração das ordens</h2>
+          </div>
+          <button id="testSgmanBtn" class="secondary" type="button">Testar conector</button>
+        </div>
+
+        <p id="sgmanConnectorStatus" class="integration-status">Verificando conector...</p>
+        <div class="reference-box">
+          <strong>Tipos confirmados no SGMan</strong>
+          <p>Para falhas do relatório será usado tipo de manutenção CORRETIVA. O app também reconhece preventiva, melhoria, programação, qualidade, segurança, teste, troca de altura e troca de molde.</p>
+        </div>
+
+        <div class="grid two">
+          <label class="hidden">Executante antigo
+            <input id="sgmanExecutante" type="text" />
+          </label>
+
+          <label>Tipo de serviço no SGMan
+            <select id="sgmanTipoServico">
+              <option value="AUTOMÁTICO">Automático conforme a falha</option>
+              <option value="003 MECÂNICO">003 MECÂNICO</option>
+              <option value="007 ELETRICA">007 ELETRICA</option>
+              <option value="009 LUBRIFICAR">009 LUBRIFICAR</option>
+              <option value="010 PROGRAMAÇÃO">010 PROGRAMAÇÃO</option>
+              <option value="011 TROCA">011 TROCA</option>
+              <option value="014 REGULAGEM MECÂNICA">014 REGULAGEM MECÂNICA</option>
+              <option value="015 PNEUMÁTICA">015 PNEUMÁTICA</option>
+              <option value="016 COLOCAR CALÇO">016 COLOCAR CALÇO</option>
+            </select>
+          </label>
+
+          <label>Tipo de manutenção no SGMan
+            <select id="sgmanTipoManutencao">
+              <option value="AUTOMÁTICO">Automático conforme a ocorrência</option>
+              <option value="CORRETIVA">CORRETIVA</option>
+              <option value="MELHORIA">MELHORIA</option>
+              <option value="PREVENTIVA">PREVENTIVA</option>
+              <option value="PROGRAMAÇÃO">PROGRAMAÇÃO</option>
+              <option value="QUALIDADE">QUALIDADE</option>
+              <option value="ROTINA LIDER PRODUÇÃO">ROTINA LIDER PRODUÇÃO</option>
+              <option value="SEGURANÇA">SEGURANÇA</option>
+              <option value="TESTE">TESTE</option>
+              <option value="TROCA DE ALTURA">TROCA DE ALTURA</option>
+              <option value="TROCA DE MOLDE">TROCA DE MOLDE</option>
+            </select>
+          </label>
+
+          <label>Executantes por OS
+            <input id="sgmanQtdExecutantes" type="number" min="1" max="1" value="1" readonly />
+            <small>Cada OS recebe um responsável. As ordens são divididas entre a equipe.</small>
+          </label>
+
+          <label>Duração estimada
+            <input id="sgmanDuracaoEstimada" type="text" value="01:00" placeholder="hh:mm" />
           </label>
         </div>
 
-        <img id="preview" class="preview hidden" alt="Prévia do quadro">
-
-        <label style="margin-top:22px">Relatório da produção
-          <textarea id="productionReportInput" rows="10" placeholder="Cole aqui o relatório do turno. Ele será salvo no histórico por data e turno."></textarea>
+        <label>TAGs das máquinas no SGMan
+          <textarea id="sgmanTagMap" rows="14" placeholder="Quando a TAG for igual à máquina:&#10;Mk173&#10;Mk170&#10;Mk138&#10;&#10;Quando a TAG for diferente:&#10;MK-149=BC-018"></textarea>
         </label>
+        <p id="sgmanTagCount" class="integration-status">0 TAG(s) reconhecida(s).</p>
+        <p class="muted">Pode escrever apenas Mk173 quando essa for a TAG real no SGMan. Se a TAG for diferente, use MK-173=TAG-REAL. Não coloque o token neste campo.</p>
 
-        <label style="margin-top:22px">Power BI — importar histórico
-          <input id="powerBiFileInput" type="file" accept=".json,.csv,text/csv,application/json">
-        </label>
-        <div class="hint">Aceita JSON ou CSV. Os registros ficam salvos por data, turno e máquina.</div>
-
-        <button id="analyzeBtn" class="primary">Analisar quadro</button>
-        <div id="status" class="status"></div>
-      </div>
-    </section>
-
-    <section id="analise" class="page">
-      <div class="card">
-        <div class="eyebrow orange">2. ANÁLISE OEE</div>
-        <h2>Leitura confirmada</h2><div class="hint">Leitor principal: IA visual. OCR V70 entra somente como reserva.</div>
-        <div id="summary" class="summary"></div>
-        <div id="historySummary" class="summary"></div>
-        <div id="readings" class="readings"></div>
-      </div>
-    </section>
-
-    <section id="acoes" class="page">
-      <div class="card">
-        <div class="eyebrow orange">3. INTELIGÊNCIA DO SUPERVISOR</div>
-        <h2>Top 10 — escolha 3 prioridades</h2>
-        <p>Somente OEE confirmado entra aqui. Selecione exatamente 3 máquinas.</p>
-        <div id="counter" class="counter">0/3 selecionada(s)</div>
-        <div id="top10"></div>
+        <div class="button-row">
+          <button id="saveSgmanConfigBtn" class="primary" type="button">Salvar configuração SGMan</button>
+        </div>
       </div>
 
-      <div class="card">
-        <div class="eyebrow orange">4. RELATÓRIO</div>
-        <h2>Ações da manutenção</h2>
-        <textarea id="reportText" rows="20" readonly></textarea>
-        <button id="copyBtn" class="primary">Copiar relatório</button>
+      <div class="card danger-zone">
+        <h2>Dados do aparelho</h2>
+        <p class="muted">Esta versão salva histórico e escala apenas neste navegador.</p>
+        <button id="resetAppBtn" class="danger" type="button">Apagar todos os dados</button>
       </div>
     </section>
   </main>
 
-  <nav class="bottom">
-    <button data-go="painel">🏠<span>Painel</span></button>
-    <button data-go="novo">＋<span>Novo</span></button>
-    <button data-go="analise">▦<span>Análise</span></button>
-    <button data-go="acoes">✓<span>Ações</span></button>
+  <nav class="bottom-nav" aria-label="Navegação principal">
+    <button class="nav-btn active" data-view="painel"><span>🏠</span>Painel</button>
+    <button class="nav-btn" data-view="novo"><span>＋</span>Novo</button>
+    <button class="nav-btn quick-nav" data-view="osrapida"><span>📷</span>Abrir OS</button>
+    <button class="nav-btn" data-view="mecanico"><span>🧠</span>Mecânico</button>
+    <button class="nav-btn" data-view="analise"><span>▦</span>Análise</button>
+    <button class="nav-btn" data-view="acoes"><span>✓</span>Ações</button>
+    <button class="nav-btn" data-view="oee"><span>%</span>OEE 3 dias</button>
+    <button class="nav-btn" data-view="inteligencia"><span>📈</span>Inteligência</button>
+    <button class="nav-btn" data-view="escala"><span>◷</span>Escala</button>
+    <button class="nav-btn" data-view="historico"><span>≡</span>Histórico</button>
+    <button class="nav-btn" data-view="treinamentos"><span>🎓</span>Treinamentos</button>
+    <button class="nav-btn" data-view="aovivo"><span>📡</span>Ao vivo</button>
+    <button class="nav-btn" data-view="config"><span>⚙</span>Config</button>
   </nav>
 
-  <script src="/app.js"></script>
+  <div id="toast" class="toast" role="status"></div>
+
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="app.js?v=56.0.0"></script>
 </body>
 </html>
