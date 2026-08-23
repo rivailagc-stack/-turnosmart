@@ -1,606 +1,258 @@
-const DEFAULT_MODEL = 'gemini-3.6-flash';
+const DEFAULT_MODEL='gemini-3.6-flash';
 
-function parseDataUrl(value) {
-  const match = String(value || '').match(
-    /^data:(image\/[^;]+);base64,(.+)$/s
-  );
-
-  return match
-    ? {
-        mimeType: match[1],
-        data: match[2]
-      }
-    : null;
+function parseDataUrl(value){
+  const match=String(value||'').match(/^data:(image\/[^;]+);base64,(.+)$/s);
+  return match?{mimeType:match[1],data:match[2]}:null;
 }
 
-function responseText(body) {
-  return (body?.candidates?.[0]?.content?.parts || [])
-    .map(part => part?.text || '')
+function responseText(body){
+  return (body?.candidates?.[0]?.content?.parts||[])
+    .map(part=>part?.text||'')
     .join('')
     .trim();
 }
 
-function parseJson(text) {
-  const clean = String(text || '')
+function parseJson(text){
+  const clean=String(text||'')
     .trim()
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/, '')
-    .replace(/\s*```$/, '')
+    .replace(/^```json\s*/i,'')
+    .replace(/^```\s*/,'')
+    .replace(/\s*```$/,'')
     .trim();
 
-  try {
-    return JSON.parse(clean);
-  } catch {}
+  try{return JSON.parse(clean);}catch{}
 
-  const start = clean.indexOf('{');
-  const end = clean.lastIndexOf('}');
-
-  if (start >= 0 && end > start) {
-    return JSON.parse(clean.slice(start, end + 1));
+  const start=clean.indexOf('{');
+  const end=clean.lastIndexOf('}');
+  if(start>=0&&end>start){
+    return JSON.parse(clean.slice(start,end+1));
   }
 
   throw new Error('Gemini não retornou JSON válido.');
 }
 
-function normalizeMachine(value) {
-  const match = String(value || '').match(/\d{1,3}/);
-
-  return match
-    ? `MK-${String(Number(match[0])).padStart(2, '0')}`
-    : '';
+function normalizeMachine(value){
+  const match=String(value||'').match(/\d{1,3}/);
+  return match?`MK-${String(Number(match[0])).padStart(2,'0')}`:'';
 }
 
-module.exports = async function handler(req, res) {
-
-  // =====================================================
-  // SOMENTE POST
-  // =====================================================
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({
-      ok: false,
-      error: 'Use POST.'
-    });
+module.exports=async function handler(req,res){
+  if(req.method!=='POST'){
+    return res.status(405).json({ok:false,error:'Use POST.'});
   }
 
-  // =====================================================
-  // CHAVE GEMINI
-  // =====================================================
-
-  const key =
-    process.env.GEMINI_API_KEY ||
+  const key=
+    process.env.GEMINI_API_KEY||
     process.env.GOOGLE_API_KEY;
 
-  if (!key) {
+  if(!key){
     return res.status(503).json({
-      ok: false,
-      error:
-        'GEMINI_API_KEY não configurada na Vercel.'
+      ok:false,
+      error:'GEMINI_API_KEY não configurada na Vercel.'
     });
   }
 
-  try {
+  try{
+    const body=typeof req.body==='string'
+      ?JSON.parse(req.body)
+      :(req.body||{});
 
-    // =====================================================
-    // RECEBE DADOS DO TURNOSMART
-    // =====================================================
-
-    const body =
-      typeof req.body === 'string'
-        ? JSON.parse(req.body)
-        : (req.body || {});
-
-    const image = parseDataUrl(body.imageDataUrl);
-
-    if (!image) {
-      return res.status(400).json({
-        ok: false,
-        error:
-          'Imagem da coluna do OEE não recebida.'
-      });
+    const image=parseDataUrl(body.imageDataUrl);
+    if(!image){
+      return res.status(400).json({ok:false,error:'Imagem da coluna não recebida.'});
     }
 
-    // =====================================================
-    // LISTA OFICIAL DAS MÁQUINAS DO QUADRO
-    // =====================================================
-
-    const machines = (body.machines || [])
+    const machines=(body.machines||[])
       .map(normalizeMachine)
       .filter(Boolean);
 
-    if (!machines.length) {
-      return res.status(400).json({
-        ok: false,
-        error:
-          'Lista das máquinas não recebida.'
-      });
-    }
+    const scope=body.scope||{};
+    const examples=Array.isArray(body.examples)
+      ?body.examples.slice(-3)
+      :[];
 
-    const scope = body.scope || {};
-
-    // =====================================================
-    // EXEMPLOS QUE O SUPERVISOR ENSINOU
-    // =====================================================
-
-    const examples =
-      Array.isArray(body.examples)
-        ? body.examples.slice(-3)
-        : [];
-
-    // =====================================================
-    // INSTRUÇÃO PRINCIPAL PARA O GEMINI
-    // =====================================================
-
-    const instruction = `
-Você é o leitor visual do quadro semanal de OEE da Ecopack Brasil.
+    const instruction=`
+Você é um leitor visual de um QUADRO SEMANAL DE OEE da Ecopack Brasil.
 
 IMPORTANTE:
-A imagem recebida corresponde a UMA COLUNA do quadro.
+A imagem atual mostra o QUADRO INTEIRO, não apenas uma célula.
 
-COLUNA QUE DEVE SER LIDA:
-${scope.label || 'não informada'}
+Sua primeira tarefa é localizar visualmente a coluna:
+${scope.label||''}
 
-As linhas do quadro aparecem exatamente nesta ordem,
-de cima para baixo:
+Depois siga cada linha horizontalmente a partir dos códigos de máquina na esquerda.
 
+A ordem das máquinas no quadro é EXATAMENTE:
 ${machines.join(', ')}
 
-=====================================================
-O QUE VOCÊ DEVE LER
-=====================================================
+REGRAS:
+1. Leia SOMENTE a coluna ${scope.label||''}.
+2. Para cada MK, use a linha horizontal correta.
+3. Dentro da célula existem nomes, produção, horários e comentários.
+4. OEE é o percentual escrito na célula, normalmente acompanhado de %.
+5. Ignore números grandes de produção, como 31.200, 48.540, 69.100.
+6. Ignore horários, contagens, nomes e números sem relação com OEE.
+7. Se a célula está vazia ou a máquina não rodou, use oee=null.
+8. NUNCA transforme célula vazia em 0.
+9. 0 só é válido se "0%" estiver claramente escrito.
+10. É melhor retornar null do que inventar.
+11. Use o cabeçalho do dia/turno e as linhas da esquerda como referência espacial.
+12. Não pegue percentual da linha acima ou abaixo.
 
-Para cada máquina, procure SOMENTE o percentual de OEE
-escrito manualmente na célula correspondente.
+EXEMPLO DE CÉLULA:
+"SANDRO 48.540 54%"
+Resposta correta: 54.
 
-Exemplos corretos:
+EXEMPLO:
+"MARISA 31.200 59%"
+Resposta correta: 59.
 
-MK-223 = 33%
-MK-173 = 54%
-MK-212 = 67%
-MK-149 = 62%
+EXEMPLO:
+célula vazia
+Resposta correta: null.
 
-Retorne:
+Você poderá receber exemplos de fotos anteriores que foram CONFIRMADAS pelo supervisor.
+Use esses exemplos somente para aprender:
+- formato físico da lousa;
+- posição das colunas;
+- estilo da escrita;
+- aparência do símbolo %;
+- relação entre linha da MK e sua célula.
 
-MK-223 -> 33
-MK-173 -> 54
-MK-212 -> 67
-MK-149 -> 62
+NÃO copie números antigos para a foto nova.
 
-=====================================================
-NÚMEROS QUE VOCÊ DEVE IGNORAR
-=====================================================
-
-Dentro da célula podem existir vários números.
-
-Exemplo:
-
-SANORO
-48.540
-54%
-
-Nesse caso:
-
-48.540 = produção
-54% = OEE
-
-Resposta correta:
-
-54
-
-Outro exemplo:
-
-MARISA
-31.200
-59%
-
-Resposta correta:
-
-59
-
-=====================================================
-REGRA MAIS IMPORTANTE
-=====================================================
-
-O OEE é o número acompanhado do símbolo %.
-
-NÃO use:
-
-- quantidade produzida
-- horário
-- nome do operador
-- quantidade de paradas
-- números escritos sem %
-- números de outras linhas
-- números de outras colunas
-
-=====================================================
-CÉLULA VAZIA
-=====================================================
-
-Se não existir percentual claramente escrito:
-
-oee = null
-
-NUNCA transforme célula vazia em 0%.
-
-0 somente pode ser retornado se estiver claramente
-escrito "0%" na célula.
-
-=====================================================
-ESCRITA MANUAL
-=====================================================
-
-A escrita é feita com caneta e pode ser difícil.
-
-Analise visualmente cada número.
-
-Tenha atenção especial para:
-
-2 e 7
-3 e 5
-3 e 8
-4 e 7
-5 e 6
-1 e 7
-
-Use também a posição da linha da máquina para evitar
-pegar o percentual da máquina acima ou abaixo.
-
-=====================================================
-CONFIANÇA
-=====================================================
-
-Use:
-
-90 a 100
-quando número e símbolo % estiverem muito claros.
-
-70 a 89
-quando a leitura estiver boa, mas a escrita não estiver perfeita.
-
-50 a 69
-quando existir dúvida.
-
-Abaixo de 50
-quando não houver segurança.
-
-Se houver muita dúvida:
-
-oee = null
-
-É melhor deixar vazio do que inventar um valor.
-
-=====================================================
-EXEMPLOS ENSINADOS
-=====================================================
-
-Depois desta instrução você poderá receber imagens
-que já foram corrigidas pelo supervisor.
-
-Esses exemplos servem SOMENTE para aprender:
-
-- estilo da escrita
-- posição dos números
-- formato do quadro
-- aparência das células
-- maneira como o percentual é escrito
-
-NUNCA copie os números dos exemplos para a imagem atual.
-
-=====================================================
-FORMATO DA RESPOSTA
-=====================================================
-
-Retorne SOMENTE JSON.
-
-Exemplo:
-
+Retorne SOMENTE JSON:
 {
-  "rows": [
+  "rows":[
     {
-      "machine": "MK-223",
-      "oee": 33,
-      "confidence": 95,
-      "evidence": "33%",
-      "reason": "33% visível na linha MK-223"
-    },
-    {
-      "machine": "MK-192",
-      "oee": null,
-      "confidence": 0,
-      "evidence": "",
-      "reason": "célula sem percentual legível"
+      "machine":"MK-149",
+      "oee":62,
+      "confidence":94,
+      "evidence":"62%",
+      "reason":"62% está na linha MK-149 e coluna ${scope.label||''}"
     }
   ]
 }
 
 Inclua TODAS as máquinas da lista.
-
-Não escreva explicações fora do JSON.
+Se não houver leitura segura para uma máquina, retorne oee:null.
 `;
 
-    const parts = [
-      {
-        text: instruction
-      }
-    ];
+    const parts=[{text:instruction}];
 
-    // =====================================================
-    // ADICIONA EXEMPLOS CORRIGIDOS
-    // =====================================================
+    for(let index=0;index<examples.length;index++){
+      const example=examples[index];
+      const exImage=parseDataUrl(example.imageDataUrl);
+      if(!exImage)continue;
 
-    for (
-      let index = 0;
-      index < examples.length;
-      index++
-    ) {
-
-      const example = examples[index];
-
-      const exImage =
-        parseDataUrl(example.imageDataUrl);
-
-      if (!exImage) continue;
-
-      const correctRows =
-        (example.rows || [])
-          .map(row => ({
-            machine:
-              normalizeMachine(row.machine),
-
-            oee:
-              Number(row.oee)
-          }))
-          .filter(
-            row =>
-              row.machine &&
-              Number.isFinite(row.oee)
-          );
+      const correctRows=(example.rows||[])
+        .map(row=>({
+          machine:normalizeMachine(row.machine),
+          oee:Number(row.oee)
+        }))
+        .filter(row=>row.machine&&Number.isFinite(row.oee));
 
       parts.push({
         text:
-          `EXEMPLO CORRIGIDO ${index + 1}.
-          
-Coluna:
-${example.scope || example.column || 'não informada'}
-
-A imagem seguinte foi conferida manualmente
-pelo supervisor.
-
-Use somente para aprender o padrão visual
-da lousa e da escrita.`
+          `EXEMPLO CORRIGIDO ${index+1}. Coluna: ${example.scope||example.column||'não informada'}. `+
+          `A imagem seguinte foi conferida pelo supervisor.`
       });
-
       parts.push({
-        inlineData: {
-          mimeType: exImage.mimeType,
-          data: exImage.data
+        inlineData:{
+          mimeType:exImage.mimeType,
+          data:exImage.data
         }
       });
-
       parts.push({
-        text:
-          `RESPOSTA CORRETA DO EXEMPLO ${
-            index + 1
-          }:
-
-${JSON.stringify(correctRows)}`
+        text:`RESPOSTA CORRETA DO EXEMPLO ${index+1}: ${JSON.stringify(correctRows)}`
       });
     }
 
-    // =====================================================
-    // FOTO ATUAL
-    // =====================================================
-
     parts.push({
-      text: `
-AGORA ANALISE A FOTO ATUAL.
-
-Coluna atual:
-
-${scope.label || 'não informada'}
-
-Leia máquina por máquina.
-
-Lembre-se:
-
-número com % = candidato a OEE.
-
-Quantidade produzida NÃO é OEE.
-
-Célula vazia NÃO é 0%.
-
-Não copie valores dos exemplos anteriores.
-`
+      text:
+        `AGORA ANALISE A FOTO ATUAL da coluna ${scope.label||''}. `+
+        `Não copie os valores dos exemplos.`
     });
-
     parts.push({
-      inlineData: {
-        mimeType: image.mimeType,
-        data: image.data
+      inlineData:{
+        mimeType:image.mimeType,
+        data:image.data
       }
     });
 
-    // =====================================================
-    // MODELO GEMINI
-    // =====================================================
+    const model=process.env.GEMINI_MODEL||DEFAULT_MODEL;
 
-    const model =
-      process.env.GEMINI_MODEL ||
-      DEFAULT_MODEL;
-
-    // =====================================================
-    // CHAMADA GEMINI
-    // =====================================================
-
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-        model
-      )}:generateContent`,
+    const response=await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       {
-        method: 'POST',
-
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': key
+        method:'POST',
+        headers:{
+          'Content-Type':'application/json',
+          'x-goog-api-key':key
         },
-
-        body: JSON.stringify({
-
-          contents: [
-            {
-              role: 'user',
-              parts
-            }
-          ],
-
-          generationConfig: {
-            responseMimeType:
-              'application/json'
+        body:JSON.stringify({
+          contents:[{
+            role:'user',
+            parts
+          }],
+          generationConfig:{
+            responseMimeType:'application/json'
           }
         })
       }
     );
 
-    const result =
-      await response
-        .json()
-        .catch(() => ({}));
+    const result=await response.json().catch(()=>({}));
 
-    // =====================================================
-    // ERRO GEMINI
-    // =====================================================
-
-    if (!response.ok) {
-
+    if(!response.ok){
       throw new Error(
-        result?.error?.message ||
+        result?.error?.message||
         `Gemini HTTP ${response.status}`
       );
     }
 
-    // =====================================================
-    // INTERPRETA JSON
-    // =====================================================
-
-    const text = responseText(result);
-
-    const parsed = parseJson(text);
-
-    const map = new Map(
-      (parsed.rows || [])
-        .map(row => [
-          normalizeMachine(row.machine),
-          row
-        ])
-        .filter(([machine]) => machine)
+    const parsed=parseJson(responseText(result));
+    const map=new Map(
+      (parsed.rows||[])
+        .map(row=>[normalizeMachine(row.machine),row])
+        .filter(([machine])=>machine)
     );
 
-    // =====================================================
-    // GARANTE TODAS AS MÁQUINAS
-    // =====================================================
+    const rows=machines.map(machine=>{
+      const row=map.get(machine)||{};
+      const raw=row.oee;
+      const has=raw!==null&&raw!==undefined&&raw!=='';
+      const oee=has?Number(raw):null;
 
-    const rows =
-      machines.map(machine => {
+      return {
+        machine,
+        oee:
+          Number.isFinite(oee)&&
+          oee>=0&&
+          oee<=100
+            ?oee
+            :null,
+        confidence:Math.max(
+          0,
+          Math.min(100,Number(row.confidence||0))
+        ),
+        evidence:String(row.evidence||''),
+        reason:String(row.reason||'')
+      };
+    });
 
-        const row =
-          map.get(machine) || {};
+    return res.status(200).json({
+      ok:true,
+      model,
+      examplesUsed:examples.length,
+      rows
+    });
 
-        const raw =
-          row.oee;
-
-        const has =
-          raw !== null &&
-          raw !== undefined &&
-          raw !== '';
-
-        const oee =
-          has
-            ? Number(raw)
-            : null;
-
-        const valid =
-          Number.isFinite(oee) &&
-          oee >= 0 &&
-          oee <= 100;
-
-        return {
-
-          machine,
-
-          oee:
-            valid
-              ? oee
-              : null,
-
-          confidence:
-            Math.max(
-              0,
-              Math.min(
-                100,
-                Number(
-                  row.confidence || 0
-                )
-              )
-            ),
-
-          evidence:
-            String(
-              row.evidence || ''
-            ),
-
-          reason:
-            String(
-              row.reason || ''
-            )
-        };
-      });
-
-    // =====================================================
-    // RESPOSTA PARA TURNOSMART
-    // =====================================================
-
-    return res
-      .status(200)
-      .json({
-
-        ok: true,
-
-        model,
-
-        column:
-          scope.label || '',
-
-        examplesUsed:
-          examples.length,
-
-        detected:
-          rows.filter(
-            row =>
-              row.oee !== null
-          ).length,
-
-        rows
-      });
-
-  } catch (error) {
-
-    console.error(
-      'Erro OEE Gemini:',
-      error
-    );
-
-    return res
-      .status(502)
-      .json({
-
-        ok: false,
-
-        error:
-          String(
-            error?.message ||
-            error
-          )
-      });
+  }catch(error){
+    console.error('oee-gemini:',error);
+    return res.status(502).json({
+      ok:false,
+      error:String(error?.message||error)
+    });
   }
 };
