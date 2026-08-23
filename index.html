@@ -10,7 +10,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="style.css?v=57.0.0" />
+  <link rel="stylesheet" href="style.css?v=57.1.0" />
   <title>TurnoSmart</title>
 </head>
 <body>
@@ -20,7 +20,7 @@
       <div id="organizationBrandCompany" class="organization-brand-company">Ecopack Brasil</div>
       <div class="app-title-row">
         <h1>TurnoSmart</h1>
-        <span id="appVersionBadge" class="app-version-badge">V57.0.0</span>
+        <span id="appVersionBadge" class="app-version-badge">V57.1.0</span>
       </div>
     </div>
     <button id="installBtn" class="ghost hidden" type="button">Instalar</button>
@@ -256,6 +256,64 @@
               <span id="geminiExampleCount">0 exemplo(s)</span>
             </div>
             <p>Quanto mais fotos corretas você salvar, mais contexto o Gemini recebe para entender sua lousa.</p>
+            <button id="openManualExampleBtn" class="secondary" type="button">➕ Adicionar exemplo para ensinar</button>
+          </div>
+
+          <div id="manualExampleBox" class="manual-example-box hidden">
+            <div class="manual-example-head">
+              <div>
+                <span class="eyebrow">ENSINAR ANTES DE LER</span>
+                <h3>Novo exemplo para o Gemini</h3>
+                <p>Escolha uma foto antiga, informe a coluna e digite os OEE corretos. Esse exemplo será usado nas próximas análises.</p>
+              </div>
+              <button id="closeManualExampleBtn" class="ghost small-btn" type="button">Fechar</button>
+            </div>
+
+            <div class="manual-example-grid">
+              <label>Foto de exemplo
+                <input id="manualExampleImageInput" type="file" accept="image/*" />
+                <small class="field-example">Exemplo: uma foto antiga do quadro em que você sabe os valores corretos.</small>
+              </label>
+
+              <label>Dia da semana
+                <select id="manualExampleWeekday">
+                  <option value="SEGUNDA">SEGUNDA</option>
+                  <option value="TERÇA">TERÇA</option>
+                  <option value="QUARTA">QUARTA</option>
+                  <option value="QUINTA">QUINTA</option>
+                  <option value="SEXTA">SEXTA</option>
+                  <option value="SÁBADO">SÁBADO</option>
+                  <option value="DOMINGO">DOMINGO</option>
+                </select>
+              </label>
+
+              <label>Coluna
+                <select id="manualExampleColumn">
+                  <option value="A">A</option>
+                  <option value="B">B</option>
+                </select>
+                <small class="field-example">Exemplo: SÁBADO B.</small>
+              </label>
+            </div>
+
+            <div id="manualExamplePreviewWrap" class="hidden">
+              <strong>Foto do exemplo</strong>
+              <img id="manualExamplePreview" class="oee-preview" alt="Foto de exemplo para o Gemini" />
+            </div>
+
+            <div class="manual-example-help">
+              <strong>Como preencher</strong>
+              <p>Digite somente os OEE que você conhece. Deixe vazio se a máquina não rodou ou se não tiver certeza.</p>
+              <small><b>Exemplo:</b> MK-223 = 55 | MK-173 = 61 | MK-149 = 48.</small>
+            </div>
+
+            <div id="manualExampleEditor" class="manual-example-editor"></div>
+
+            <div class="button-row compact-row">
+              <button id="saveManualExampleBtn" class="primary" type="button">🧠 Salvar exemplo para o Gemini</button>
+              <button id="clearManualExampleFormBtn" class="ghost" type="button">Limpar formulário</button>
+            </div>
+            <small id="manualExampleStatus" class="muted"></small>
           </div>
 
           <small id="oeeStatus" class="muted"></small>

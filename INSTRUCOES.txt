@@ -1,0 +1,12 @@
+PATCH V57.1
+
+Substitua:
+- app.js
+- index.html
+- style.css
+- sw.js
+
+A API Gemini da V57 pode permanecer a mesma, desde que esteja usando:
+GEMINI_MODEL=gemini-3.6-flash
+
+Depois faça Redeploy na Vercel.
