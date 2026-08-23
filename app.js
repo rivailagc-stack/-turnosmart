@@ -200,7 +200,7 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '57.1.0';
+const APP_VERSION = '57.2.0';
 
 async function forceCurrentAppVersion() {
   try {
@@ -2191,10 +2191,9 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
     : OEE_BOARD_MACHINES.map(machine => ({ machine, oee: '', confidence: 0, source: '' }));
 
   wrap.innerHTML = `
-    <div class="oee-editor-head">
-      <strong>Confira a leitura</strong>
-      <span class="muted">Verde = normalmente pode manter. Amarelo = confira na imagem. Vazio = não invente valor.</span>
-      <small class="field-example"><b>Exemplo:</b> se MK-149 mostra 62%, deixe 62. Se a máquina não rodou e a célula está vazia, deixe em branco.</small>
+    <div class="oee-editor-head simple-editor-head">
+      <strong>Gemini leu. Corrija somente se estiver errado.</strong>
+      <span class="muted">Você não precisa preencher tudo. Apenas toque no número errado e corrija.</span>
     </div>
     <div class="oee-editor-grid">
       ${state.oeeMachineEditorData.map((row, index) => {
@@ -2421,7 +2420,7 @@ function updateGeminiExampleCount(){
   const target=$('geminiExampleCount');
   if(!target)return;
   const count=geminiOeeExamples().length;
-  target.textContent=`${count} exemplo(s) salvo(s)`;
+  target.textContent=`${count} leitura(s) confirmada(s)`;
 }
 
 async function resizeDataUrlForExample(dataUrl,maxWidth=520,quality=.58){
@@ -2501,8 +2500,23 @@ async function readOeeWithGemini(){
   const teach=$('geminiTeachBox');
 
   try{
-    status.textContent='Preparando a coluna correta para o Gemini...';
-    const {scope,processed}=await ensureCurrentOeeCrop();
+    const file=$('oeeImageInput')?.files?.[0];
+    if(!file)throw new Error('Escolha a foto do quadro primeiro.');
+
+    const operationalDate=$('reportDate').value||todayISO();
+    const shift=$('reportShift').value||'1';
+    const scope=boardScopeForReport(operationalDate,shift);
+
+    status.textContent=`Gemini olhando o quadro inteiro e procurando ${scope.label}...`;
+
+    const fullDataUrl=state.oeeImageDataUrl||await dataUrlFromFile(file);
+    state.oeeImageDataUrl=fullDataUrl;
+
+    // Mostra a foto inteira, porque agora o Gemini usa contexto do quadro completo.
+    $('oeeImagePreview').src=fullDataUrl;
+    $('oeeImagePreview').classList.remove('hidden');
+
+    const compactCurrent=await resizeDataUrlForExample(fullDataUrl,1400,.74);
 
     const examples=geminiOeeExamples()
       .filter(example=>example?.imageDataUrl&&Array.isArray(example.rows))
@@ -2510,17 +2524,18 @@ async function readOeeWithGemini(){
 
     status.textContent=
       examples.length
-        ?`Gemini lendo ${scope.label} com ${examples.length} exemplo(s) que você ensinou...`
-        :`Gemini lendo ${scope.label}. Ainda não há exemplos ensinados.`;
+        ?`Gemini lendo ${scope.label} com ${examples.length} leitura(s) já confirmada(s)...`
+        :`Gemini lendo ${scope.label}. Depois você só corrige os erros e confirma.`;
 
     const response=await fetch('/api/oee-gemini',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        imageDataUrl:processed.previewDataUrl,
+        imageDataUrl:compactCurrent,
         scope,
         machines:OEE_BOARD_MACHINES,
-        examples
+        examples,
+        fullBoard:true
       })
     });
 
@@ -2532,6 +2547,10 @@ async function readOeeWithGemini(){
 
     const rows=normalizeGeminiOeeRows(data.rows||[]);
     state.oeeMachineEditorData=rows;
+    state.lastGeminiRawRows=JSON.parse(JSON.stringify(rows));
+    state.lastGeminiScope=scope;
+    state.lastGeminiImageDataUrl=compactCurrent;
+
     renderOeeMachineEditor(rows);
 
     $('oeeOcrText').value=editorOeeText();
@@ -2541,8 +2560,8 @@ async function readOeeWithGemini(){
     const good=rows.filter(row=>row.oee!==''&&Number(row.confidence)>=80).length;
 
     status.textContent=
-      `${detected} valor(es) sugerido(s) pelo Gemini em ${scope.label}. `+
-      `${good} com boa confiança. Confira os amarelos e depois ensine o Gemini.`;
+      `${detected} OEE encontrado(s) em ${scope.label}. `+
+      `${good} com boa confiança. Corrija somente o que estiver errado e confirme.`;
 
     teach?.classList.remove('hidden');
     updateGeminiExampleCount();
@@ -2551,8 +2570,8 @@ async function readOeeWithGemini(){
   }catch(error){
     console.error('Gemini OEE:',error);
     status.textContent=
-      `Gemini não conseguiu concluir: ${error.message}. Use “OCR local — reserva” ou preencha manualmente.`;
-    showToast('Gemini indisponível. O OCR local continua disponível.');
+      `Gemini não conseguiu concluir: ${error.message}. Use “OCR local — reserva” somente se necessário.`;
+    showToast('Gemini não concluiu a leitura.');
     return [];
   }
 }
@@ -2560,22 +2579,41 @@ async function readOeeWithGemini(){
 async function saveCurrentGeminiExample(){
   try{
     const rows=machineOeeFromEditor();
-    if(rows.length<3){
-      showToast('Confirme pelo menos 3 máquinas antes de salvar o exemplo.');
+
+    if(!rows.length){
+      showToast('Não há leitura para confirmar.');
       return;
     }
 
-    if(!state.oeeCropDataUrl){
-      await ensureCurrentOeeCrop();
+    const imageDataUrl=
+      state.lastGeminiImageDataUrl ||
+      (state.oeeImageDataUrl
+        ? await resizeDataUrlForExample(state.oeeImageDataUrl,1400,.72)
+        : '');
+
+    if(!imageDataUrl){
+      showToast('A foto atual não está disponível.');
+      return;
     }
 
-    const imageDataUrl=await resizeDataUrlForExample(state.oeeCropDataUrl);
     const operationalDate=$('reportDate').value||todayISO();
     const shift=$('reportShift').value||'1';
-    const scope=boardScopeForReport(operationalDate,shift);
+    const scope=state.lastGeminiScope||boardScopeForReport(operationalDate,shift);
+
+    const originalMap=new Map(
+      (state.lastGeminiRawRows||[])
+        .filter(row=>row.oee!=='')
+        .map(row=>[normalizeMachineCode(row.machine),Number(row.oee)])
+    );
+
+    const corrected=rows.filter(row=>{
+      const before=originalMap.get(normalizeMachineCode(row.machine));
+      return before===undefined || Math.abs(Number(row.oee)-before)>.01;
+    });
 
     const example={
-      id:`ex-${Date.now()}`,
+      id:`verified-${Date.now()}`,
+      source:'verified',
       savedAt:new Date().toISOString(),
       scope:scope.label,
       column:scope.column,
@@ -2597,13 +2635,20 @@ async function saveCurrentGeminiExample(){
     updateGeminiExampleCount();
 
     $('oeeStatus').textContent=
-      `Exemplo salvo. O Gemini receberá esta leitura corrigida nas próximas fotos.`;
+      corrected.length
+        ?`Leitura confirmada. ${corrected.length} correção(ões) foram ensinadas ao Gemini.`
+        :`Leitura confirmada como correta. Esta foto virou referência para o Gemini.`;
 
-    showToast('Exemplo ensinado ao Gemini.');
+    $('geminiTeachBox')?.classList.add('confirmed-learning');
+    showToast(
+      corrected.length
+        ?`${corrected.length} correção(ões) aprendidas.`
+        :'Leitura confirmada e aprendida.'
+    );
 
   }catch(error){
     console.error(error);
-    showToast(`Não consegui salvar o exemplo: ${error.message}`);
+    showToast(`Não consegui salvar o aprendizado: ${error.message}`);
   }
 }
 
@@ -8321,11 +8366,6 @@ function init() {
   $('saveGeminiExampleBtn')?.addEventListener('click', saveCurrentGeminiExample);
   $('clearGeminiExamplesBtn')?.addEventListener('click', clearGeminiOeeExamples);
 
-  $('openManualExampleBtn')?.addEventListener('click', openManualExampleBox);
-  $('closeManualExampleBtn')?.addEventListener('click', closeManualExampleBox);
-  $('manualExampleImageInput')?.addEventListener('change', previewManualExampleFile);
-  $('saveManualExampleBtn')?.addEventListener('click', saveManualGeminiExample);
-  $('clearManualExampleFormBtn')?.addEventListener('click', clearManualExampleForm);
   $('reportDate')?.addEventListener('change', updateOeeScopeExample);
   $('reportShift')?.addEventListener('change', updateOeeScopeExample);
   updateGeminiExampleCount();

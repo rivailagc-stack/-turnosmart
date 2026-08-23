@@ -1564,3 +1564,32 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
   .manual-example-head{display:block}
   .manual-example-head .small-btn{margin-top:10px}
 }
+
+/* V57.2 — fluxo simples: IA lê, usuário só corrige */
+.simple-learning{
+  background:#f0fdf9;
+  border-color:#a7f3d0;
+}
+.simple-confirm-box{
+  background:#fff;
+  border:2px solid #99f6e4;
+}
+.simple-confirm-box .primary{
+  margin-top:12px;
+}
+.simple-confirm-box.confirmed-learning{
+  background:#ecfdf3;
+  border-color:#6ce9a6;
+}
+.simple-editor-head{
+  margin-bottom:12px;
+}
+.simple-editor-head strong{
+  font-size:1.05rem;
+}
+.oee-machine-row{
+  transition:.15s ease;
+}
+.oee-machine-row input:focus{
+  outline:3px solid rgba(255,152,0,.22);
+}

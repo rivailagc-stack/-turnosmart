@@ -1,12 +1,17 @@
-PATCH V57.1
+PATCH V57.2
 
 Substitua:
 - app.js
 - index.html
 - style.css
 - sw.js
+- api/oee-gemini.js
 
-A API Gemini da V57 pode permanecer a mesma, desde que esteja usando:
+Na Vercel:
 GEMINI_MODEL=gemini-3.6-flash
+GEMINI_API_KEY=sua chave
 
-Depois faça Redeploy na Vercel.
+Depois faça Redeploy.
+
+Fluxo:
+foto -> Gemini -> corrigir somente erros -> confirmar e ensinar.
