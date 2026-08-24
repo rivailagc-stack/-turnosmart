@@ -59,6 +59,7 @@ module.exports=async function handler(req,res){
 
     const image=parseDataUrl(body.imageDataUrl);
     const columnImage=parseDataUrl(body.columnImageDataUrl);
+    const comparisonImage=parseDataUrl(body.comparisonImageDataUrl);
     if(!image){
       return res.status(400).json({ok:false,error:'Imagem da coluna não recebida.'});
     }
@@ -130,6 +131,15 @@ ATENÇÃO À IMAGEM DA COLUNA AMPLIADA:
 - comece a associar máquinas apenas na primeira linha de dados após o cabeçalho;
 - confirme o percentual usando também a posição correspondente na imagem do quadro inteiro.
 
+
+REGRA DE ALINHAMENTO:
+Use a IMAGEM DE ALINHAMENTO como principal referência.
+Lado esquerdo = MKs.
+Lado direito = coluna do turno.
+Mesma altura = mesma máquina.
+Não use o cabeçalho como MK-02 ou MK-08.
+Se houver dúvida, confirme com o quadro inteiro.
+
 Retorne SOMENTE JSON:
 {
   "rows":[
@@ -188,6 +198,23 @@ Cruze as duas imagens. Não copie valores dos exemplos.`
       parts.push({text:`COLUNA ${scope.label||''} AMPLIADA EM ALTA RESOLUÇÃO:`});
       parts.push({inlineData:{mimeType:columnImage.mimeType,data:columnImage.data}});
     }
+    if(comparisonImage){
+      parts.push({
+        text:`IMAGEM DE ALINHAMENTO.
+À esquerda estão os códigos das MKs.
+À direita está a coluna ${scope.label||''}.
+As duas faixas têm exatamente a mesma altura.
+Use esta imagem como referência PRINCIPAL para associar cada percentual à MK correta.
+Não use cabeçalho, meta diária ou OEE geral como valor de máquina.`
+      });
+      parts.push({
+        inlineData:{
+          mimeType:comparisonImage.mimeType,
+          data:comparisonImage.data
+        }
+      });
+    }
+
 
     const model=process.env.GEMINI_MODEL||DEFAULT_MODEL;
 
