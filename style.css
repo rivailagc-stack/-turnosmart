@@ -1600,3 +1600,5 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
 .oee-row-preview,
 .oee-machine-thumb,
 .oee-row-thumb { display:none !important; }
+
+#oeeCropPreview{max-height:720px;object-fit:contain;background:#fff}

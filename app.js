@@ -210,7 +210,7 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '57.5.0';
+const APP_VERSION = '57.6.0';
 
 async function forceCurrentAppVersion() {
   try {
@@ -2508,45 +2508,98 @@ function normalizeGeminiOeeRows(rows=[]){
 
 async function buildGeminiVisionImages(fullDataUrl, operationalDate, shift){
   const image=await loadImageElement(fullDataUrl);
+  const naturalWidth=image.naturalWidth||image.width;
+  const naturalHeight=image.naturalHeight||image.height;
 
-  // Full board: context only, still reasonably large.
-  const fullContext=await resizeDataUrlForExample(fullDataUrl,1900,.80);
+  const fullContext=await resizeDataUrlForExample(fullDataUrl,2200,.84);
 
-  // High resolution target column.
-  let columnDataUrl='';
-  try{
-    const processed=preprocessOeeColumn(image,operationalDate,shift);
-    const source=processed?.previewCanvas || processed?.canvas;
+  const boardLeft=0.045;
+  const boardRight=0.995;
+  const headerBottom=0.195;
+  const bodyBottom=0.965;
+  const totalColumns=14;
 
-    if(source){
-      const targetWidth=1250;
-      const scale=targetWidth/Math.max(1,source.width);
-      const canvas=document.createElement('canvas');
-      canvas.width=targetWidth;
-      canvas.height=Math.max(1,Math.round(source.height*scale));
+  const [y,m,d]=String(operationalDate).split('-').map(Number);
+  const date=new Date(y,m-1,d,12,0,0);
+  const jsDay=date.getDay();
+  const mondayIndex=jsDay===0?6:jsDay-1;
+  const shiftOffset=(String(shift||'1')==='2'||String(shift||'A').toUpperCase()==='B')?1:0;
+  const colIndex=mondayIndex*2+shiftOffset;
 
-      const ctx=canvas.getContext('2d');
-      ctx.fillStyle='#fff';
-      ctx.fillRect(0,0,canvas.width,canvas.height);
-      ctx.imageSmoothingEnabled=true;
-      ctx.imageSmoothingQuality='high';
-      ctx.drawImage(source,0,0,canvas.width,canvas.height);
+  const boardWidthRatio=boardRight-boardLeft;
+  const colWidthRatio=boardWidthRatio/totalColumns;
+  const targetXRatio=boardLeft+colIndex*colWidthRatio;
+  const targetW=colWidthRatio*1.10;
 
-      columnDataUrl=canvas.toDataURL('image/jpeg',.90);
-      state.oeeCropDataUrl=columnDataUrl;
+  const colCanvas=document.createElement('canvas');
+  colCanvas.width=1200;
+  const colSourceW=Math.max(1,Math.round(naturalWidth*targetW));
+  const colSourceH=Math.max(1,Math.round(naturalHeight*(bodyBottom-headerBottom)));
+  colCanvas.height=Math.round(colCanvas.width*(colSourceH/colSourceW));
+  const cctx=colCanvas.getContext('2d');
+  cctx.fillStyle='#fff';
+  cctx.fillRect(0,0,colCanvas.width,colCanvas.height);
+  cctx.imageSmoothingEnabled=true;
+  cctx.imageSmoothingQuality='high';
+  cctx.drawImage(
+    image,
+    Math.round(naturalWidth*(targetXRatio-colWidthRatio*.05)),
+    Math.round(naturalHeight*headerBottom),
+    colSourceW,colSourceH,
+    0,0,colCanvas.width,colCanvas.height
+  );
+  const columnDataUrl=colCanvas.toDataURL('image/jpeg',.94);
 
-      const cropPreview=$('oeeCropPreview');
-      if(cropPreview)cropPreview.src=columnDataUrl;
-      $('oeeCropPreviewWrap')?.classList.remove('hidden');
-    }
-  }catch(error){
-    console.warn('Não consegui gerar recorte da coluna:',error);
+  const labelW=0.09;
+  const labelSourceW=Math.max(1,Math.round(naturalWidth*labelW));
+  const compareCanvas=document.createElement('canvas');
+  const targetHeight=2200, leftWidth=360, rightWidth=900, gap=30, topBand=110;
+  compareCanvas.width=leftWidth+gap+rightWidth;
+  compareCanvas.height=topBand+targetHeight;
+  const xctx=compareCanvas.getContext('2d');
+  xctx.fillStyle='#fff';
+  xctx.fillRect(0,0,compareCanvas.width,compareCanvas.height);
+  xctx.fillStyle='#111827';
+  xctx.font='bold 34px sans-serif';
+  xctx.fillText('LINHAS MK',20,66);
+  xctx.fillText(`COLUNA ${boardScopeForReport(operationalDate,shift).label}`,leftWidth+gap+20,66);
+
+  xctx.imageSmoothingEnabled=true;
+  xctx.imageSmoothingQuality='high';
+  xctx.drawImage(
+    image,
+    0,
+    Math.round(naturalHeight*headerBottom),
+    labelSourceW,colSourceH,
+    0,topBand,leftWidth,targetHeight
+  );
+  xctx.drawImage(
+    image,
+    Math.round(naturalWidth*(targetXRatio-colWidthRatio*.05)),
+    Math.round(naturalHeight*headerBottom),
+    colSourceW,colSourceH,
+    leftWidth+gap,topBand,rightWidth,targetHeight
+  );
+
+  xctx.strokeStyle='rgba(255,0,0,.20)';
+  xctx.lineWidth=1;
+  const rowCount=OEE_BOARD_MACHINES.length;
+  for(let i=0;i<=rowCount;i++){
+    const yy=topBand+(targetHeight/rowCount)*i;
+    xctx.beginPath();
+    xctx.moveTo(0,yy);
+    xctx.lineTo(compareCanvas.width,yy);
+    xctx.stroke();
   }
 
-  return {
-    fullContext,
-    columnDataUrl
-  };
+  const comparisonDataUrl=compareCanvas.toDataURL('image/jpeg',.95);
+
+  state.oeeCropDataUrl=columnDataUrl;
+  const cropPreview=$('oeeCropPreview');
+  if(cropPreview)cropPreview.src=comparisonDataUrl;
+  $('oeeCropPreviewWrap')?.classList.remove('hidden');
+
+  return {fullContext,columnDataUrl,comparisonDataUrl};
 }
 
 async function readOeeWithGemini(){
@@ -2589,6 +2642,7 @@ async function readOeeWithGemini(){
       body:JSON.stringify({
         imageDataUrl:vision.fullContext,
         columnImageDataUrl:vision.columnDataUrl,
+        comparisonImageDataUrl:vision.comparisonDataUrl,
         scope,
         machines:OEE_BOARD_MACHINES,
         examples,
