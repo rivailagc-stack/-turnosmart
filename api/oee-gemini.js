@@ -140,6 +140,29 @@ Mesma altura = mesma máquina.
 Não use o cabeçalho como MK-02 ou MK-08.
 Se houver dúvida, confirme com o quadro inteiro.
 
+
+REGRA PRINCIPAL — FOLHA DE CÉLULAS:
+Você receberá uma imagem em que cada linha já está rotulada pelo aplicativo:
+MK-02, MK-08, MK-138, MK-105, etc.
+
+O nome da MK foi colocado pelo CÓDIGO, não foi lido da foto.
+Portanto:
+- NÃO tente descobrir a máquina pela posição no quadro;
+- NÃO mova um percentual para a linha de cima ou de baixo;
+- leia SOMENTE o conteúdo da célula à direita do rótulo;
+- procure preferencialmente um número acompanhado por "%";
+- números grandes como 48.540, 31.200 ou 69.100 são produção e devem ser ignorados;
+- se não houver percentual legível naquela célula, retorne null;
+- NÃO invente 0;
+- a confiança deve refletir somente a legibilidade do percentual, não uma suposição.
+
+Exemplo:
+linha rotulada "MK-223" + célula contendo "Sandro 48.540 54%" => MK-223 = 54.
+linha rotulada "MK-105" + célula sem percentual => MK-105 = null.
+
+A FOLHA DE CÉLULAS é a fonte principal.
+Use a foto inteira e a coluna ampliada apenas para desempatar uma leitura duvidosa.
+
 Retorne SOMENTE JSON:
 {
   "rows":[
@@ -200,12 +223,10 @@ Cruze as duas imagens. Não copie valores dos exemplos.`
     }
     if(comparisonImage){
       parts.push({
-        text:`IMAGEM DE ALINHAMENTO.
-À esquerda estão os códigos das MKs.
-À direita está a coluna ${scope.label||''}.
-As duas faixas têm exatamente a mesma altura.
-Use esta imagem como referência PRINCIPAL para associar cada percentual à MK correta.
-Não use cabeçalho, meta diária ou OEE geral como valor de máquina.`
+        text:`FOLHA DE CÉLULAS.
+Cada linha já está rotulada pelo aplicativo com a MK correta.
+Leia somente o percentual dentro da célula à direita de cada rótulo.
+Esta é a referência PRINCIPAL da análise.`
       });
       parts.push({
         inlineData:{
