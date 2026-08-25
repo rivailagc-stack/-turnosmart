@@ -1,3 +1,10 @@
-Substitua app.js, index.html, style.css, sw.js e api/oee-gemini.js.
-Depois faça Redeploy.
+PATCH V57.7
+Substitua:
+app.js
+index.html
+style.css
+sw.js
+api/oee-gemini.js
+
+Depois Redeploy.
 Mantenha GEMINI_MODEL=gemini-3.6-flash.
