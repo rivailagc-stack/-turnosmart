@@ -163,6 +163,13 @@ linha rotulada "MK-105" + célula sem percentual => MK-105 = null.
 A FOLHA DE CÉLULAS é a fonte principal.
 Use a foto inteira e a coluna ampliada apenas para desempatar uma leitura duvidosa.
 
+
+A GEOMETRIA DA GRADE FOI DETECTADA PELO APLICATIVO ANTES DESTA CHAMADA.
+A folha de células já contém exatamente UMA célula por MK.
+NÃO reatribua valores entre máquinas.
+NÃO use um número de outra célula, mesmo se parecer mais legível.
+Confiança alta só é permitida quando o percentual estiver visível DENTRO da própria célula.
+
 Retorne SOMENTE JSON:
 {
   "rows":[
