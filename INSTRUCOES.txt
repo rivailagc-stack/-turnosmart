@@ -1,4 +1,4 @@
-PATCH V57.7
+PATCH V57.8
 Substitua:
 app.js
 index.html
@@ -6,5 +6,7 @@ style.css
 sw.js
 api/oee-gemini.js
 
-Depois Redeploy.
+Depois faça Redeploy.
 Mantenha GEMINI_MODEL=gemini-3.6-flash.
+
+Esta versão detecta a grade em cada foto.

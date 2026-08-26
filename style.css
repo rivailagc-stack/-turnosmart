@@ -1605,3 +1605,6 @@ pre { white-space: pre-wrap; word-break: break-word; background: #0b1220; color:
 
 /* V57.7 - folha de células */
 #oeeCropPreview{max-height:none!important;width:100%;object-fit:contain;background:#fff}
+
+/* V57.8 */
+#oeeOcrPreview{max-height:520px;object-fit:contain;background:#fff}

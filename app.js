@@ -210,7 +210,7 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '57.7.0';
+const APP_VERSION = '57.8.0';
 
 async function forceCurrentAppVersion() {
   try {
@@ -2506,22 +2506,231 @@ function normalizeGeminiOeeRows(rows=[]){
 }
 
 
+
+function oeeGrayImage(image,maxWidth=1600){
+  const W=image.naturalWidth||image.width;
+  const H=image.naturalHeight||image.height;
+  const scale=Math.min(1,maxWidth/Math.max(1,W));
+  const canvas=document.createElement('canvas');
+  canvas.width=Math.max(1,Math.round(W*scale));
+  canvas.height=Math.max(1,Math.round(H*scale));
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  ctx.drawImage(image,0,0,canvas.width,canvas.height);
+  const data=ctx.getImageData(0,0,canvas.width,canvas.height).data;
+  const gray=new Float32Array(canvas.width*canvas.height);
+  for(let i=0,j=0;i<data.length;i+=4,j++){
+    gray[j]=.299*data[i]+.587*data[i+1]+.114*data[i+2];
+  }
+  return {gray,width:canvas.width,height:canvas.height,scale};
+}
+
+function oeeSmooth(values,radius=2){
+  const out=new Float32Array(values.length);
+  for(let i=0;i<values.length;i++){
+    let sum=0,count=0;
+    for(let k=-radius;k<=radius;k++){
+      const p=i+k;
+      if(p>=0&&p<values.length){sum+=values[p];count++;}
+    }
+    out[i]=count?sum/count:0;
+  }
+  return out;
+}
+
+function oeeRefinePeak(score,expected,radius){
+  let best=Math.max(1,Math.round(expected));
+  let bestValue=-Infinity;
+  const a=Math.max(1,Math.round(expected-radius));
+  const b=Math.min(score.length-2,Math.round(expected+radius));
+  for(let p=a;p<=b;p++){
+    if(score[p]>bestValue){
+      bestValue=score[p];
+      best=p;
+    }
+  }
+  return best;
+}
+
+function oeeRegularSequence(score,{
+  count,
+  minSpacing,
+  maxSpacing,
+  startMin,
+  startMax
+}){
+  let best=null;
+  const maxScore=Math.max(...score)||1;
+
+  for(let spacing=minSpacing;spacing<=maxSpacing;spacing++){
+    const refine=Math.max(2,Math.round(spacing*.18));
+
+    for(let start=startMin;start<=startMax;start+=2){
+      const points=[];
+      let raw=0;
+      let previous=-Infinity;
+      let valid=true;
+
+      for(let i=0;i<count;i++){
+        const expected=start+i*spacing;
+        if(expected>=score.length-2){valid=false;break;}
+        const p=oeeRefinePeak(score,expected,refine);
+        if(p<=previous+Math.max(2,spacing*.45)){valid=false;break;}
+        points.push(p);
+        raw+=score[p]/maxScore;
+        previous=p;
+      }
+      if(!valid||points.length!==count)continue;
+
+      const gaps=[];
+      for(let i=1;i<points.length;i++)gaps.push(points[i]-points[i-1]);
+      const mean=gaps.reduce((a,b)=>a+b,0)/gaps.length;
+      const variance=gaps.reduce((a,b)=>a+(b-mean)*(b-mean),0)/gaps.length;
+      const cv=Math.sqrt(variance)/Math.max(1,mean);
+
+      // Long, regular sequences win. Penalize irregular spacing heavily.
+      const value=raw/count - cv*1.6;
+
+      if(!best||value>best.value){
+        best={value,points,spacing:mean,cv,raw:raw/count};
+      }
+    }
+  }
+  return best;
+}
+
+function detectOeeBoardGrid(image){
+  const sampled=oeeGrayImage(image,1600);
+  const {gray,width:W,height:H,scale}=sampled;
+
+  // Horizontal-grid score: use the left + center of the board, not the far edges.
+  const yScore=new Float32Array(H);
+  const xA=Math.round(W*.035);
+  const xB=Math.round(W*.92);
+  const xStep=Math.max(1,Math.floor((xB-xA)/520));
+
+  for(let y=1;y<H-1;y++){
+    let sum=0,count=0;
+    const row=(y-1)*W;
+    const row2=(y+1)*W;
+    for(let x=xA;x<xB;x+=xStep){
+      sum+=Math.abs(gray[row2+x]-gray[row+x]);
+      count++;
+    }
+    yScore[y]=count?sum/count:0;
+  }
+
+  // Vertical-grid score.
+  const xScore=new Float32Array(W);
+  const yA=Math.round(H*.14);
+  const yB=Math.round(H*.94);
+  const yStep=Math.max(1,Math.floor((yB-yA)/520));
+
+  for(let x=1;x<W-1;x++){
+    let sum=0,count=0;
+    for(let y=yA;y<yB;y+=yStep){
+      const row=y*W;
+      sum+=Math.abs(gray[row+x+1]-gray[row+x-1]);
+      count++;
+    }
+    xScore[x]=count?sum/count:0;
+  }
+
+  const ys=oeeSmooth(yScore,2);
+  const xs=oeeSmooth(xScore,2);
+
+  // 22 machine rows require 23 horizontal boundaries.
+  // Search a long regular sequence so framing/zoom no longer matters.
+  const hSeq=oeeRegularSequence(ys,{
+    count:23,
+    minSpacing:Math.max(14,Math.round(H*.018)),
+    maxSpacing:Math.max(28,Math.round(H*.055)),
+    startMin:Math.round(H*.16),
+    startMax:Math.round(H*.46)
+  });
+
+  // 14 A/B shift columns require 15 vertical boundaries.
+  const vSeq=oeeRegularSequence(xs,{
+    count:15,
+    minSpacing:Math.max(35,Math.round(W*.035)),
+    maxSpacing:Math.max(70,Math.round(W*.11)),
+    startMin:Math.round(W*.035),
+    startMax:Math.round(W*.22)
+  });
+
+  if(!hSeq||!vSeq){
+    throw new Error('Não consegui localizar a grade completa do quadro.');
+  }
+
+  // Convert sample coordinates back to the original photo.
+  const yLines=hSeq.points.map(v=>v/scale);
+  const xLines=vSeq.points.map(v=>v/scale);
+
+  // Confidence based on regularity + edge strength.
+  const hConf=Math.max(0,Math.min(1,(hSeq.raw-.15)/.55)) * Math.max(0,1-hSeq.cv*4);
+  const vConf=Math.max(0,Math.min(1,(vSeq.raw-.12)/.5)) * Math.max(0,1-vSeq.cv*4);
+  const confidence=Math.round(Math.min(hConf,vConf)*100);
+
+  return {
+    yLines,
+    xLines,
+    rowSpacing:hSeq.spacing/scale,
+    columnSpacing:vSeq.spacing/scale,
+    confidence,
+    debug:{
+      hCv:hSeq.cv,
+      vCv:vSeq.cv,
+      hRaw:hSeq.raw,
+      vRaw:vSeq.raw
+    }
+  };
+}
+
+function drawOeeGridDiagnostic(image,grid,columnIndex){
+  const W=image.naturalWidth||image.width;
+  const H=image.naturalHeight||image.height;
+  const canvas=document.createElement('canvas');
+  const outW=1200;
+  const scale=outW/W;
+  canvas.width=outW;
+  canvas.height=Math.round(H*scale);
+  const ctx=canvas.getContext('2d');
+  ctx.drawImage(image,0,0,canvas.width,canvas.height);
+
+  ctx.lineWidth=2;
+  ctx.strokeStyle='rgba(0,170,90,.85)';
+  for(const y of grid.yLines){
+    ctx.beginPath();
+    ctx.moveTo(0,y*scale);
+    ctx.lineTo(canvas.width,y*scale);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle='rgba(0,110,255,.85)';
+  for(const x of grid.xLines){
+    ctx.beginPath();
+    ctx.moveTo(x*scale,0);
+    ctx.lineTo(x*scale,canvas.height);
+    ctx.stroke();
+  }
+
+  const x1=grid.xLines[columnIndex]*scale;
+  const x2=grid.xLines[columnIndex+1]*scale;
+  ctx.fillStyle='rgba(255,153,0,.20)';
+  ctx.fillRect(x1,grid.yLines[0]*scale,x2-x1,(grid.yLines.at(-1)-grid.yLines[0])*scale);
+
+  ctx.fillStyle='#111827';
+  ctx.font='bold 26px sans-serif';
+  ctx.fillText(`Grade automática ${grid.confidence}%`,18,36);
+
+  return canvas.toDataURL('image/jpeg',.9);
+}
+
 async function buildGeminiVisionImages(fullDataUrl, operationalDate, shift){
   const image=await loadImageElement(fullDataUrl);
   const W=image.naturalWidth||image.width;
   const H=image.naturalHeight||image.height;
 
-  // Foto inteira apenas para contexto.
-  const fullContext=await resizeDataUrlForExample(fullDataUrl,2200,.84);
-
-  // Geometria calibrada no quadro real Ecopack.
-  // As MKs começam ~25% da altura; versões anteriores usavam ~19,5%.
-  const boardLeftRatio=.036;
-  const boardRightRatio=.994;
-  const rowsTopRatio=.247;
-  const rowsBottomRatio=.958;
-  const totalColumns=14;
-  const rowCount=OEE_BOARD_MACHINES.length;
+  const fullContext=await resizeDataUrlForExample(fullDataUrl,2200,.86);
 
   const [yy,mm,dd]=String(operationalDate).split('-').map(Number);
   const date=new Date(yy,mm-1,dd,12,0,0);
@@ -2530,88 +2739,107 @@ async function buildGeminiVisionImages(fullDataUrl, operationalDate, shift){
   const isB=(String(shift||'1')==='2'||String(shift||'A').toUpperCase()==='B');
   const columnIndex=mondayIndex*2+(isB?1:0);
 
-  const boardLeft=W*boardLeftRatio;
-  const boardRight=W*boardRightRatio;
-  const boardWidth=boardRight-boardLeft;
-  const colW=boardWidth/totalColumns;
+  // NEW: detect actual grid from this photo.
+  const grid=detectOeeBoardGrid(image);
 
-  // A primeira faixa estreita é a coluna dos códigos MK.
-  // O quadro fotográfico real deixa ~4% da largura para os rótulos.
-  const targetX=boardLeft+columnIndex*colW;
-  const targetWidth=colW;
+  if(grid.xLines.length<15||grid.yLines.length<23){
+    throw new Error('Grade incompleta: tire a foto mostrando o quadro inteiro.');
+  }
 
-  const rowsTop=H*rowsTopRatio;
-  const rowsBottom=H*rowsBottomRatio;
-  const rowH=(rowsBottom-rowsTop)/rowCount;
+  // If grid is weak, do not silently create a potentially wrong management report.
+  if(grid.confidence<22){
+    throw new Error(`Grade detectada com baixa confiança (${grid.confidence}%). Tire a foto um pouco mais de frente.`);
+  }
 
-  // Coluna inteira ampliada.
+  const x1=grid.xLines[columnIndex];
+  const x2=grid.xLines[columnIndex+1];
+  const colW=Math.max(2,x2-x1);
+  const y1=grid.yLines[0];
+  const y2=grid.yLines[grid.yLines.length-1];
+
+  // High-resolution selected column.
   const colCanvas=document.createElement('canvas');
-  colCanvas.width=1050;
-  colCanvas.height=2400;
-  const colCtx=colCanvas.getContext('2d');
-  colCtx.fillStyle='#fff'; colCtx.fillRect(0,0,colCanvas.width,colCanvas.height);
-  colCtx.imageSmoothingEnabled=true; colCtx.imageSmoothingQuality='high';
-  colCtx.drawImage(
+  colCanvas.width=1100;
+  colCanvas.height=2600;
+  const cctx=colCanvas.getContext('2d');
+  cctx.fillStyle='#fff';
+  cctx.fillRect(0,0,colCanvas.width,colCanvas.height);
+  cctx.imageSmoothingEnabled=true;
+  cctx.imageSmoothingQuality='high';
+  cctx.drawImage(
     image,
-    Math.max(0,targetX-colW*.08),rowsTop,
-    Math.min(W-targetX+colW*.08,targetWidth*1.16),rowsBottom-rowsTop,
+    Math.max(0,x1-colW*.06),Math.max(0,y1-grid.rowSpacing*.08),
+    Math.min(W-Math.max(0,x1-colW*.06),colW*1.12),
+    Math.min(H-Math.max(0,y1-grid.rowSpacing*.08),(y2-y1)+grid.rowSpacing*.16),
     0,0,colCanvas.width,colCanvas.height
   );
-  const columnDataUrl=colCanvas.toDataURL('image/jpeg',.95);
+  const columnDataUrl=colCanvas.toDataURL('image/jpeg',.96);
 
-  // FOLHA DE CÉLULAS: cada célula já recebe o nome da MK pelo código.
-  // Assim o Gemini não precisa associar posição vertical à máquina.
-  const cellWidth=900;
-  const cellHeight=150;
-  const labelWidth=230;
-  const gap=12;
+  // Exact-cell contact sheet. Machine labels come from code.
+  const cellWidth=960;
+  const cellHeight=180;
+  const labelWidth=245;
+  const gap=10;
+  const rowCount=OEE_BOARD_MACHINES.length;
   const sheet=document.createElement('canvas');
   sheet.width=labelWidth+cellWidth;
-  sheet.height=rowCount*(cellHeight+gap)+20;
+  sheet.height=20+rowCount*(cellHeight+gap);
   const sctx=sheet.getContext('2d');
-  sctx.fillStyle='#fff'; sctx.fillRect(0,0,sheet.width,sheet.height);
-  sctx.font='bold 31px sans-serif';
+  sctx.fillStyle='#fff';
+  sctx.fillRect(0,0,sheet.width,sheet.height);
   sctx.textBaseline='middle';
 
   for(let i=0;i<rowCount;i++){
     const machine=OEE_BOARD_MACHINES[i];
-    const cy=rowsTop+i*rowH;
-    const cropY=Math.max(0,cy-rowH*.10);
-    const cropH=Math.min(H-cropY,rowH*1.20);
+    const top=grid.yLines[i];
+    const bottom=grid.yLines[i+1];
+    const h=Math.max(2,bottom-top);
     const outY=10+i*(cellHeight+gap);
 
-    // label
     sctx.fillStyle='#0f172a';
-    sctx.fillText(machine,18,outY+cellHeight/2);
+    sctx.font='bold 31px sans-serif';
+    sctx.fillText(machine,15,outY+cellHeight/2);
 
-    // cell background/border
     sctx.fillStyle='#f8fafc';
     sctx.fillRect(labelWidth,outY,cellWidth,cellHeight);
     sctx.strokeStyle='#cbd5e1';
     sctx.lineWidth=2;
     sctx.strokeRect(labelWidth,outY,cellWidth,cellHeight);
 
-    // actual target cell
+    // Crop INSIDE the detected grid lines, with tiny safety padding.
+    const px=Math.max(0,x1+colW*.02);
+    const py=Math.max(0,top+h*.04);
+    const pw=Math.min(W-px,colW*.96);
+    const ph=Math.min(H-py,h*.92);
+
     sctx.drawImage(
       image,
-      Math.max(0,targetX-colW*.04),cropY,
-      Math.min(W-targetX+colW*.04,targetWidth*1.08),cropH,
+      px,py,pw,ph,
       labelWidth,outY,cellWidth,cellHeight
     );
   }
 
-  const cellsSheetDataUrl=sheet.toDataURL('image/jpeg',.96);
+  const cellsSheetDataUrl=sheet.toDataURL('image/jpeg',.97);
+  const diagnosticDataUrl=drawOeeGridDiagnostic(image,grid,columnIndex);
 
   state.oeeCropDataUrl=cellsSheetDataUrl;
+  state.oeeGridDiagnostic=diagnosticDataUrl;
+  state.oeeGridConfidence=grid.confidence;
+
   const cropPreview=$('oeeCropPreview');
   if(cropPreview)cropPreview.src=cellsSheetDataUrl;
   $('oeeCropPreviewWrap')?.classList.remove('hidden');
+
+  const ocrPreview=$('oeeOcrPreview');
+  if(ocrPreview)ocrPreview.src=diagnosticDataUrl;
 
   return {
     fullContext,
     columnDataUrl,
     comparisonDataUrl:cellsSheetDataUrl,
-    cellsSheetDataUrl
+    cellsSheetDataUrl,
+    diagnosticDataUrl,
+    gridConfidence:grid.confidence
   };
 }
 
@@ -2627,7 +2855,7 @@ async function readOeeWithGemini(){
     const shift=$('reportShift').value||'1';
     const scope=boardScopeForReport(operationalDate,shift);
 
-    status.textContent=`Preparando visão completa + coluna ${scope.label} em alta resolução...`;
+    status.textContent=`Localizando automaticamente a grade e a coluna ${scope.label}...`;
 
     const fullDataUrl=state.oeeImageDataUrl||await dataUrlFromFile(file);
     state.oeeImageDataUrl=fullDataUrl;
@@ -2656,6 +2884,7 @@ async function readOeeWithGemini(){
         imageDataUrl:vision.fullContext,
         columnImageDataUrl:vision.columnDataUrl,
         comparisonImageDataUrl:vision.comparisonDataUrl,
+        gridConfidence:vision.gridConfidence,
         scope,
         machines:OEE_BOARD_MACHINES,
         examples,
@@ -2689,8 +2918,8 @@ async function readOeeWithGemini(){
     const good=rows.filter(row=>row.oee!==''&&Number(row.confidence)>=80).length;
 
     status.textContent=
-      `${detected} OEE encontrado(s) em ${scope.label}. `+
-      `${good} com boa confiança. Corrija somente os números errados e confirme.`;
+      `${detected} OEE encontrado(s) em ${scope.label}. Grade ${vision.gridConfidence}% confiável. `+
+      `${good} leitura(s) visual(is) fortes. Corrija somente se estiver errado.`;
 
     teach?.classList.remove('hidden');
     updateGeminiExampleCount();
