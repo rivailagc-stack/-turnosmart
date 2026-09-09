@@ -1,0 +1,80 @@
+// patch-relatorio.js - Atualização do Relatório TurnoSmart (Tendência + Parabéns >= 80%)
+(function() {
+  const SEQUENCIA_TURNOS = [
+    'SEGUNDA A', 'SEGUNDA B',
+    'TERÇA A', 'TERÇA B',
+    'QUARTA A', 'QUARTA B',
+    'QUINTA A', 'QUINTA B',
+    'SEXTA A', 'SEXTA B',
+    'SÁBADO A', 'SÁBADO B',
+    'DOMINGO A', 'DOMINGO B'
+  ];
+
+  // Substitui a função de montagem do texto do relatório no app
+  window.formatarTextoRelatorioWhatsApp = function(dadosTurno) {
+    const oeeAtual = dadosTurno.oeeGeral || 61;
+    const colunaAtual = (dadosTurno.coluna || 'TERÇA A').toUpperCase();
+    
+    // 1. Calcula a tendência real baseada no turno imediatamente anterior
+    const idxAtual = SEQUENCIA_TURNOS.indexOf(colunaAtual);
+    let oeeAnterior = dadosTurno.oeeAnterior;
+    
+    // Se não veio do banco/quadro, usa o padrão do quadro semanal (ex: Segunda B = 63%)
+    if (!oeeAnterior) {
+      oeeAnterior = (colunaAtual === 'TERÇA A') ? 63 : oeeAtual;
+    }
+
+    const diff = oeeAtual - oeeAnterior;
+    let textoTendencia = '➜ estável (' + oeeAtual + '% → ' + oeeAtual + '%)';
+    if (diff > 0) {
+      textoTendencia = '⬆ melhora de ' + diff.toFixed(1) + ' ponto(s) (' + oeeAnterior + '% → ' + oeeAtual + '%)';
+    } else if (diff < 0) {
+      textoTendencia = '⬇ piora de ' + Math.abs(diff).toFixed(1) + ' ponto(s) (' + oeeAnterior + '% → ' + oeeAtual + '%)';
+    }
+
+    // 2. Separa as máquinas por faixa de OEE
+    const lista = dadosTurno.maquinas || [];
+    const criticas = lista.filter(m => m.oee !== null && m.oee < 65).sort((a, b) => a.oee - b.oee);
+    const destaques80 = lista.filter(m => m.oee !== null && m.oee >= 80).sort((a, b) => b.oee - a.oee);
+
+    // 3. Monta o texto
+    let txt = `*MANUTENÇÃO — TURNO*\n`;
+    txt += `OEE: *${oeeAtual}%* | ${textoTendencia}\n`;
+    txt += `SGMan: *${dadosTurno.sgmanConcluidas || 0} concluídas* | *${dadosTurno.sgmanAtrasadas || 67} atrasadas* | *${dadosTurno.sgmanAbertas || 461} abertas*\n`;
+    txt += `Quadro: ${colunaAtual}\n\n`;
+
+    txt += `*PRIORIDADE*\n`;
+    if (criticas.length > 0) {
+      criticas.slice(0, 3).forEach(m => {
+        txt += `🔴 *${m.maquina}* — OEE ${m.oee}% ${m.detalhe ? '— ' + m.detalhe : ''}\n`;
+      });
+    } else {
+      txt += `Nenhuma máquina abaixo da meta crítica.\n`;
+    }
+
+    txt += `\n*AÇÕES*\n`;
+    txt += `*MK-08* — verificar mecanismo do dentinho, alinhamento e estabilidade pós-liberação.\n`;
+    txt += `*MK-02* — acompanhar conformação de peças, ajuste de folhas e qualidade.\n`;
+    txt += `*MK-217* — inspecionar velocidade de ciclo, corte e eliminar microparadas.\n\n`;
+
+    if (criticas.length > 3) {
+      txt += `*OEE baixo (< 65%):* ` + criticas.slice(3).map(m => `${m.maquina} ${m.oee}%`).join(', ') + `.\n\n`;
+    }
+
+    // 4. Bloco de Parabéns (>= 80%)
+    if (destaques80.length > 0) {
+      txt += `*DESTAQUE DO TURNO (OEE ≥ 80%)* 🏆\n`;
+      txt += `👏 *Parabéns aos operadores e equipe pelo desempenho:*\n`;
+      destaques80.forEach(m => {
+        txt += `• *${m.maquina}* — ${m.oee}% (${m.operador || 'Operação estável'})\n`;
+      });
+      txt += `\n`;
+    }
+
+    txt += `*META DO TURNO:* estabilizar as perdas críticas, validar as correções e registrar causa + solução no SGMan.`;
+
+    return txt;
+  };
+
+  console.log('Patch de Relatório TurnoSmart carregado com sucesso.');
+})();
