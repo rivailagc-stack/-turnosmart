@@ -210,7 +210,7 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '58.1.0';
+const APP_VERSION = '58.2.0';
 
 async function forceCurrentAppVersion() {
   try {
@@ -4008,20 +4008,14 @@ function currentProblemRepairActions(action) {
 
 function historyActionsCompatibleWithCurrentProblem(action, analysis) {
   if (!analysis?.enoughEvidence) return [];
-  const current = normalizeKey(action?.description || '');
-  const keywords = current
-    .replace(/\b(min|minuto|minutos|ajuste|troca|limpeza|maquina|mk|de|da|do|e|na|no|para|com)\b/g, ' ')
-    .split(/[^a-z0-9]+/)
-    .filter(word => word.length >= 4);
 
-  const candidates = [];
-  (analysis.rankedTexts || []).forEach(item => candidates.push(cleanHistoricalResolution(item.text || '')));
-  (analysis.patterns || []).forEach(item => candidates.push(String(item.label || '').replace(/\s*\(\d+x\)\s*$/i, '')));
-
-  return uniqueStrings(candidates.filter(candidate => {
-    const key = normalizeKey(candidate);
-    return keywords.some(word => key.includes(word));
-  })).slice(0, 2);
+  // Usa somente o SERVIÇO REALIZADO de OS concluídas e semelhantes.
+  // Não usa a "possível resolução" que foi escrita na abertura da OS.
+  return uniqueStrings((analysis.provenFixes || [])
+    .filter(item => Number(item.score || 0) >= MIN_HISTORY_SIMILARITY_SCORE)
+    .map(item => cleanHistoricalResolution(item.text || ''))
+    .filter(Boolean))
+    .slice(0, 2);
 }
 
 function conciseMaintenanceRepairActions(action) {
@@ -4029,20 +4023,22 @@ function conciseMaintenanceRepairActions(action) {
   const history = action.sgmanHistoryAnalysis || analyzeMachineHistoryForAction(action);
   const historyActions = historyActionsCompatibleWithCurrentProblem(action, history);
 
-  // O histórico complementa o problema atual; nunca substitui o que acabou de acontecer.
-  const combined = uniqueStrings([...currentActions, ...historyActions])
-    .filter(Boolean)
-    .slice(0, 3);
+  // Quando o SGMan possui uma OS concluída realmente semelhante, a ação que
+  // funcionou no passado tem prioridade. A análise do problema atual entra
+  // apenas como complemento/checagem, evitando ações genéricas inventadas.
+  const combined = historyActions.length
+    ? uniqueStrings([...historyActions, ...currentActions]).filter(Boolean).slice(0, 3)
+    : uniqueStrings(currentActions).filter(Boolean).slice(0, 3);
 
   if (!combined.length) {
-    const base = String(action.action || '').replace(/[.;]+$/, '').trim();
-    if (base && !/corrigir a regulagem e verificar desgaste ou folga/i.test(base)) {
-      return `${base}. Testar estabilidade antes de liberar e registrar causa + solução no SGMan.`;
-    }
-    return 'diagnosticar o defeito atual, corrigir a causa, testar estabilidade antes de liberar e registrar causa + solução no SGMan.';
+    return 'diagnosticar o defeito atual, corrigir a causa, testar estabilidade antes de liberar e registrar no SGMan o serviço realizado e o resultado.';
   }
 
-  return combined.map(item => item.replace(/[.;]+$/, '')).join('; ') + '; testar estabilidade antes de liberar.';
+  const sourceNote = historyActions.length
+    ? 'usar como referência a solução comprovada no SGMan para falha semelhante; '
+    : '';
+
+  return sourceNote + combined.map(item => item.replace(/[.;]+$/, '')).join('; ') + '; testar estabilidade antes de liberar.';
 }
 
 function maintenanceEfficiencyLevel(metrics = state.reliability3Days || {}) {
@@ -4254,8 +4250,10 @@ function maintenancePriorityScore(action, recurrent, oee) {
   if (Number.isFinite(Number(oee))) score += Math.max(0, 65 - Number(oee)) * 0.8;
 
   // Peso maior para defeitos com maior evidência técnica no turno atual.
-  if (/disjuntor|resistencia|solenoid|solenoide|motor|sensor|quebr|romp|elevador/.test(text)) score += 24;
-  if (/variacao|variando|enrosc|fundo|faca|tampao|prensa|cola/.test(text)) score += 14;
+  // Hierarquia de gravidade: elétrica/quebra/pneumática crítica > processo mecânico > regulagem.
+  if (/disjuntor|curto|queim|resistencia|motor|drive|rele|sensor|solenoid|solenoide|valvula|cilindro|elevador|quebr|romp/.test(text)) score += 34;
+  else if (/enrosc|trav|prensa|tampao|fundo|faca/.test(text)) score += 20;
+  else if (/variacao|variando|calco|ajuste|regul/.test(text)) score += 12;
   const repetition = text.match(/(\d+)x\b/);
   if (repetition) score += Math.min(Number(repetition[1]), 15) * 2;
 
@@ -4267,7 +4265,8 @@ function maintenanceProblemLabel(action) {
   const labels = [];
   const add = value => { if (!labels.includes(value)) labels.push(value); };
 
-  if (/disjuntor|resistencia|solenoid|solenoide|eletric/.test(text)) add('elétrica');
+  if (/disjuntor|resistencia|curto|queim|eletric|motor|drive|rele|sensor/.test(text)) add('elétrica');
+  if (/solenoid|solenoide|valvula|cilindro|pneumat/.test(text)) add('pneumática');
   if (/fundo.*enrosc|enrosc.*fundo/.test(text)) add('fundo enroscando');
   if (/prensa.*cola|cola.*prensa|acumulando cola/.test(text)) add('prensa/cola');
   if (/variacao|variando/.test(text)) add('variação');
@@ -6352,6 +6351,60 @@ function countHistorySolutionPatterns(orders = []) {
     .slice(0, 5);
 }
 
+function completedServiceText(order = {}) {
+  // Campo normalizado pelo endpoint api/sgman-list.js a partir de
+  // servico_realizado / solucao / descricao_conclusao / comentario_conclusao.
+  // É a melhor evidência do que o mecânico REALMENTE fez.
+  return cleanHistoricalResolution(order.solution || '');
+}
+
+function validCompletedServiceText(value = '') {
+  const text = String(value || '').trim();
+  const key = normalizeKey(text);
+  if (text.length < 6) return false;
+  if (/^(ok|feito|resolvido|concluido|finalizado|sem informacao)$/.test(key)) return false;
+  if (/analisar e resolver|possivel resolucao|verificar a causa/.test(key) && text.length < 45) return false;
+  return true;
+}
+
+function provenFixesFromScoredOrders(scoredOrders = []) {
+  const grouped = new Map();
+
+  scoredOrders.forEach(({ order, score }) => {
+    const text = completedServiceText(order);
+    if (!validCompletedServiceText(text)) return;
+
+    const signature = normalizeResolutionSignature(text);
+    if (!signature) return;
+
+    const date = String(order.endDateISO || order.endDate || order.startDate || '');
+    const existing = grouped.get(signature);
+    if (existing) {
+      existing.count += 1;
+      existing.score = Math.max(existing.score, Number(score || 0));
+      if (date > existing.latestDate) {
+        existing.latestDate = date;
+        existing.text = text;
+      }
+    } else {
+      grouped.set(signature, {
+        text,
+        signature,
+        count: 1,
+        score: Number(score || 0),
+        latestDate: date
+      });
+    }
+  });
+
+  return [...grouped.values()]
+    .sort((a, b) =>
+      (b.count * 100 + b.score) - (a.count * 100 + a.score) ||
+      String(b.latestDate).localeCompare(String(a.latestDate))
+    )
+    .slice(0, 5);
+}
+
 function analyzeMachineHistoryForAction(action) {
   const machineHistoryEntry =
     state.sgmanMachineHistory?.[action.machine] || {};
@@ -6399,9 +6452,11 @@ function analyzeMachineHistoryForAction(action) {
     )
   );
 
-  const similarOrders = acceptedScored
-    .slice(0, 20)
-    .map(item => item.order);
+  const similarScored = acceptedScored.slice(0, 20);
+  const similarOrders = similarScored.map(item => item.order);
+
+  // Soluções comprovadas: apenas campo de conclusão/serviço realizado.
+  const provenFixes = provenFixesFromScoredOrders(similarScored);
 
   const patterns = countHistorySolutionPatterns(similarOrders);
   const rankedTexts = rankHistoricalResolutionTexts(similarOrders);
@@ -6431,32 +6486,29 @@ function analyzeMachineHistoryForAction(action) {
 
   let resolutionParts = [];
 
-  // Primeiro usa os textos reais mais repetidos das conclusões.
-  strongTexts.slice(0, 2).forEach(item => {
+  // Ação sugerida vem primeiro do que foi REALMENTE executado em OS concluída.
+  provenFixes.slice(0, 2).forEach(item => {
     resolutionParts.push(
-      item.count > 1
-        ? `${item.text} (${item.count}x)`
-        : item.text
+      item.count > 1 ? `${item.text} (${item.count}x)` : item.text
     );
   });
 
-  // Completa apenas com padrões técnicos recorrentes ainda não citados.
-  strongPatterns.forEach(pattern => {
-    const alreadyCovered = resolutionParts.some(text =>
-      normalizeKey(text).includes(normalizeKey(pattern.shortLabel)) ||
-      pattern.regex.test(normalizeKey(text))
-    );
-
-    if (!alreadyCovered && resolutionParts.length < 3) {
+  // Só usa padrão técnico como complemento quando não há serviço realizado
+  // suficiente no histórico. Isso reduz sugestões genéricas e incoerentes.
+  if (!resolutionParts.length) {
+    strongPatterns.slice(0, 2).forEach(pattern => {
       resolutionParts.push(
         `${pattern.label}${pattern.count > 1 ? ` (${pattern.count}x)` : ''}`
       );
-    }
-  });
+    });
+  }
 
   const enoughEvidence =
-    similarOrders.length >= MIN_SIMILAR_ORDERS_FOR_CONFIDENT_RESOLUTION &&
-    resolutionParts.length > 0;
+    provenFixes.length > 0 &&
+    (
+      similarOrders.length >= MIN_SIMILAR_ORDERS_FOR_CONFIDENT_RESOLUTION ||
+      Number(provenFixes[0]?.score || 0) >= 55
+    );
 
   let resolution;
 
@@ -6512,6 +6564,7 @@ function analyzeMachineHistoryForAction(action) {
     enoughEvidence,
     patterns: strongPatterns,
     rankedTexts: strongTexts,
+    provenFixes,
     summary,
     resolution: resolution.endsWith('.') ? resolution : `${resolution}.`
   };
@@ -6667,7 +6720,11 @@ function applySgmanHistoryToActions() {
     action.sgmanSuggestedResolution =
       action.sgmanHistoryAnalysis.resolution;
 
-    action.action = action.sgmanSuggestedResolution;
+    // Mantém a ação baseada no problema atual. O histórico entra como
+    // referência comprovada na mensagem, sem apagar o defeito do turno.
+    if (action.sgmanHistoryAnalysis.enoughEvidence) {
+      action.historyProvenAction = action.sgmanSuggestedResolution;
+    }
   });
 
   renderSgmanMachineAnalysis();

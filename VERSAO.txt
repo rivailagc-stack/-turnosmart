@@ -1,9 +1,2 @@
-TurnoSmart V58.1.0
-
-Melhorias:
-- problema atual do turno tem prioridade sobre histórico genérico
-- SGMan só complementa quando a OS é realmente semelhante
-- reincidência exige repetição explícita ou pelo menos 2 OS semelhantes
-- ações específicas para elétrica, resistência, solenoide, fundo, prensa/cola, faca/calço, tampão, bailarino e outros
-- ranking das 3 prioridades considera gravidade atual + tempo + reincidência + OEE
-- relatório curto e direto
+TurnoSmart V58.2.0
+Ações inteligentes baseadas no serviço REALIZADO em OS concluídas e semelhantes do SGMan. Hierarquia de gravidade revisada. Histórico não substitui mais o problema atual.

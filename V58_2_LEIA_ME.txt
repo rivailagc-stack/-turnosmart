@@ -1,0 +1,10 @@
+TURNOSMART V58.2.0
+
+Melhorias:
+- O problema atual continua sendo a fonte principal.
+- O SGMan é analisado por máquina e por similaridade da falha.
+- A ação recomendada prioriza o campo de serviço realizado/solução de OS CONCLUÍDAS semelhantes.
+- A possível resolução escrita na abertura da OS não é tratada como solução comprovada.
+- Uma solução histórica entra quando há 2+ OS semelhantes ou 1 OS com similaridade muito forte.
+- Hierarquia de gravidade: elétrica/quebra/pneumática crítica antes de ajustes genéricos.
+- O histórico não sobrescreve mais a ação atual; apenas complementa com solução comprovada.
