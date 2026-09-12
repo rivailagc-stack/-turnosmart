@@ -1,0 +1,10 @@
+TurnoSmart V58.3.0
+
+NOVO
+- Uma única mensagem humana/motivacional por dia no relatório da manutenção.
+- Frase curta e variável, sem poluir o relatório.
+- Acima de 65%: reconhece o resultado e reforça constância/melhoria contínua.
+- Abaixo de 65%: incentiva evolução sem tom mecânico ou cobrança automática.
+- Considera tendência: subindo, estável ou caindo.
+- A frase só é considerada entregue quando o relatório é copiado ou compartilhado.
+- Depois disso, os demais relatórios de manutenção do mesmo dia saem sem nova mensagem.

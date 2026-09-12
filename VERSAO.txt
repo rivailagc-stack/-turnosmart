@@ -1,2 +1,2 @@
-TurnoSmart V58.2.0
-Ações inteligentes baseadas no serviço REALIZADO em OS concluídas e semelhantes do SGMan. Hierarquia de gravidade revisada. Histórico não substitui mais o problema atual.
+TurnoSmart V58.3.0
+Mensagem humana de melhoria contínua: uma única mensagem por dia, curta e variável conforme OEE e tendência. A mensagem é marcada como entregue somente ao copiar/compartilhar o relatório da manutenção.

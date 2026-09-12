@@ -210,7 +210,7 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '58.2.0';
+const APP_VERSION = '58.3.0';
 
 async function forceCurrentAppVersion() {
   try {
@@ -4280,10 +4280,91 @@ function maintenanceProblemLabel(action) {
   return labels.slice(0, 2).join(' + ');
 }
 
-function maintenanceMessage() {
+function maintenanceDailyDateKey() {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function maintenanceMotivationStorageKey() {
+  return 'turnosmart_maintenance_motivation_last_day';
+}
+
+function shouldShowDailyMaintenanceMotivation() {
+  try {
+    return localStorage.getItem(maintenanceMotivationStorageKey()) !== maintenanceDailyDateKey();
+  } catch {
+    return true;
+  }
+}
+
+function markDailyMaintenanceMotivationDelivered() {
+  try {
+    localStorage.setItem(maintenanceMotivationStorageKey(), maintenanceDailyDateKey());
+  } catch {}
+}
+
+function maintenanceMotivationMessage() {
+  const oee = Number(state.analysis?.reportedOee);
+  const trend = calculateEfficiencyTrend();
+  const direction = trend?.direction || 'stable';
+
+  const phrasesAbove65Up = [
+    '🚀 Bom trabalho, equipe! Estamos evoluindo — vamos transformar esse avanço em constância.',
+    '👏 Resultado positivo! Seguimos avançando um pouco a cada turno.',
+    '📈 Boa evolução! Vamos manter o ritmo e continuar melhorando juntos.',
+    '💪 Acima de 65% e evoluindo. Agora é manter a consistência.',
+    '🎯 Estamos no caminho certo. Cada melhoria bem feita fortalece o próximo turno.'
+  ];
+
+  const phrasesAbove65Stable = [
+    '🚀 Bom resultado! Agora vamos transformar evolução em constância.',
+    '👏 Seguimos acima de 65%. O desafio agora é manter e melhorar um pouco mais.',
+    '💪 Bom trabalho, equipe! Vamos manter o ritmo e a estabilidade.',
+    '🎯 Resultado positivo. Consistência é o próximo passo.',
+    '📈 Estamos bem. Vamos cuidar para que o bom resultado vire rotina.'
+  ];
+
+  const phrasesAbove65Down = [
+    '💪 Seguimos acima de 65%. Vamos ajustar o que caiu e recuperar o ritmo.',
+    '🎯 O resultado ainda é bom. Agora é entender as perdas e voltar a crescer.',
+    '👏 Estamos acima da referência. Vamos recuperar os pontos perdidos juntos.',
+    '📈 Temos uma boa base. O próximo turno é oportunidade para voltar a evoluir.',
+    '🚀 O resultado segue positivo. Vamos corrigir as perdas e buscar crescimento.'
+  ];
+
+  const phrasesBelow65 = [
+    '💪 Vamos juntos: resolver bem hoje é deixar o próximo turno melhor.',
+    '🎯 Cada problema resolvido de verdade aproxima a equipe do próximo nível.',
+    '🔧 Menos repetição, mais solução bem feita. A evolução vem turno a turno.',
+    '📈 Hoje temos pontos para melhorar. Vamos transformar cada perda em aprendizado.',
+    '👊 Um passo de cada vez: resolver até o fim e seguir evoluindo.'
+  ];
+
+  let pool;
+  if (Number.isFinite(oee) && oee >= 65) {
+    if (direction === 'up') pool = phrasesAbove65Up;
+    else if (direction === 'down') pool = phrasesAbove65Down;
+    else pool = phrasesAbove65Stable;
+  } else {
+    pool = phrasesBelow65;
+  }
+
+  // Escolha varia por dia e pelo resultado para não repetir sempre a mesma frase.
+  const seedText = `${maintenanceDailyDateKey()}|${Number.isFinite(oee) ? oee.toFixed(1) : 'na'}|${direction}`;
+  let hash = 0;
+  for (let i = 0; i < seedText.length; i += 1) hash = ((hash << 5) - hash) + seedText.charCodeAt(i);
+  const index = Math.abs(hash) % pool.length;
+  return pool[index];
+}
+
+function maintenanceMessage(options = {}) {
   if (!state.analysis) return '';
 
   const analysis = state.analysis;
+  const includeDailyMotivation = options.includeDailyMotivation !== false && shouldShowDailyMaintenanceMotivation();
   const approved = state.actions
     .filter(action => action.approved && action.department === 'maintenance' && action.status !== 'Concluída');
 
@@ -4310,6 +4391,7 @@ function maintenanceMessage() {
     top.push(compactTrend);
   }
   if (top.length) lines.push(top.join(' | '));
+  if (includeDailyMotivation) lines.push(maintenanceMotivationMessage());
 
   if (analysis.sgmanSummary) {
     const sg = analysis.sgmanSummary;
@@ -8896,14 +8978,38 @@ function init() {
     }
   });
 
-  $('copyMaintenanceBtn').addEventListener('click', () => copyText(maintenanceMessage(), 'Mensagem da manutenção copiada.'));
+  $('copyMaintenanceBtn').addEventListener('click', async () => {
+    const includeDailyMotivation = shouldShowDailyMaintenanceMotivation();
+    await copyText(maintenanceMessage({ includeDailyMotivation }), 'Mensagem da manutenção copiada.');
+    if (includeDailyMotivation) {
+      markDailyMaintenanceMotivationDelivered();
+      renderActionPanels();
+    }
+  });
   $('copyProductionBtn').addEventListener('click', () => copyText(productionMessage(), 'Mensagem da produção copiada.'));
   $('shareMaintenanceBtn').addEventListener('click', async () => {
-    const text = maintenanceMessage();
+    const includeDailyMotivation = shouldShowDailyMaintenanceMotivation();
+    const text = maintenanceMessage({ includeDailyMotivation });
+    let delivered = false;
     if (navigator.share) {
-      try { await navigator.share({ title: 'Relatório da manutenção', text }); }
-      catch (error) { if (error.name !== 'AbortError') copyText(text); }
-    } else copyText(text);
+      try {
+        await navigator.share({ title: 'Relatório da manutenção', text });
+        delivered = true;
+      }
+      catch (error) {
+        if (error.name !== 'AbortError') {
+          await copyText(text);
+          delivered = true;
+        }
+      }
+    } else {
+      await copyText(text);
+      delivered = true;
+    }
+    if (delivered && includeDailyMotivation) {
+      markDailyMaintenanceMotivationDelivered();
+      renderActionPanels();
+    }
   });
   $('shareProductionBtn').addEventListener('click', async () => {
     const text = productionMessage();
