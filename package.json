@@ -1,0 +1,8 @@
+{
+  "name": "turnosmart",
+  "version": "59.0.0",
+  "private": true,
+  "dependencies": {
+    "@aws-sdk/client-textract": "^3.883.0"
+  }
+}

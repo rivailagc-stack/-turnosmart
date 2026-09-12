@@ -1,2 +1,2 @@
-TurnoSmart V58.3.0
-Mensagem humana de melhoria contínua: uma única mensagem por dia, curta e variável conforme OEE e tendência. A mensagem é marcada como entregue somente ao copiar/compartilhar o relatório da manutenção.
+TurnoSmart V59.0.0
+União da V58.3 com ações por máquina consolidada, prioridade do defeito atual, histórico SGMan comprovado e leitura dupla do quadro OEE com Gemini + Amazon Textract. Divergências ficam bloqueadas para confirmação manual.

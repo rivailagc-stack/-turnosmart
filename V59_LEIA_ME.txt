@@ -1,0 +1,19 @@
+TurnoSmart V59.0.0
+
+PRINCIPAIS MELHORIAS
+- Mantém a mensagem humana diária da V58.3.
+- Junta todas as ocorrências técnicas da mesma máquina antes de definir prioridade.
+- Defeito elétrico/pneumático crítico do turno pesa mais do que regulagem/calço.
+- Histórico do SGMan usa somente serviço realizado/conclusão de OS semelhante.
+- Ações ficaram mais curtas e objetivas.
+- Foto do quadro OEE usa leitura dupla: Gemini + Amazon Textract.
+- Se Gemini e Textract discordarem, o valor não entra automaticamente; fica para confirmação.
+- Mudanças muito fora do último valor também são sinalizadas.
+
+PARA ATIVAR AMAZON TEXTRACT NA VERCEL
+Adicione as variáveis de ambiente:
+AWS_REGION
+AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY
+
+Sem essas variáveis, o app continua funcionando com Gemini e confirmação manual.

@@ -210,7 +210,7 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '58.3.0';
+const APP_VERSION = '59.0.0';
 
 async function forceCurrentAppVersion() {
   try {
@@ -2843,6 +2843,105 @@ async function buildGeminiVisionImages(fullDataUrl, operationalDate, shift){
   };
 }
 
+function normalizeExternalOeeRows(rows = [], source = '') {
+  const byMachine = new Map();
+  (Array.isArray(rows) ? rows : []).forEach(row => {
+    const machine = normalizeMachineCode(row?.machine || row?.tag || '');
+    const value = numericOeeFromWord(row?.oee ?? row?.value ?? row?.text ?? '');
+    if (!machine || value === null) return;
+    byMachine.set(machine, {
+      machine,
+      oee: value,
+      confidence: Math.max(0, Math.min(100, Number(row?.confidence || 0))),
+      source: source || String(row?.source || ''),
+      evidence: String(row?.evidence || row?.reason || '').trim()
+    });
+  });
+  return OEE_BOARD_MACHINES.map(machine => byMachine.get(machine) || {
+    machine, oee: '', confidence: 0, source, evidence: ''
+  });
+}
+
+function previousMachineOeeValue(machine) {
+  const history = getHistory()
+    .map(item => item?.analysis)
+    .filter(Boolean)
+    .sort((a, b) => `${b.date || ''}-${String(b.shift || '')}`.localeCompare(`${a.date || ''}-${String(a.shift || '')}`));
+  for (const analysis of history) {
+    const found = getAnalysisMachineOee(analysis).find(item => normalizeMachineCode(item.machine) === normalizeMachineCode(machine));
+    const value = Number(found?.oee);
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function mergeHybridOeeRows(geminiRows = [], textractRows = []) {
+  const gemini = normalizeGeminiOeeRows(geminiRows || []);
+  const textract = normalizeExternalOeeRows(textractRows || [], 'Textract');
+  const byGemini = new Map(gemini.map(row => [row.machine, row]));
+  const byTextract = new Map(textract.map(row => [row.machine, row]));
+
+  return OEE_BOARD_MACHINES.map(machine => {
+    const g = byGemini.get(machine) || { oee:'', confidence:0 };
+    const t = byTextract.get(machine) || { oee:'', confidence:0 };
+    const gv = g.oee === '' ? null : Number(g.oee);
+    const tv = t.oee === '' ? null : Number(t.oee);
+    const gc = Number(g.confidence || 0);
+    const tc = Number(t.confidence || 0);
+    const previous = previousMachineOeeValue(machine);
+
+    if (Number.isFinite(gv) && Number.isFinite(tv)) {
+      if (Math.abs(gv - tv) <= 1) {
+        const value = Math.round(((gv + tv) / 2) * 10) / 10;
+        const confidence = Math.min(99, Math.max(88, Math.round((gc + tc) / 2)));
+        const jumpWarning = Number.isFinite(previous) && Math.abs(previous - value) >= 45
+          ? ` Mudança grande vs. último turno (${previous}% → ${value}%): confira.`
+          : '';
+        return { machine, oee:value, confidence, source:'Gemini + Textract', evidence:`Duas leituras concordaram.${jumpWarning}`.trim() };
+      }
+      // Segurança: quando os dois motores discordam, NÃO grava um número automaticamente.
+      return {
+        machine, oee:'', confidence:0, source:'Conferir',
+        evidence:`Divergência: Gemini ${gv}% × Textract ${tv}%. Confirme olhando a foto.`
+      };
+    }
+
+    if (Number.isFinite(tv) && tc >= 90) {
+      const suspiciousJump = Number.isFinite(previous) && Math.abs(previous - tv) >= 50;
+      return suspiciousJump
+        ? { machine, oee:'', confidence:0, source:'Conferir', evidence:`Textract ${tv}% diverge muito do último valor (${previous}%). Confirme.` }
+        : { machine, oee:tv, confidence:Math.min(92, tc), source:'Textract', evidence:'Leitura única com alta confiança; confira visualmente.' };
+    }
+
+    if (Number.isFinite(gv) && gc >= 90) {
+      const suspiciousJump = Number.isFinite(previous) && Math.abs(previous - gv) >= 50;
+      return suspiciousJump
+        ? { machine, oee:'', confidence:0, source:'Conferir', evidence:`Gemini ${gv}% diverge muito do último valor (${previous}%). Confirme.` }
+        : { machine, oee:gv, confidence:Math.min(90, gc), source:'Gemini', evidence:'Leitura única com alta confiança; confira visualmente.' };
+    }
+
+    return {
+      machine, oee:'', confidence:0, source:'Sem leitura segura',
+      evidence:'Nenhum motor atingiu confiança suficiente. Preencha manualmente.'
+    };
+  });
+}
+
+async function readOeeWithTextract(imageDataUrl, machines = OEE_BOARD_MACHINES) {
+  try {
+    const response = await fetch('/api/oee-textract', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ imageDataUrl, machines })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) return { available:false, rows:[], error:data.error || `HTTP ${response.status}` };
+    return { available:true, rows:Array.isArray(data.rows) ? data.rows : [], provider:data.provider || 'Amazon Textract' };
+  } catch (error) {
+    return { available:false, rows:[], error:error.message };
+  }
+}
+
 async function readOeeWithGemini(){
   const status=$('oeeStatus');
   const teach=$('geminiTeachBox');
@@ -2867,17 +2966,14 @@ async function readOeeWithGemini(){
     }
 
     const vision=await buildGeminiVisionImages(fullDataUrl,operationalDate,shift);
-
     const examples=geminiOeeExamples()
       .filter(example=>example?.imageDataUrl&&Array.isArray(example.rows))
       .slice(-3);
 
-    status.textContent=
-      examples.length
-        ?`Gemini lendo ${scope.label} com visão dupla e ${examples.length} leitura(s) confirmada(s)...`
-        :`Gemini lendo ${scope.label}: foto inteira para localizar + coluna ampliada para ler.`;
+    status.textContent=`Leitura dupla em andamento: Amazon Textract + Gemini (${scope.label})...`;
 
-    const response=await fetch('/api/oee-gemini',{
+    const textractPromise=readOeeWithTextract(vision.cellsSheetDataUrl,OEE_BOARD_MACHINES);
+    const geminiPromise=fetch('/api/oee-gemini',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
@@ -2890,46 +2986,49 @@ async function readOeeWithGemini(){
         examples,
         fullBoard:true
       })
+    }).then(async response=>{
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok||!data.ok) throw new Error(data.error||`Falha Gemini HTTP ${response.status}`);
+      return data;
     });
 
-    const data=await response.json().catch(()=>({}));
+    const [textractResult,geminiResult]=await Promise.allSettled([textractPromise,geminiPromise]);
+    const textract=textractResult.status==='fulfilled' ? textractResult.value : {available:false,rows:[]};
+    const geminiData=geminiResult.status==='fulfilled' ? geminiResult.value : {rows:[]};
 
-    if(!response.ok||!data.ok){
-      throw new Error(data.error||`Falha Gemini HTTP ${response.status}`);
+    if(!textract.available && geminiResult.status==='rejected'){
+      throw new Error(`Nenhum motor concluiu a leitura. ${textract.error||''} ${geminiResult.reason?.message||''}`.trim());
     }
 
-    const rows=normalizeGeminiOeeRows(data.rows||[]);
+    const rows=mergeHybridOeeRows(geminiData.rows||[],textract.rows||[]);
     state.oeeMachineEditorData=rows;
     state.lastGeminiRawRows=JSON.parse(JSON.stringify(rows));
     state.lastGeminiScope=scope;
     state.lastGeminiImageDataUrl=vision.fullContext;
 
     renderOeeMachineEditor(rows);
-
-    // Hide old row preview strips: they were geometry-based and could mislead.
-    document.querySelectorAll('.oee-row-preview,.oee-machine-thumb,.oee-row-thumb').forEach(el=>{
-      el.style.display='none';
-    });
+    document.querySelectorAll('.oee-row-preview,.oee-machine-thumb,.oee-row-thumb').forEach(el=>{ el.style.display='none'; });
 
     $('oeeOcrText').value=editorOeeText();
     state.oeeOcrText=$('oeeOcrText').value;
 
     const detected=rows.filter(row=>row.oee!=='').length;
-    const good=rows.filter(row=>row.oee!==''&&Number(row.confidence)>=80).length;
+    const consensus=rows.filter(row=>row.source==='Gemini + Textract').length;
+    const conflicts=rows.filter(row=>row.source==='Conferir').length;
+    const textractLabel=textract.available ? 'Textract ativo' : 'Textract indisponível';
 
     status.textContent=
-      `${detected} OEE encontrado(s) em ${scope.label}. Grade ${vision.gridConfidence}% confiável. `+
-      `${good} leitura(s) visual(is) fortes. Corrija somente se estiver errado.`;
+      `${detected} OEE seguro(s) em ${scope.label}. ${consensus} confirmado(s) por dupla leitura; `+
+      `${conflicts} divergência(s) bloqueada(s). Grade ${vision.gridConfidence}%. ${textractLabel}.`;
 
     teach?.classList.remove('hidden');
     updateGeminiExampleCount();
     return rows;
 
   }catch(error){
-    console.error('Gemini OEE:',error);
-    status.textContent=
-      `Gemini não conseguiu concluir: ${error.message}. Use OCR local somente como reserva.`;
-    showToast('Gemini não concluiu a leitura.');
+    console.error('Leitura inteligente OEE:',error);
+    status.textContent=`Leitura automática não concluiu: ${error.message}. Preencha somente os campos duvidosos.`;
+    showToast('Leitura do quadro não concluiu.');
     return [];
   }
 }
@@ -4023,22 +4122,27 @@ function conciseMaintenanceRepairActions(action) {
   const history = action.sgmanHistoryAnalysis || analyzeMachineHistoryForAction(action);
   const historyActions = historyActionsCompatibleWithCurrentProblem(action, history);
 
-  // Quando o SGMan possui uma OS concluída realmente semelhante, a ação que
-  // funcionou no passado tem prioridade. A análise do problema atual entra
-  // apenas como complemento/checagem, evitando ações genéricas inventadas.
-  const combined = historyActions.length
-    ? uniqueStrings([...historyActions, ...currentActions]).filter(Boolean).slice(0, 3)
-    : uniqueStrings(currentActions).filter(Boolean).slice(0, 3);
+  const severityText = normalizeKey(action?.description || '');
+  const criticalNow = currentActions.filter(item => {
+    const k = normalizeKey(item);
+    if (/disjuntor|resistencia|solenoid|solenoide|valvula|elevador|motor|sensor|drive|rele/.test(severityText)) {
+      return /desarme|disjuntor|resistencia|solenoid|solenoide|valvula|elevador|motor|sensor|drive|rele|corrente|curto|alimentacao/.test(k);
+    }
+    return true;
+  });
 
-  if (!combined.length) {
-    return 'diagnosticar o defeito atual, corrigir a causa, testar estabilidade antes de liberar e registrar no SGMan o serviço realizado e o resultado.';
+  const selected = uniqueStrings([
+    ...historyActions.slice(0,1),
+    ...criticalNow,
+    ...currentActions
+  ]).filter(Boolean).slice(0,2);
+
+  if (!selected.length) {
+    return 'diagnosticar a causa do defeito atual, corrigir e acompanhar ciclos consecutivos antes de liberar.';
   }
 
-  const sourceNote = historyActions.length
-    ? 'usar como referência a solução comprovada no SGMan para falha semelhante; '
-    : '';
-
-  return sourceNote + combined.map(item => item.replace(/[.;]+$/, '')).join('; ') + '; testar estabilidade antes de liberar.';
+  const text = selected.map(item => item.replace(/[.;]+$/, '')).join('; ');
+  return `${text}; validar estabilidade e registrar causa + serviço realizado no SGMan.`;
 }
 
 function maintenanceEfficiencyLevel(metrics = state.reliability3Days || {}) {
@@ -4251,9 +4355,11 @@ function maintenancePriorityScore(action, recurrent, oee) {
 
   // Peso maior para defeitos com maior evidência técnica no turno atual.
   // Hierarquia de gravidade: elétrica/quebra/pneumática crítica > processo mecânico > regulagem.
-  if (/disjuntor|curto|queim|resistencia|motor|drive|rele|sensor|solenoid|solenoide|valvula|cilindro|elevador|quebr|romp/.test(text)) score += 34;
-  else if (/enrosc|trav|prensa|tampao|fundo|faca/.test(text)) score += 20;
-  else if (/variacao|variando|calco|ajuste|regul/.test(text)) score += 12;
+  const severity = maintenanceSeverityFromText(text);
+  if (severity === 4) score += 42;
+  else if (severity === 3) score += 24;
+  else if (severity === 2) score += 12;
+  if (Array.isArray(action?.sourceActions) && action.sourceActions.length > 1) score += Math.min(18, (action.sourceActions.length - 1) * 6);
   const repetition = text.match(/(\d+)x\b/);
   if (repetition) score += Math.min(Number(repetition[1]), 15) * 2;
 
@@ -4360,13 +4466,55 @@ function maintenanceMotivationMessage() {
   return pool[index];
 }
 
+function maintenanceSeverityFromText(text = '') {
+  const key = normalizeKey(text);
+  if (/disjuntor|curto|queim|resistencia|motor|drive|rele|sensor|solenoid|solenoide|valvula|cilindro|elevador|quebr|romp/.test(key)) return 4;
+  if (/enrosc|trav|prensa|tampao|fundo|faca/.test(key)) return 3;
+  if (/variacao|variando|calco|ajuste|regul/.test(key)) return 2;
+  return 1;
+}
+
+function aggregateMaintenanceActionsByMachine(actions = []) {
+  const map = new Map();
+  actions.forEach(action => {
+    const machine = normalizeMachineCode(action.machine) || action.machine;
+    if (!machine) return;
+    const current = map.get(machine) || {
+      ...action,
+      machine,
+      description:'',
+      recordedMinutes:0,
+      priority:'Baixa',
+      sourceActions:[]
+    };
+    const descriptions = uniqueStrings([current.description, action.description].filter(Boolean));
+    current.description = descriptions.join(' | ');
+    current.recordedMinutes += Number(action.recordedMinutes || 0);
+    current.sourceActions.push(action);
+    const priorities = {Alta:3,Média:2,Baixa:1};
+    if ((priorities[action.priority]||0) > (priorities[current.priority]||0)) current.priority = action.priority;
+    if (!current.sgmanHistoryAnalysis && action.sgmanHistoryAnalysis) current.sgmanHistoryAnalysis = action.sgmanHistoryAnalysis;
+    map.set(machine,current);
+  });
+  return [...map.values()].map(item => {
+    // Seleciona a análise SGMan mais compatível entre todas as ocorrências da máquina.
+    const analyses = item.sourceActions
+      .map(source => source.sgmanHistoryAnalysis || analyzeMachineHistoryForAction(source))
+      .filter(Boolean)
+      .sort((a,b)=>(Number(b.bestScore||0)-Number(a.bestScore||0)) || (Number(b.similarCount||0)-Number(a.similarCount||0)));
+    if (analyses[0]) item.sgmanHistoryAnalysis = analyses[0];
+    return item;
+  });
+}
+
 function maintenanceMessage(options = {}) {
   if (!state.analysis) return '';
 
   const analysis = state.analysis;
   const includeDailyMotivation = options.includeDailyMotivation !== false && shouldShowDailyMaintenanceMotivation();
-  const approved = state.actions
+  const approvedRaw = state.actions
     .filter(action => action.approved && action.department === 'maintenance' && action.status !== 'Concluída');
+  const approved = aggregateMaintenanceActionsByMachine(approvedRaw);
 
   const recurrence = deriveRecurrenceMachines(analysis);
   const recurrenceSet = new Set(recurrence);
