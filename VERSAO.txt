@@ -1,7 +1,9 @@
-TurnoSmart V56.0.0
-Corrige o seletor de mídia no iPhone.
-Adiciona Tirar foto.
-Adiciona Biblioteca para fotos e vídeos salvos.
-Adiciona Gravar vídeo.
-O campo Biblioteca não usa capture.
-Mostra nome e tamanho do arquivo selecionado.
+TurnoSmart V58.1.0
+
+Melhorias:
+- problema atual do turno tem prioridade sobre histórico genérico
+- SGMan só complementa quando a OS é realmente semelhante
+- reincidência exige repetição explícita ou pelo menos 2 OS semelhantes
+- ações específicas para elétrica, resistência, solenoide, fundo, prensa/cola, faca/calço, tampão, bailarino e outros
+- ranking das 3 prioridades considera gravidade atual + tempo + reincidência + OEE
+- relatório curto e direto

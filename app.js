@@ -210,7 +210,7 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '57.9.0';
+const APP_VERSION = '58.1.0';
 
 async function forceCurrentAppVersion() {
   try {
@@ -3150,19 +3150,24 @@ function extractMachineOeeFromText(raw = '') {
 
 function deriveRecurrenceMachines(analysis) {
   const reported = new Set();
+
   for (const action of state.actions.filter(a => a.department === 'maintenance')) {
     const key = normalizeKey(`${action.description} ${action.action}`);
-    const repeated = /(2x|duas vezes|novo ajuste|novamente|reincid)/.test(key);
-    if (repeated) reported.add(action.machine);
-  }
-  // OEE baixo sozinho NÃO significa reincidência.
-  // Reincidência só é mostrada quando há evidência no relato ou histórico SGMan.
-  for (const action of state.actions.filter(a => a.department === 'maintenance')) {
+
+    // O próprio relatório pode declarar repetição explícita.
+    if (/(\b2x\b|\b3x\b|\b4x\b|\b5x\b|\d+x|duas vezes|tres vezes|novamente|reincid)/.test(key)) {
+      reported.add(action.machine);
+      continue;
+    }
+
+    // No SGMan só considera reincidência quando as OS são realmente semelhantes
+    // ao problema ATUAL. Histórico genérico da máquina não basta.
     const history = action.sgmanHistoryAnalysis || analyzeMachineHistoryForAction(action);
-    const repeatedHistory = Number(history?.occurrences || history?.count || 0) >= 2 ||
-      (history?.patterns || []).some(p => Number(p?.count || 0) >= 2);
-    if (repeatedHistory) reported.add(action.machine);
+    if (Number(history?.similarOrders || 0) >= 2 && Number(history?.bestSimilarityScore || 0) >= MIN_HISTORY_SIMILARITY_SCORE) {
+      reported.add(action.machine);
+    }
   }
+
   return [...reported];
 }
 
@@ -3929,70 +3934,115 @@ function efficiencyTrendMessage() {
   };
 }
 
+function currentProblemRepairActions(action) {
+  const text = normalizeKey(action?.description || '');
+  const result = [];
+  const add = value => {
+    const clean = String(value || '').replace(/[.;]+$/, '').trim();
+    if (clean && !result.some(item => normalizeKey(item) === normalizeKey(clean))) result.push(clean);
+  };
+
+  // Regra principal: começar pelo defeito que aconteceu NESTE turno.
+  if (/disjuntor.*desarm|desarm.*disjuntor/.test(text)) {
+    add('identificar a causa do desarme do disjuntor, conferindo corrente, curto, aquecimento e conexões antes de rearmar');
+  }
+  if (/resistencia/.test(text)) {
+    add('conferir resistência, terminais, alimentação e aquecimento; trocar somente o componente confirmado com defeito');
+  }
+  if (/solenoid|solenoide/.test(text)) {
+    add('testar bobina da solenoide, comando elétrico e acionamento da válvula');
+  }
+  if (/elevador/.test(text)) {
+    add('testar o ciclo do elevador e confirmar que a válvula atua sem travar');
+  }
+  if (/bailarino/.test(text)) {
+    add('regular o bailarino e conferir tensão, alinhamento e livre movimento da faixa/fundo');
+  }
+  if (/faixa.*fora.*posicao|fora.*posicao.*faixa|ajuste.*faixa/.test(text)) {
+    add('corrigir o alinhamento da faixa e conferir guias, tensão e referência de passagem');
+  }
+  if (/fundo.*enrosc/.test(text)) {
+    add('eliminar o ponto onde o fundo enrosca, conferindo guia, alimentação, sincronismo e passagem');
+  }
+  if (/prensa.*cola|cola.*prensa|acumulando cola/.test(text)) {
+    add('eliminar o acúmulo de cola na prensa e conferir dosagem, disco, raspagem e sincronismo');
+  }
+  if (/disco.*cola/.test(text)) {
+    add('conferir fixação, alinhamento e condição do disco de cola');
+  }
+  if (/falta cola/.test(text)) {
+    add('verificar alimentação de cola, nível, mangueiras/filtros e funcionamento da aplicação');
+  }
+  if (/tampao/.test(text)) {
+    add('conferir posição, referência, fixação e sincronismo do tampão');
+  }
+  if (/calco.*faca|faca.*calco/.test(text)) {
+    add('conferir calço, posição e assentamento da faca, eliminando folga ou desnivelamento');
+  } else if (/faca/.test(text)) {
+    add('inspecionar desgaste/avaria da faca e conferir posição, alinhamento e aperto');
+  }
+  if (/variacao|variando/.test(text)) {
+    add('eliminar a causa da variação e acompanhar ciclos consecutivos para confirmar estabilidade');
+  }
+  if (/mola/.test(text)) {
+    add('conferir condição, carga, posição e fixação da mola');
+  }
+  if (/parafuso/.test(text)) {
+    add('verificar rosca, aperto e fixação do suporte; substituir o parafuso se houver dano');
+  }
+  if (/guia/.test(text)) {
+    add('ajustar a guia sem forçar o material e conferir paralelismo e passagem');
+  }
+  if (/saida/.test(text)) {
+    add('ajustar a saída e confirmar fluxo contínuo sem retorno ou travamento');
+  }
+  if (/pe[cç]a descol|descolad/.test(text)) {
+    add('verificar aplicação de cola, pressão de contato e tempo de pega da peça');
+  }
+  if (/bobina.*movimentando.*eixo|movimentando.*eixo/.test(text)) {
+    add('eliminar o deslocamento da bobina no eixo, conferindo travamento, cones e alinhamento');
+  }
+
+  return result.slice(0, 3);
+}
+
+function historyActionsCompatibleWithCurrentProblem(action, analysis) {
+  if (!analysis?.enoughEvidence) return [];
+  const current = normalizeKey(action?.description || '');
+  const keywords = current
+    .replace(/\b(min|minuto|minutos|ajuste|troca|limpeza|maquina|mk|de|da|do|e|na|no|para|com)\b/g, ' ')
+    .split(/[^a-z0-9]+/)
+    .filter(word => word.length >= 4);
+
+  const candidates = [];
+  (analysis.rankedTexts || []).forEach(item => candidates.push(cleanHistoricalResolution(item.text || '')));
+  (analysis.patterns || []).forEach(item => candidates.push(String(item.label || '').replace(/\s*\(\d+x\)\s*$/i, '')));
+
+  return uniqueStrings(candidates.filter(candidate => {
+    const key = normalizeKey(candidate);
+    return keywords.some(word => key.includes(word));
+  })).slice(0, 2);
+}
+
 function conciseMaintenanceRepairActions(action) {
-  const analysis =
-    action.sgmanHistoryAnalysis ||
-    analyzeMachineHistoryForAction(action);
+  const currentActions = currentProblemRepairActions(action);
+  const history = action.sgmanHistoryAnalysis || analyzeMachineHistoryForAction(action);
+  const historyActions = historyActionsCompatibleWithCurrentProblem(action, history);
 
-  const actions = [];
+  // O histórico complementa o problema atual; nunca substitui o que acabou de acontecer.
+  const combined = uniqueStrings([...currentActions, ...historyActions])
+    .filter(Boolean)
+    .slice(0, 3);
 
-  if (analysis?.enoughEvidence) {
-    (analysis.patterns || []).slice(0, 3).forEach(pattern => {
-      const text = String(pattern.label || '')
-        .replace(/\s*\(\d+x\)\s*$/i, '')
-        .replace(/[.;]+$/, '')
-        .trim();
-
-      if (text) actions.push(text);
-    });
-
-    if (actions.length < 3) {
-      (analysis.rankedTexts || []).slice(0, 3).forEach(item => {
-        const text = cleanHistoricalResolution(item.text || '')
-          .replace(/[.;]+$/, '')
-          .trim();
-
-        if (
-          text &&
-          !actions.some(existing =>
-            normalizeKey(existing) === normalizeKey(text)
-          )
-        ) {
-          actions.push(text);
-        }
-      });
+  if (!combined.length) {
+    const base = String(action.action || '').replace(/[.;]+$/, '').trim();
+    if (base && !/corrigir a regulagem e verificar desgaste ou folga/i.test(base)) {
+      return `${base}. Testar estabilidade antes de liberar e registrar causa + solução no SGMan.`;
     }
+    return 'diagnosticar o defeito atual, corrigir a causa, testar estabilidade antes de liberar e registrar causa + solução no SGMan.';
   }
 
-  if (!actions.length) {
-    const suggested = compactSgmanReminders(
-      action.sgmanSuggestedResolution ||
-      suggestedResolutionFromHistory(action),
-      3,
-      210
-    );
-
-    suggested
-      .split(';')
-      .map(item => item.trim())
-      .filter(Boolean)
-      .forEach(item => actions.push(item));
-  }
-
-  const genericHistoryMessage = actions.some(item =>
-    /historico insuficiente|diagnostico no local antes de trocar/i.test(
-      normalizeKey(item)
-    )
-  );
-
-  if (genericHistoryMessage || !actions.length) {
-    return 'analisar e resolver o problema durante o turno; registrar a causa e a solução no SGMan.';
-  }
-
-  return uniqueStrings(actions)
-    .slice(0, 3)
-    .map(item => item.replace(/[.;]+$/, ''))
-    .join('; ') + '.';
+  return combined.map(item => item.replace(/[.;]+$/, '')).join('; ') + '; testar estabilidade antes de liberar.';
 }
 
 function maintenanceEfficiencyLevel(metrics = state.reliability3Days || {}) {
@@ -4193,39 +4243,63 @@ function maintenanceAccountabilityReport() {
   return lines.join('\\n');
 }
 
+function maintenancePriorityScore(action, recurrent, oee) {
+  const text = normalizeKey(action?.description || '');
+  let score = 0;
+
+  score += Math.min(Number(action?.recordedMinutes || 0), 120) * 0.35;
+  if (action?.priority === 'Alta') score += 30;
+  if (action?.priority === 'Média') score += 15;
+  if (recurrent) score += 22;
+  if (Number.isFinite(Number(oee))) score += Math.max(0, 65 - Number(oee)) * 0.8;
+
+  // Peso maior para defeitos com maior evidência técnica no turno atual.
+  if (/disjuntor|resistencia|solenoid|solenoide|motor|sensor|quebr|romp|elevador/.test(text)) score += 24;
+  if (/variacao|variando|enrosc|fundo|faca|tampao|prensa|cola/.test(text)) score += 14;
+  const repetition = text.match(/(\d+)x\b/);
+  if (repetition) score += Math.min(Number(repetition[1]), 15) * 2;
+
+  return score;
+}
+
+function maintenanceProblemLabel(action) {
+  const text = normalizeKey(action?.description || '');
+  const labels = [];
+  const add = value => { if (!labels.includes(value)) labels.push(value); };
+
+  if (/disjuntor|resistencia|solenoid|solenoide|eletric/.test(text)) add('elétrica');
+  if (/fundo.*enrosc|enrosc.*fundo/.test(text)) add('fundo enroscando');
+  if (/prensa.*cola|cola.*prensa|acumulando cola/.test(text)) add('prensa/cola');
+  if (/variacao|variando/.test(text)) add('variação');
+  if (/faca|calco/.test(text)) add('faca/calço');
+  if (/tampao/.test(text)) add('tampão');
+  if (/bailarino/.test(text)) add('bailarino');
+  if (/faixa.*posicao|ajuste.*faixa/.test(text)) add('faixa');
+  if (/elevador/.test(text)) add('elevador');
+  if (/mola/.test(text)) add('mola');
+
+  return labels.slice(0, 2).join(' + ');
+}
+
 function maintenanceMessage() {
   if (!state.analysis) return '';
 
   const analysis = state.analysis;
   const approved = state.actions
-    .filter(action => action.approved && action.department === 'maintenance' && action.status !== 'Concluída')
-    .sort((a, b) =>
-      (({ Alta: 0, Média: 1, Baixa: 2 })[a.priority] - ({ Alta: 0, Média: 1, Baixa: 2 })[b.priority]) ||
-      b.recordedMinutes - a.recordedMinutes
-    );
+    .filter(action => action.approved && action.department === 'maintenance' && action.status !== 'Concluída');
 
-  // Regra: OEE baixo é contexto. Só vira prioridade de manutenção quando existe
-  // falha técnica no relatório/ação ou evidência de reincidência no SGMan.
   const recurrence = deriveRecurrenceMachines(analysis);
   const recurrenceSet = new Set(recurrence);
   const lowOeeMap = new Map((analysis.lowOeeMachines || []).map(x => [x.machine, x.oee]));
   const technicalMachines = new Set(approved.map(a => a.machine));
 
   const priority = approved
-    .map(action => ({
-      action,
-      oee: lowOeeMap.has(action.machine) ? lowOeeMap.get(action.machine) : null,
-      recurrent: recurrenceSet.has(action.machine)
-    }))
-    .sort((a, b) => {
-      const ar = a.recurrent ? 0 : 1;
-      const br = b.recurrent ? 0 : 1;
-      if (ar !== br) return ar - br;
-      const ao = a.oee == null ? 999 : Number(a.oee);
-      const bo = b.oee == null ? 999 : Number(b.oee);
-      if (ao !== bo) return ao - bo;
-      return (b.action.recordedMinutes || 0) - (a.action.recordedMinutes || 0);
+    .map(action => {
+      const oee = lowOeeMap.has(action.machine) ? lowOeeMap.get(action.machine) : null;
+      const recurrent = recurrenceSet.has(action.machine);
+      return { action, oee, recurrent, score: maintenancePriorityScore(action, recurrent, oee) };
     })
+    .sort((a, b) => b.score - a.score || (b.action.recordedMinutes || 0) - (a.action.recordedMinutes || 0))
     .slice(0, 3);
 
   const trend = efficiencyTrendMessage();
@@ -4242,7 +4316,6 @@ function maintenanceMessage() {
     const sg = analysis.sgmanSummary;
     lines.push(`SGMan: *${Number(sg.completedToday || 0)} concluídas* | *${Number(sg.overdue || 0)} atrasadas* | *${Number(sg.open || 0)} abertas*`);
   }
-
   if (analysis.boardScope?.label) lines.push(`Quadro: ${analysis.boardScope.label}`);
 
   lines.push('');
@@ -4250,11 +4323,13 @@ function maintenanceMessage() {
   if (!priority.length) {
     lines.push('Sem falha técnica prioritária identificada.');
   } else {
-    priority.forEach(({action, oee, recurrent}) => {
+    priority.forEach(({ action, oee, recurrent }) => {
       const flags = [];
-      if (oee != null) flags.push(`OEE ${String(oee).replace('.', ',')}%`);
+      const problem = maintenanceProblemLabel(action);
       if (recurrent) flags.push('reincidente');
-      lines.push(`🔴 *${action.machine}*${flags.length ? ` — ${flags.join(' — ')}` : ''}`);
+      if (problem) flags.push(problem);
+      if (oee != null) flags.push(`OEE ${String(oee).replace('.', ',')}%`);
+      lines.push(`🔴 *${action.machine}*${flags.length ? ` — ${flags.join(' | ')}` : ''}`);
     });
   }
 
@@ -4263,12 +4338,11 @@ function maintenanceMessage() {
   if (!priority.length) {
     lines.push('Acompanhar estabilidade e atender novas falhas técnicas do turno.');
   } else {
-    priority.forEach(({action}) => {
+    priority.forEach(({ action }) => {
       lines.push(`*${action.machine}* — ${conciseMaintenanceRepairActions(action)}`);
     });
   }
 
-  // Mostra OEE baixo apenas como alerta de desempenho; não transforma em OS de manutenção.
   const lowWithoutTechnicalSignal = (analysis.lowOeeMachines || [])
     .filter(item => !technicalMachines.has(item.machine) && !recurrenceSet.has(item.machine))
     .slice(0, 6);
@@ -4278,7 +4352,7 @@ function maintenanceMessage() {
   }
 
   lines.push('');
-  lines.push('*META DO TURNO:* corrigir as 3 maiores perdas técnicas, testar estabilidade e fechar a OS com causa + solução.');
+  lines.push('*META DO TURNO:* atacar as 3 maiores perdas técnicas, testar estabilidade e fechar a OS com causa + solução.');
   return lines.join('\n');
 }
 

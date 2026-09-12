@@ -1,0 +1,8 @@
+TURNOSMART V58.1.0 — INTELIGÊNCIA DE AÇÕES
+
+Regra nova:
+PROBLEMA DE HOJE -> HISTÓRICO DA MESMA FALHA -> SOLUÇÃO -> TESTE DE ESTABILIDADE.
+
+O histórico do SGMan não pode substituir o defeito atual. Ele só complementa quando a OS antiga é semelhante.
+OEE baixo continua sendo contexto e não abre ação de manutenção sozinho.
+O relatório escolhe no máximo 3 prioridades técnicas.
