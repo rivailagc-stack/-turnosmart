@@ -1,0 +1,18 @@
+TurnoSmart V59.2.0 — LEITURA POR CÉLULA
+
+O que mudou:
+- A foto inteira continua sendo a referência para localizar dia/turno.
+- O app recorta uma célula separada para cada uma das 22 MKs.
+- Cria uma folha rotulada: MK à esquerda + célula real ampliada à direita.
+- Gemini e Amazon Textract leem a mesma célula já associada à MK correta.
+- Se Gemini e Textract concordarem (diferença <= 1 ponto), o valor é aceito.
+- Se discordarem, o valor fica vazio para confirmação manual.
+- Os recortes das células aparecem ao lado de cada MK para conferência rápida.
+- Corrigido um erro de normalização que podia impedir a leitura do Textract de participar do consenso.
+- OEE baixo continua sendo contexto; não vira falha técnica sozinho.
+
+Variáveis Vercel:
+AWS_REGION
+AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY
+GEMINI_API_KEY

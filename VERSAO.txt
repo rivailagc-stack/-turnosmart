@@ -1,2 +1,2 @@
-TurnoSmart V59.1.0
-Leitura OEE revisada: foto inteira como referência, Textract lê o quadro completo e ancora cada linha pela coluna de máquinas; recorte da coluna é apenas apoio visual. Grade automática só é usada quando passa validações geométricas.
+TurnoSmart V59.2.0
+Leitura do quadro OEE por célula: foto inteira para contexto, grade/coluna do turno, 22 células ampliadas e rotuladas por MK, consenso Gemini + Amazon Textract e bloqueio de divergências. Corrigida a normalização do retorno do Textract.

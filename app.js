@@ -210,7 +210,7 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '59.1.0';
+const APP_VERSION = '59.2.0';
 
 async function forceCurrentAppVersion() {
   try {
@@ -2202,7 +2202,7 @@ function renderOeeMachineEditor(rows = state.oeeMachineEditorData) {
 
   wrap.innerHTML = `
     <div class="oee-editor-head simple-editor-head">
-      <strong>Gemini leu. Corrija somente se estiver errado.</strong>
+      <strong>Leitura por célula. Corrija somente se estiver errado.</strong>
       <span class="muted">Você não precisa preencher tudo. Apenas toque no número errado e corrija.</span>
     </div>
     <div class="oee-editor-grid">
@@ -2729,10 +2729,7 @@ async function buildGeminiVisionImages(fullDataUrl, operationalDate, shift){
   const image=await loadImageElement(fullDataUrl);
   const W=image.naturalWidth||image.width;
   const H=image.naturalHeight||image.height;
-
-  // V59.1: a foto inteira passa a ser a referência principal.
-  // O recorte da coluna virou apenas um apoio e nunca mais decide o alinhamento sozinho.
-  const fullContext=await resizeDataUrlForExample(fullDataUrl,2400,.9);
+  const fullContext=await resizeDataUrlForExample(fullDataUrl,2400,.92);
 
   const [yy,mm,dd]=String(operationalDate).split('-').map(Number);
   const date=new Date(yy,mm-1,dd,12,0,0);
@@ -2749,15 +2746,10 @@ async function buildGeminiVisionImages(fullDataUrl, operationalDate, shift){
     const ySpan=(candidate.yLines.at(-1)-candidate.yLines[0])/H;
     const startsLeft=(candidate.xLines[0]/W)<.14;
     const endsRight=(candidate.xLines.at(-1)/W)>.84;
-    const sane=xSpan>.72&&ySpan>.52&&startsLeft&&endsRight&&candidate.confidence>=28;
-    if(sane){
-      grid=candidate;
-      gridConfidence=candidate.confidence;
-    }
+    const sane=xSpan>.72&&ySpan>.52&&startsLeft&&endsRight&&candidate.confidence>=24;
+    if(sane){grid=candidate;gridConfidence=candidate.confidence;}
   }catch{}
 
-  // Geometria de segurança baseada no quadro inteiro. Só é usada para ampliar a coluna,
-  // nunca para associar uma leitura automaticamente a uma MK.
   const fallbackX0=W*.055;
   const fallbackX1=W*.982;
   const fallbackY0=H*.205;
@@ -2770,40 +2762,88 @@ async function buildGeminiVisionImages(fullDataUrl, operationalDate, shift){
   const colW=Math.max(2,x2-x1);
 
   const colCanvas=document.createElement('canvas');
-  colCanvas.width=1000;
-  colCanvas.height=2800;
+  colCanvas.width=1100;
+  colCanvas.height=3000;
   const cctx=colCanvas.getContext('2d');
-  cctx.fillStyle='#fff';
-  cctx.fillRect(0,0,colCanvas.width,colCanvas.height);
-  cctx.imageSmoothingEnabled=true;
-  cctx.imageSmoothingQuality='high';
+  cctx.fillStyle='#fff'; cctx.fillRect(0,0,colCanvas.width,colCanvas.height);
+  cctx.imageSmoothingEnabled=true; cctx.imageSmoothingQuality='high';
   cctx.drawImage(
     image,
-    Math.max(0,x1-colW*.12),Math.max(0,y1-H*.015),
-    Math.min(W-Math.max(0,x1-colW*.12),colW*1.24),
-    Math.min(H-Math.max(0,y1-H*.015),(y2-y1)+H*.03),
+    Math.max(0,x1-colW*.16),Math.max(0,y1-H*.012),
+    Math.min(W-Math.max(0,x1-colW*.16),colW*1.32),
+    Math.min(H-Math.max(0,y1-H*.012),(y2-y1)+H*.024),
     0,0,colCanvas.width,colCanvas.height
   );
-  const columnDataUrl=colCanvas.toDataURL('image/jpeg',.97);
+  const columnDataUrl=colCanvas.toDataURL('image/jpeg',.98);
 
-  // Diagnóstico: mostra a foto inteira e destaca somente a coluna estimada.
+  const rowCount=OEE_BOARD_MACHINES.length;
+  const rowBounds=[];
+  if(grid&&Array.isArray(grid.yLines)&&grid.yLines.length>=rowCount+1){
+    for(let i=0;i<rowCount;i++) rowBounds.push([grid.yLines[i],grid.yLines[i+1]]);
+  }else{
+    const step=(y2-y1)/rowCount;
+    for(let i=0;i<rowCount;i++) rowBounds.push([y1+i*step,y1+(i+1)*step]);
+  }
+
+  const rowPreviews=[];
+  const cellCanvases=[];
+  for(let i=0;i<rowCount;i++){
+    const [ry1,ry2]=rowBounds[i];
+    const rh=Math.max(2,ry2-ry1);
+    const padX=colW*.12;
+    const padY=rh*.10;
+    const sx=Math.max(0,x1-padX);
+    const sy=Math.max(0,ry1-padY);
+    const sw=Math.min(W-sx,colW+padX*2);
+    const sh=Math.min(H-sy,rh+padY*2);
+
+    const cell=document.createElement('canvas');
+    cell.width=760; cell.height=180;
+    const ctx=cell.getContext('2d');
+    ctx.fillStyle='#fff'; ctx.fillRect(0,0,cell.width,cell.height);
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+    ctx.drawImage(image,sx,sy,sw,sh,0,0,cell.width,cell.height);
+    cellCanvases.push(cell);
+    rowPreviews.push(cell.toDataURL('image/jpeg',.98));
+  }
+
+  const sheet=document.createElement('canvas');
+  const labelWidth=230;
+  const rowHeight=170;
+  const sheetWidth=1250;
+  sheet.width=sheetWidth; sheet.height=rowCount*rowHeight;
+  const sctx=sheet.getContext('2d');
+  sctx.fillStyle='#fff'; sctx.fillRect(0,0,sheet.width,sheet.height);
+  sctx.textBaseline='middle';
+
+  for(let i=0;i<rowCount;i++){
+    const y=i*rowHeight;
+    sctx.fillStyle=i%2===0?'#f8fafc':'#ffffff';
+    sctx.fillRect(0,y,sheet.width,rowHeight);
+    sctx.strokeStyle='#cbd5e1'; sctx.lineWidth=2;
+    sctx.strokeRect(1,y+1,sheet.width-2,rowHeight-2);
+    sctx.fillStyle='#0f172a';
+    sctx.font='bold 38px Arial, sans-serif';
+    sctx.fillText(OEE_BOARD_MACHINES[i],24,y+rowHeight/2);
+    sctx.drawImage(cellCanvases[i],labelWidth,y+8,sheetWidth-labelWidth-12,rowHeight-16);
+  }
+
+  const cellsSheetDataUrl=sheet.toDataURL('image/jpeg',.96);
+  state.oeeRowPreviews=rowPreviews;
+
   const diag=document.createElement('canvas');
-  diag.width=1200;
-  diag.height=Math.round(H*(1200/W));
+  diag.width=1200; diag.height=Math.round(H*(1200/W));
   const dctx=diag.getContext('2d');
   dctx.drawImage(image,0,0,diag.width,diag.height);
   const scale=diag.width/W;
-  dctx.fillStyle='rgba(255,153,0,.18)';
+  dctx.fillStyle='rgba(255,153,0,.16)';
   dctx.fillRect(x1*scale,y1*scale,(x2-x1)*scale,(y2-y1)*scale);
-  dctx.strokeStyle='rgba(255,122,0,.95)';
-  dctx.lineWidth=4;
+  dctx.strokeStyle='rgba(255,122,0,.95)'; dctx.lineWidth=4;
   dctx.strokeRect(x1*scale,y1*scale,(x2-x1)*scale,(y2-y1)*scale);
-  dctx.fillStyle='#111827';
-  dctx.font='bold 24px sans-serif';
-  dctx.fillText(grid?`Grade validada ${gridConfidence}%`:'Coluna estimada pelo quadro inteiro',18,34);
-  const diagnosticDataUrl=diag.toDataURL('image/jpeg',.9);
+  dctx.fillStyle='#111827'; dctx.font='bold 24px sans-serif';
+  dctx.fillText(grid?`Grade ${gridConfidence}% + leitura por célula`:'Leitura por célula com geometria de segurança',18,34);
+  const diagnosticDataUrl=diag.toDataURL('image/jpeg',.92);
 
-  // V59.1: a prévia principal passa a ser a foto inteira; nada de folha de células borrada.
   state.oeeCropDataUrl=fullContext;
   state.oeeGridDiagnostic=diagnosticDataUrl;
   state.oeeGridConfidence=gridConfidence;
@@ -2812,26 +2852,27 @@ async function buildGeminiVisionImages(fullDataUrl, operationalDate, shift){
   if(cropPreview)cropPreview.src=fullContext;
   $('oeeCropPreviewWrap')?.classList.remove('hidden');
   const ocrPreview=$('oeeOcrPreview');
-  if(ocrPreview)ocrPreview.src=diagnosticDataUrl;
+  if(ocrPreview)ocrPreview.src=cellsSheetDataUrl;
 
   return {
     fullContext,
     columnDataUrl,
-    comparisonDataUrl:null,
-    cellsSheetDataUrl:null,
+    comparisonDataUrl:cellsSheetDataUrl,
+    cellsSheetDataUrl,
     diagnosticDataUrl,
     gridConfidence,
     columnIndex,
-    geometryMode:grid?'grid-validada':'quadro-inteiro'
+    geometryMode:grid?'celulas-grade':'celulas-geometria'
   };
 }
-
 function normalizeExternalOeeRows(rows = [], source = '') {
   const byMachine = new Map();
   (Array.isArray(rows) ? rows : []).forEach(row => {
     const machine = normalizeMachineCode(row?.machine || row?.tag || '');
-    const value = numericOeeFromWord(row?.oee ?? row?.value ?? row?.text ?? '');
-    if (!machine || value === null) return;
+    const parsed = numericOeeFromWord(row?.oee ?? row?.value ?? row?.text ?? '');
+    if (!machine || parsed === null) return;
+    const value = Number(parsed.value);
+    if (!Number.isFinite(value) || value < 0 || value > 100) return;
     byMachine.set(machine, {
       machine,
       oee: value,
@@ -2915,7 +2956,13 @@ async function readOeeWithTextract(imageDataUrl, machines = OEE_BOARD_MACHINES, 
     const response = await fetch('/api/oee-textract', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ imageDataUrl, machines, scope:options.scope || {}, columnIndex:Number.isInteger(options.columnIndex)?options.columnIndex:null })
+      body:JSON.stringify({
+        imageDataUrl,
+        machines,
+        scope:options.scope || {},
+        columnIndex:Number.isInteger(options.columnIndex)?options.columnIndex:null,
+        sheetMode:Boolean(options.sheetMode)
+      })
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.ok) return { available:false, rows:[], error:data.error || `HTTP ${response.status}` };
@@ -2955,7 +3002,11 @@ async function readOeeWithGemini(){
 
     status.textContent=`Leitura dupla em andamento: Amazon Textract + Gemini (${scope.label})...`;
 
-    const textractPromise=readOeeWithTextract(vision.fullContext,OEE_BOARD_MACHINES,{ scope, columnIndex:vision.columnIndex });
+    const textractPromise=readOeeWithTextract(
+      vision.cellsSheetDataUrl||vision.fullContext,
+      OEE_BOARD_MACHINES,
+      { scope, columnIndex:vision.columnIndex, sheetMode:Boolean(vision.cellsSheetDataUrl) }
+    );
     const geminiPromise=fetch('/api/oee-gemini',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -2990,7 +3041,6 @@ async function readOeeWithGemini(){
     state.lastGeminiImageDataUrl=vision.fullContext;
 
     renderOeeMachineEditor(rows);
-    document.querySelectorAll('.oee-row-preview,.oee-machine-thumb,.oee-row-thumb').forEach(el=>{ el.style.display='none'; });
 
     $('oeeOcrText').value=editorOeeText();
     state.oeeOcrText=$('oeeOcrText').value;
