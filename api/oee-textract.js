@@ -120,6 +120,62 @@ function buildRows(blocks=[],machines=[],columnIndex=0){
   return {rows,anchorCount:anchors.size,targetX};
 }
 
+function buildRowsFromLabeledSheet(blocks=[], machines=[]){
+  const normalized=machines.map(normalizeMachineCode).filter(Boolean);
+  const lines=collectLines(blocks);
+  const rowCount=Math.max(1,normalized.length);
+
+  const rows=normalized.map((machine,index)=>{
+    const y0=index/rowCount;
+    const y1=(index+1)/rowCount;
+    const candidates=lines
+      .filter(line=>line.y>=y0&&line.y<y1&&line.x>.18)
+      .map(line=>({
+        ...line,
+        explicit:percentFromText(line.text),
+        fallback:fallbackPercent(line.text)
+      }));
+
+    const explicit=candidates
+      .filter(c=>c.explicit!==null)
+      .sort((a,b)=>b.confidence-a.confidence||b.x-a.x)[0];
+
+    if(explicit){
+      return {
+        machine,
+        oee:explicit.explicit,
+        confidence:Math.round(Math.min(99,explicit.confidence)),
+        source:'Textract célula',
+        evidence:`${explicit.text} | célula ${machine}`
+      };
+    }
+
+    const fallback=candidates
+      .filter(c=>c.fallback!==null&&c.confidence>=96)
+      .sort((a,b)=>b.confidence-a.confidence||b.x-a.x)[0];
+
+    if(fallback){
+      return {
+        machine,
+        oee:fallback.fallback,
+        confidence:Math.round(Math.min(86,fallback.confidence-8)),
+        source:'Textract célula',
+        evidence:`${fallback.text} | número sem % na célula ${machine}; exige conferência`
+      };
+    }
+
+    return {
+      machine,
+      oee:'',
+      confidence:0,
+      source:'Textract célula',
+      evidence:`Sem percentual seguro na célula ${machine}.`
+    };
+  });
+
+  return {rows,anchorCount:normalized.length,targetX:null};
+}
+
 module.exports=async function handler(req,res){
   if(req.method!=='POST') return res.status(405).json({ok:false,error:'Método não permitido.'});
   const region=process.env.AWS_REGION||process.env.AWS_DEFAULT_REGION;
@@ -132,19 +188,27 @@ module.exports=async function handler(req,res){
     const imageDataUrl=req.body?.imageDataUrl;
     const machines=Array.isArray(req.body?.machines)?req.body.machines:[];
     const columnIndex=Number.isInteger(req.body?.columnIndex)?req.body.columnIndex:0;
+    const sheetMode=Boolean(req.body?.sheetMode);
     if(!imageDataUrl||!machines.length) throw new Error('Imagem ou lista de máquinas ausente.');
-    if(columnIndex<0||columnIndex>13) throw new Error('Coluna do turno inválida.');
+    if(!sheetMode && (columnIndex<0||columnIndex>13)) throw new Error('Coluna do turno inválida.');
 
     const client=new TextractClient({region,credentials:{accessKeyId,secretAccessKey}});
     const result=await client.send(new AnalyzeDocumentCommand({
       Document:{Bytes:parseDataUrl(imageDataUrl)},
       FeatureTypes:['TABLES','LAYOUT']
     }));
-    const built=buildRows(result.Blocks||[],machines,columnIndex);
+    const built=sheetMode
+      ? buildRowsFromLabeledSheet(result.Blocks||[],machines)
+      : buildRows(result.Blocks||[],machines,columnIndex);
     return res.status(200).json({
-      ok:true,provider:'Amazon Textract — quadro inteiro',rows:built.rows,
+      ok:true,
+      provider:sheetMode?'Amazon Textract — células rotuladas':'Amazon Textract — quadro inteiro',
+      rows:built.rows,
       detected:built.rows.filter(r=>r.oee!=='').length,
-      machineAnchors:built.anchorCount,columnIndex,targetX:built.targetX
+      machineAnchors:built.anchorCount,
+      columnIndex,
+      targetX:built.targetX,
+      sheetMode
     });
   }catch(error){
     console.error('Textract OEE:',error);
