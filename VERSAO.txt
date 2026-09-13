@@ -1,2 +1,2 @@
-TurnoSmart V59.0.0
-União da V58.3 com ações por máquina consolidada, prioridade do defeito atual, histórico SGMan comprovado e leitura dupla do quadro OEE com Gemini + Amazon Textract. Divergências ficam bloqueadas para confirmação manual.
+TurnoSmart V59.1.0
+Leitura OEE revisada: foto inteira como referência, Textract lê o quadro completo e ancora cada linha pela coluna de máquinas; recorte da coluna é apenas apoio visual. Grade automática só é usada quando passa validações geométricas.

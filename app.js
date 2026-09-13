@@ -210,7 +210,7 @@ function compactActionForStorage(action = {}) {
   return copy;
 }
 
-const APP_VERSION = '59.0.0';
+const APP_VERSION = '59.1.0';
 
 async function forceCurrentAppVersion() {
   try {
@@ -2730,7 +2730,9 @@ async function buildGeminiVisionImages(fullDataUrl, operationalDate, shift){
   const W=image.naturalWidth||image.width;
   const H=image.naturalHeight||image.height;
 
-  const fullContext=await resizeDataUrlForExample(fullDataUrl,2200,.86);
+  // V59.1: a foto inteira passa a ser a referência principal.
+  // O recorte da coluna virou apenas um apoio e nunca mais decide o alinhamento sozinho.
+  const fullContext=await resizeDataUrlForExample(fullDataUrl,2400,.9);
 
   const [yy,mm,dd]=String(operationalDate).split('-').map(Number);
   const date=new Date(yy,mm-1,dd,12,0,0);
@@ -2739,28 +2741,37 @@ async function buildGeminiVisionImages(fullDataUrl, operationalDate, shift){
   const isB=(String(shift||'1')==='2'||String(shift||'A').toUpperCase()==='B');
   const columnIndex=mondayIndex*2+(isB?1:0);
 
-  // NEW: detect actual grid from this photo.
-  const grid=detectOeeBoardGrid(image);
+  let grid=null;
+  let gridConfidence=0;
+  try{
+    const candidate=detectOeeBoardGrid(image);
+    const xSpan=(candidate.xLines.at(-1)-candidate.xLines[0])/W;
+    const ySpan=(candidate.yLines.at(-1)-candidate.yLines[0])/H;
+    const startsLeft=(candidate.xLines[0]/W)<.14;
+    const endsRight=(candidate.xLines.at(-1)/W)>.84;
+    const sane=xSpan>.72&&ySpan>.52&&startsLeft&&endsRight&&candidate.confidence>=28;
+    if(sane){
+      grid=candidate;
+      gridConfidence=candidate.confidence;
+    }
+  }catch{}
 
-  if(grid.xLines.length<15||grid.yLines.length<23){
-    throw new Error('Grade incompleta: tire a foto mostrando o quadro inteiro.');
-  }
+  // Geometria de segurança baseada no quadro inteiro. Só é usada para ampliar a coluna,
+  // nunca para associar uma leitura automaticamente a uma MK.
+  const fallbackX0=W*.055;
+  const fallbackX1=W*.982;
+  const fallbackY0=H*.205;
+  const fallbackY1=H*.925;
 
-  // If grid is weak, do not silently create a potentially wrong management report.
-  if(grid.confidence<22){
-    throw new Error(`Grade detectada com baixa confiança (${grid.confidence}%). Tire a foto um pouco mais de frente.`);
-  }
-
-  const x1=grid.xLines[columnIndex];
-  const x2=grid.xLines[columnIndex+1];
+  const x1=grid?grid.xLines[columnIndex]:fallbackX0+(fallbackX1-fallbackX0)*(columnIndex/14);
+  const x2=grid?grid.xLines[columnIndex+1]:fallbackX0+(fallbackX1-fallbackX0)*((columnIndex+1)/14);
+  const y1=grid?grid.yLines[0]:fallbackY0;
+  const y2=grid?grid.yLines.at(-1):fallbackY1;
   const colW=Math.max(2,x2-x1);
-  const y1=grid.yLines[0];
-  const y2=grid.yLines[grid.yLines.length-1];
 
-  // High-resolution selected column.
   const colCanvas=document.createElement('canvas');
-  colCanvas.width=1100;
-  colCanvas.height=2600;
+  colCanvas.width=1000;
+  colCanvas.height=2800;
   const cctx=colCanvas.getContext('2d');
   cctx.fillStyle='#fff';
   cctx.fillRect(0,0,colCanvas.width,colCanvas.height);
@@ -2768,78 +2779,50 @@ async function buildGeminiVisionImages(fullDataUrl, operationalDate, shift){
   cctx.imageSmoothingQuality='high';
   cctx.drawImage(
     image,
-    Math.max(0,x1-colW*.06),Math.max(0,y1-grid.rowSpacing*.08),
-    Math.min(W-Math.max(0,x1-colW*.06),colW*1.12),
-    Math.min(H-Math.max(0,y1-grid.rowSpacing*.08),(y2-y1)+grid.rowSpacing*.16),
+    Math.max(0,x1-colW*.12),Math.max(0,y1-H*.015),
+    Math.min(W-Math.max(0,x1-colW*.12),colW*1.24),
+    Math.min(H-Math.max(0,y1-H*.015),(y2-y1)+H*.03),
     0,0,colCanvas.width,colCanvas.height
   );
-  const columnDataUrl=colCanvas.toDataURL('image/jpeg',.96);
+  const columnDataUrl=colCanvas.toDataURL('image/jpeg',.97);
 
-  // Exact-cell contact sheet. Machine labels come from code.
-  const cellWidth=960;
-  const cellHeight=180;
-  const labelWidth=245;
-  const gap=10;
-  const rowCount=OEE_BOARD_MACHINES.length;
-  const sheet=document.createElement('canvas');
-  sheet.width=labelWidth+cellWidth;
-  sheet.height=20+rowCount*(cellHeight+gap);
-  const sctx=sheet.getContext('2d');
-  sctx.fillStyle='#fff';
-  sctx.fillRect(0,0,sheet.width,sheet.height);
-  sctx.textBaseline='middle';
+  // Diagnóstico: mostra a foto inteira e destaca somente a coluna estimada.
+  const diag=document.createElement('canvas');
+  diag.width=1200;
+  diag.height=Math.round(H*(1200/W));
+  const dctx=diag.getContext('2d');
+  dctx.drawImage(image,0,0,diag.width,diag.height);
+  const scale=diag.width/W;
+  dctx.fillStyle='rgba(255,153,0,.18)';
+  dctx.fillRect(x1*scale,y1*scale,(x2-x1)*scale,(y2-y1)*scale);
+  dctx.strokeStyle='rgba(255,122,0,.95)';
+  dctx.lineWidth=4;
+  dctx.strokeRect(x1*scale,y1*scale,(x2-x1)*scale,(y2-y1)*scale);
+  dctx.fillStyle='#111827';
+  dctx.font='bold 24px sans-serif';
+  dctx.fillText(grid?`Grade validada ${gridConfidence}%`:'Coluna estimada pelo quadro inteiro',18,34);
+  const diagnosticDataUrl=diag.toDataURL('image/jpeg',.9);
 
-  for(let i=0;i<rowCount;i++){
-    const machine=OEE_BOARD_MACHINES[i];
-    const top=grid.yLines[i];
-    const bottom=grid.yLines[i+1];
-    const h=Math.max(2,bottom-top);
-    const outY=10+i*(cellHeight+gap);
-
-    sctx.fillStyle='#0f172a';
-    sctx.font='bold 31px sans-serif';
-    sctx.fillText(machine,15,outY+cellHeight/2);
-
-    sctx.fillStyle='#f8fafc';
-    sctx.fillRect(labelWidth,outY,cellWidth,cellHeight);
-    sctx.strokeStyle='#cbd5e1';
-    sctx.lineWidth=2;
-    sctx.strokeRect(labelWidth,outY,cellWidth,cellHeight);
-
-    // Crop INSIDE the detected grid lines, with tiny safety padding.
-    const px=Math.max(0,x1+colW*.02);
-    const py=Math.max(0,top+h*.04);
-    const pw=Math.min(W-px,colW*.96);
-    const ph=Math.min(H-py,h*.92);
-
-    sctx.drawImage(
-      image,
-      px,py,pw,ph,
-      labelWidth,outY,cellWidth,cellHeight
-    );
-  }
-
-  const cellsSheetDataUrl=sheet.toDataURL('image/jpeg',.97);
-  const diagnosticDataUrl=drawOeeGridDiagnostic(image,grid,columnIndex);
-
-  state.oeeCropDataUrl=cellsSheetDataUrl;
+  // V59.1: a prévia principal passa a ser a foto inteira; nada de folha de células borrada.
+  state.oeeCropDataUrl=fullContext;
   state.oeeGridDiagnostic=diagnosticDataUrl;
-  state.oeeGridConfidence=grid.confidence;
+  state.oeeGridConfidence=gridConfidence;
 
   const cropPreview=$('oeeCropPreview');
-  if(cropPreview)cropPreview.src=cellsSheetDataUrl;
+  if(cropPreview)cropPreview.src=fullContext;
   $('oeeCropPreviewWrap')?.classList.remove('hidden');
-
   const ocrPreview=$('oeeOcrPreview');
   if(ocrPreview)ocrPreview.src=diagnosticDataUrl;
 
   return {
     fullContext,
     columnDataUrl,
-    comparisonDataUrl:cellsSheetDataUrl,
-    cellsSheetDataUrl,
+    comparisonDataUrl:null,
+    cellsSheetDataUrl:null,
     diagnosticDataUrl,
-    gridConfidence:grid.confidence
+    gridConfidence,
+    columnIndex,
+    geometryMode:grid?'grid-validada':'quadro-inteiro'
   };
 }
 
@@ -2927,12 +2910,12 @@ function mergeHybridOeeRows(geminiRows = [], textractRows = []) {
   });
 }
 
-async function readOeeWithTextract(imageDataUrl, machines = OEE_BOARD_MACHINES) {
+async function readOeeWithTextract(imageDataUrl, machines = OEE_BOARD_MACHINES, options = {}) {
   try {
     const response = await fetch('/api/oee-textract', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ imageDataUrl, machines })
+      body:JSON.stringify({ imageDataUrl, machines, scope:options.scope || {}, columnIndex:Number.isInteger(options.columnIndex)?options.columnIndex:null })
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.ok) return { available:false, rows:[], error:data.error || `HTTP ${response.status}` };
@@ -2972,7 +2955,7 @@ async function readOeeWithGemini(){
 
     status.textContent=`Leitura dupla em andamento: Amazon Textract + Gemini (${scope.label})...`;
 
-    const textractPromise=readOeeWithTextract(vision.cellsSheetDataUrl,OEE_BOARD_MACHINES);
+    const textractPromise=readOeeWithTextract(vision.fullContext,OEE_BOARD_MACHINES,{ scope, columnIndex:vision.columnIndex });
     const geminiPromise=fetch('/api/oee-gemini',{
       method:'POST',
       headers:{'Content-Type':'application/json'},

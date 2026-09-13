@@ -1,0 +1,11 @@
+TurnoSmart V59.1.0
+
+CORREÇÃO PRINCIPAL — LEITURA DO QUADRO OEE
+- A foto inteira agora é a referência principal.
+- O Textract recebe o quadro inteiro, não a folha de células borrada.
+- As linhas são ancoradas pela coluna de máquinas à esquerda.
+- O dia/turno define a coluna-alvo.
+- O recorte ampliado serve apenas para ajudar o Gemini a enxergar a escrita.
+- A grade automática só é aceita se cobrir de fato o quadro inteiro.
+- Divergência Gemini x Textract continua bloqueada para confirmação.
+- Sem percentual seguro, o app deixa vazio em vez de inventar.
